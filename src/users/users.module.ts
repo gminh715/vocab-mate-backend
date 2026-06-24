@@ -14,5 +14,6 @@ import { MongooseModule } from '@nestjs/mongoose/dist/mongoose.module';
   controllers: [UsersController],
   // Nơi định nghĩa các logic của ứng dụng (Service) để Controller có thể Inject vào
   providers: [UsersService],
+  exports: [UsersService], // Cho phép các module khác có thể sử dụng service này
 })
 export class UsersModule { }
