@@ -16,4 +16,4 @@ import { MongooseModule } from '@nestjs/mongoose/dist/mongoose.module';
   providers: [UsersService],
   exports: [UsersService], // Cho phép các module khác có thể sử dụng service này
 })
-export class UsersModule { }
+export class UsersModule {}

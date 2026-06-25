@@ -1,37 +1,60 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
+import {
+  EnglishLevel,
+  LearningGoal,
+  SubscriptionTier,
+} from '../../common/enums';
 
-// Định nghĩa kiểu dữ liệu kết hợp giữa class User và các phương thức có sẵn của Mongoose Document
 export type UserDocument = HydratedDocument<User>;
 
-@Schema() // Decorator đánh dấu class này là một Schema của MongoDB
+/**
+ * A learner on the platform.
+ *
+ * `timestamps: true` provides `createdAt`/`updatedAt` automatically.
+ * The `toJSON` transform guarantees the password hash and internal fields
+ * never leak through API responses.
+ */
+@Schema({
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: (_doc, ret: Record<string, unknown>) => {
+      ret.id = ret._id;
+      delete ret._id;
+      delete ret.__v;
+      delete ret.password;
+      return ret;
+    },
+  },
+})
 export class User {
-  // @Prop đánh dấu thuộc tính này là một field trong database
-  // required: true -> bắt buộc phải nhập; unique: true -> không được phép trùng lặp
-  @Prop({ required: true, unique: true })
+  @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email: string;
 
-  @Prop({ required: true })
+  // `select: false` keeps the hash out of every query unless explicitly requested
+  // via `.select('+password')` (used only during authentication).
+  @Prop({ required: true, select: false })
   password: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop() // Ngầm hiểu đây là một trường không bắt buộc (optional)
-  phone: string;
+  @Prop({
+    type: String,
+    enum: SubscriptionTier,
+    default: SubscriptionTier.FREE,
+  })
+  subscriptionTier: SubscriptionTier;
 
-  @Prop()
-  age: number;
+  @Prop({ type: String, enum: LearningGoal, required: true })
+  learningGoal: LearningGoal;
 
-  @Prop()
-  address: string;
+  @Prop({ type: String, enum: EnglishLevel, required: true })
+  englishLevel: EnglishLevel;
 
-  @Prop()
-  createdAt: Date;
-
-  @Prop()
-  updatedAt: Date;
+  @Prop({ type: [String], default: [] })
+  interests: string[];
 }
 
-// Chuyển đổi User Class thành một định dạng Schema Mongoose thực thụ
 export const UserSchema = SchemaFactory.createForClass(User);

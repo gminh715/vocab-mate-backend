@@ -1,67 +1,104 @@
-import { Injectable } from '@nestjs/common';
-import { User } from './schemas/user.schema';
-import { UpdateUserDto } from './dto/update-user.dto';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { compareSync, genSaltSync, hashSync } from 'bcryptjs';
+import { Model, Types } from 'mongoose';
+import { compare, genSalt, hash } from 'bcryptjs';
+import { User, UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
-import mongoose from 'mongoose';
+import { UpdateUserDto } from './dto/update-user.dto';
 
-@Injectable() // Đánh dấu class này là service để NestJS có thể nhúng vào controller qua constructor
+@Injectable()
 export class UsersService {
+  private static readonly SALT_ROUNDS = 10;
 
   constructor(
-    // Xin một Model tên User.name từ hệ thống Mongoose đã đăng ký trong Module
     @InjectModel(User.name)
-    private userModel: Model<User>
-  ) { }
+    private readonly userModel: Model<UserDocument>,
+  ) {}
 
-  // Hàm tạo mã băm dựa vào đoạn plaintext (không che giấu mật khẩu thực)
-  getHashPassword(password: string) {
-    const salt = genSaltSync(10); // Tạo ra đoạn "muối" (salt) sinh ngẫu nhiên
-    const hash = hashSync(password, salt); // Hòa với mật khẩu ra mã hóa
-    return hash;
+  /** Hashes a plaintext password with a per-password salt. */
+  async hashPassword(password: string): Promise<string> {
+    const salt = await genSalt(UsersService.SALT_ROUNDS);
+    return hash(password, salt);
   }
 
-  // Code logic việc tạo mới User
-  async create(createUserDto: CreateUserDto) {
-    const hashPassword = this.getHashPassword(createUserDto.password);
-    // 2. Chèn đối tượng vào MongoDB thông qua Mongoose Model (sử dụng toán tử await)
-    let user = await this.userModel.create({
-      email: createUserDto.email,
-      password: hashPassword,
-      name: createUserDto.name,
+  /** Verifies a plaintext password against a stored hash. */
+  comparePassword(password: string, hashed: string): Promise<boolean> {
+    return compare(password, hashed);
+  }
+
+  /**
+   * Registers a new learner. Rejects duplicate emails and stores only the
+   * hashed password. The returned document never includes the hash
+   * (`password` has `select: false`).
+   */
+  async create(createUserDto: CreateUserDto): Promise<UserDocument> {
+    const existing = await this.userModel
+      .findOne({ email: createUserDto.email })
+      .lean()
+      .exec();
+
+    if (existing) {
+      throw new ConflictException('An account with this email already exists');
+    }
+
+    const hashedPassword = await this.hashPassword(createUserDto.password);
+
+    const created = await this.userModel.create({
+      ...createUserDto,
+      password: hashedPassword,
     });
+
+    // Re-fetch so the response honours the `select: false` on password.
+    return this.findById(created._id.toString());
+  }
+
+  /** Finds a user by id or throws 404. Password hash is excluded. */
+  async findById(id: string): Promise<UserDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('User not found');
+    }
+
+    const user = await this.userModel.findById(id).exec();
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
     return user;
   }
 
-  findAll() {
-    return `This action returns all users`;
+  /**
+   * Finds a user by email including the password hash — for authentication
+   * only. Returns `null` when no match is found.
+   */
+  findByEmailWithPassword(email: string): Promise<UserDocument | null> {
+    return this.userModel
+      .findOne({ email: email.toLowerCase() })
+      .select('+password')
+      .exec();
   }
 
-  findOne(id: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return 'Not found user';
+  /** Updates the editable fields of a learner's profile. */
+  async updateProfile(
+    id: string,
+    updateUserDto: UpdateUserDto,
+  ): Promise<UserDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('User not found');
     }
-    return this.userModel.findOne({ _id: id });
-  }
 
-  findOneByUsername(username: string) {
-    return this.userModel.findOne({ email: username });
-  }
+    const updated = await this.userModel
+      .findByIdAndUpdate(id, updateUserDto, {
+        new: true,
+        runValidators: true,
+      })
+      .exec();
 
-  isValidPassword(password: string, hash: string) {
-    return compareSync(password, hash);
-  }
-
-  async update(updateUserDto: UpdateUserDto) {
-    return await this.userModel.updateOne({ _id: updateUserDto._id }, { ...updateUserDto });
-  }
-
-  remove(id: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return 'Not found user';
+    if (!updated) {
+      throw new NotFoundException('User not found');
     }
-    return this.userModel.deleteOne({ _id: id });
+    return updated;
   }
 }
