@@ -45,7 +45,7 @@ export class RegisterDto {
   @IsEnum(CefrLevel)
   currentCefrLevel!: CefrLevel;
 
-  @ApiPropertyOptional({ example: '10 từ/ngày', maxLength: 500 })
+  @ApiPropertyOptional({ example: 'Learn 10 words per day', maxLength: 500 })
   @IsOptional()
   @Transform(trimString)
   @IsString()

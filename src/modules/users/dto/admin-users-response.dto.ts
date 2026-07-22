@@ -1,0 +1,132 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { UserRole, UserStatus } from '../../../../generated/prisma/enums';
+import { PublicUserDto } from '../../auth/dto/auth-response.dto';
+import { MyProfileDto } from './my-profile-response.dto';
+
+export class AdminUserListProfileDto {
+  @ApiProperty({ example: 'Nguyen Van A' })
+  displayName!: string;
+}
+
+export class AdminUserListItemDto extends PublicUserDto {
+  @ApiProperty({ format: 'date-time', nullable: true })
+  lastLoginAt!: Date | null;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+
+  @ApiProperty({ type: AdminUserListProfileDto, nullable: true })
+  profile!: AdminUserListProfileDto | null;
+}
+
+export class PaginationMetaDto {
+  @ApiProperty({ example: 1 })
+  page!: number;
+
+  @ApiProperty({ example: 20 })
+  limit!: number;
+
+  @ApiProperty({ example: 42 })
+  total!: number;
+
+  @ApiProperty({ example: 3 })
+  totalPages!: number;
+}
+
+export class AdminUserListDataDto {
+  @ApiProperty({ type: [AdminUserListItemDto] })
+  items!: AdminUserListItemDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta!: PaginationMetaDto;
+}
+
+export class AdminUserListSuccessResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ type: AdminUserListDataDto })
+  data!: AdminUserListDataDto;
+}
+
+export class AdminUserAccountDto extends PublicUserDto {
+  @ApiProperty({ format: 'date-time', nullable: true })
+  lastLoginAt!: Date | null;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+export class LearningSummaryDto {
+  @ApiProperty({ example: 24 })
+  savedVocabularyCount!: number;
+
+  @ApiProperty({ example: 8 })
+  masteredVocabularyCount!: number;
+
+  @ApiProperty({ example: 5 })
+  completedArticleCount!: number;
+}
+
+export class AdminUserDetailDataDto {
+  @ApiProperty({ type: AdminUserAccountDto })
+  user!: AdminUserAccountDto;
+
+  @ApiProperty({ type: MyProfileDto, nullable: true })
+  profile!: MyProfileDto | null;
+
+  @ApiProperty({ type: LearningSummaryDto })
+  learningSummary!: LearningSummaryDto;
+}
+
+export class AdminUserDetailSuccessResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ type: AdminUserDetailDataDto })
+  data!: AdminUserDetailDataDto;
+}
+
+export class UpdatedUserStatusDto {
+  @ApiProperty({
+    format: 'uuid',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  id!: string;
+
+  @ApiProperty({ enum: UserStatus, example: UserStatus.SUSPENDED })
+  status!: UserStatus;
+
+  @ApiProperty({ format: 'date-time', example: '2026-07-22T10:00:00Z' })
+  updatedAt!: Date;
+}
+
+export class UpdateUserStatusSuccessResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ type: UpdatedUserStatusDto })
+  data!: UpdatedUserStatusDto;
+}
+
+export class UpdatedUserRoleDto {
+  @ApiProperty({
+    format: 'uuid',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  id!: string;
+
+  @ApiProperty({ enum: UserRole, example: UserRole.ADMIN })
+  role!: UserRole;
+
+  @ApiProperty({ format: 'date-time', example: '2026-07-22T10:00:00Z' })
+  updatedAt!: Date;
+}
+
+export class UpdateUserRoleSuccessResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ type: UpdatedUserRoleDto })
+  data!: UpdatedUserRoleDto;
+}

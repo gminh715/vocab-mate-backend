@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -10,9 +11,19 @@ import type { AuthConfig } from '../src/config/auth.config';
 import { AUTH_CONFIG } from '../src/config/config.module';
 import { PrismaService } from '../src/database/prisma.service';
 import type {
+  AdminUserDetailRecord,
+  AdminUserListQuery,
+  AdminUserListResult,
+  AdminUserMutationResult,
   AuthUserRecord,
   CreateRegisteredUserInput,
+  MyAccountRecord,
   PublicUserRecord,
+  UpdatedMyProfileRecord,
+  UpdatedAdminUserRoleRecord,
+  UpdatedAdminUserStatusRecord,
+  UpdateMyProfileInput,
+  UserProfileRecord,
 } from '../src/modules/users/users.repository';
 import { UsersRepository } from '../src/modules/users/users.repository';
 
@@ -52,6 +63,44 @@ interface MessageResponseBody {
   data: { message: string };
 }
 
+interface MyAccountResponseBody {
+  success: true;
+  data: MyAccountRecord & { profile: UserProfileRecord };
+}
+
+interface UpdateMyProfileResponseBody {
+  success: true;
+  data: UpdatedMyProfileRecord;
+}
+
+interface AdminUserListResponseBody {
+  success: true;
+  data: {
+    items: AdminUserListResult['items'];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  };
+}
+
+interface AdminUserDetailResponseBody {
+  success: true;
+  data: AdminUserDetailRecord;
+}
+
+interface UpdatedUserStatusResponseBody {
+  success: true;
+  data: UpdatedAdminUserStatusRecord;
+}
+
+interface UpdatedUserRoleResponseBody {
+  success: true;
+  data: UpdatedAdminUserRoleRecord;
+}
+
 interface ErrorResponseBody {
   success: false;
   error: { code: string; message: string; details?: string[] };
@@ -62,9 +111,16 @@ const responseBody = <T>(response: { text: string }): T =>
 
 class InMemoryUsersRepository {
   private readonly users = new Map<string, AuthUserRecord>();
+  private readonly profiles = new Map<string, UserProfileRecord>();
+  private readonly accountDates = new Map<
+    string,
+    { createdAt: Date; lastLoginAt: Date | null; updatedAt: Date }
+  >();
 
   reset(): void {
     this.users.clear();
+    this.profiles.clear();
+    this.accountDates.clear();
   }
 
   findByEmailWithPassword(email: string): Promise<AuthUserRecord | null> {
@@ -82,6 +138,170 @@ class InMemoryUsersRepository {
   findSafeById(id: string): Promise<PublicUserRecord | null> {
     const user = this.users.get(id);
     return Promise.resolve(user ? this.toSafeUser(user) : null);
+  }
+
+  findMyAccount(id: string): Promise<MyAccountRecord | null> {
+    const user = this.users.get(id);
+
+    if (!user) {
+      return Promise.resolve(null);
+    }
+
+    return Promise.resolve({
+      ...this.toSafeUser(user),
+      profile: this.profiles.get(id) ?? null,
+    });
+  }
+
+  updateMyProfile(
+    userId: string,
+    input: UpdateMyProfileInput,
+  ): Promise<UpdatedMyProfileRecord> {
+    const user = this.users.get(userId);
+    const profile = this.profiles.get(userId);
+
+    if (!user || !profile) {
+      return Promise.reject(
+        Object.assign(new Error('profile not found'), { code: 'P2025' }),
+      );
+    }
+
+    const updatedProfile = { ...profile, ...input };
+    this.profiles.set(userId, updatedProfile);
+    return Promise.resolve({
+      user: this.toSafeUser(user),
+      profile: updatedProfile,
+    });
+  }
+
+  findAdminUsers(query: AdminUserListQuery): Promise<AdminUserListResult> {
+    const normalizedSearch = query.q?.toLowerCase();
+    const direction = query.sort === 'oldest' ? 1 : -1;
+    const filtered = [...this.users.values()]
+      .filter((user) => !query.role || user.role === query.role)
+      .filter((user) => !query.status || user.status === query.status)
+      .filter((user) => {
+        if (!normalizedSearch) return true;
+        const displayName = this.profiles.get(user.id)?.displayName ?? '';
+        return (
+          user.email.toLowerCase().includes(normalizedSearch) ||
+          displayName.toLowerCase().includes(normalizedSearch)
+        );
+      })
+      .sort((left, right) => {
+        const leftCreatedAt = this.requiredAccountDates(left.id).createdAt;
+        const rightCreatedAt = this.requiredAccountDates(right.id).createdAt;
+        const createdComparison =
+          (leftCreatedAt.getTime() - rightCreatedAt.getTime()) * direction;
+        return createdComparison || left.id.localeCompare(right.id);
+      });
+    const start = (query.page - 1) * query.limit;
+    const items = filtered.slice(start, start + query.limit).map((user) => {
+      const dates = this.requiredAccountDates(user.id);
+      const profile = this.profiles.get(user.id);
+      return {
+        ...this.toSafeUser(user),
+        createdAt: dates.createdAt,
+        lastLoginAt: dates.lastLoginAt,
+        profile: profile ? { displayName: profile.displayName } : null,
+      };
+    });
+
+    return Promise.resolve({ items, total: filtered.length });
+  }
+
+  findAdminUserDetail(userId: string): Promise<AdminUserDetailRecord | null> {
+    const user = this.users.get(userId);
+
+    if (!user) {
+      return Promise.resolve(null);
+    }
+
+    return Promise.resolve({
+      user: {
+        ...this.toSafeUser(user),
+        createdAt: this.requiredAccountDates(userId).createdAt,
+        lastLoginAt: this.requiredAccountDates(userId).lastLoginAt,
+      },
+      profile: this.profiles.get(userId) ?? null,
+      learningSummary: {
+        savedVocabularyCount: 0,
+        masteredVocabularyCount: 0,
+        completedArticleCount: 0,
+      },
+    });
+  }
+
+  updateAdminUserStatus(
+    userId: string,
+    status: AuthUserRecord['status'],
+  ): Promise<AdminUserMutationResult<UpdatedAdminUserStatusRecord>> {
+    const user = this.users.get(userId);
+
+    if (!user) {
+      return Promise.resolve({ outcome: 'not_found' });
+    }
+
+    const dates = this.requiredAccountDates(userId);
+
+    if (user.status === status) {
+      return Promise.resolve({
+        outcome: 'success',
+        user: { id: user.id, status: user.status, updatedAt: dates.updatedAt },
+      });
+    }
+
+    if (
+      user.role === 'ADMIN' &&
+      user.status === 'ACTIVE' &&
+      status !== 'ACTIVE' &&
+      this.activeAdminCount() <= 1
+    ) {
+      return Promise.resolve({ outcome: 'last_active_admin' });
+    }
+
+    user.status = status;
+    dates.updatedAt = new Date();
+    return Promise.resolve({
+      outcome: 'success',
+      user: { id: user.id, status: user.status, updatedAt: dates.updatedAt },
+    });
+  }
+
+  updateAdminUserRole(
+    userId: string,
+    role: AuthUserRecord['role'],
+  ): Promise<AdminUserMutationResult<UpdatedAdminUserRoleRecord>> {
+    const user = this.users.get(userId);
+
+    if (!user) {
+      return Promise.resolve({ outcome: 'not_found' });
+    }
+
+    const dates = this.requiredAccountDates(userId);
+
+    if (user.role === role) {
+      return Promise.resolve({
+        outcome: 'success',
+        user: { id: user.id, role: user.role, updatedAt: dates.updatedAt },
+      });
+    }
+
+    if (
+      user.role === 'ADMIN' &&
+      user.status === 'ACTIVE' &&
+      role !== 'ADMIN' &&
+      this.activeAdminCount() <= 1
+    ) {
+      return Promise.resolve({ outcome: 'last_active_admin' });
+    }
+
+    user.role = role;
+    dates.updatedAt = new Date();
+    return Promise.resolve({
+      outcome: 'success',
+      user: { id: user.id, role: user.role, updatedAt: dates.updatedAt },
+    });
   }
 
   createWithProfile(
@@ -105,10 +325,26 @@ class InMemoryUsersRepository {
       status: 'ACTIVE',
     };
     this.users.set(user.id, user);
+    const createdAt = new Date(
+      Date.UTC(2026, 6, 22, 10, 0, this.users.size - 1),
+    );
+    this.accountDates.set(user.id, {
+      createdAt,
+      lastLoginAt: null,
+      updatedAt: createdAt,
+    });
+    this.profiles.set(user.id, {
+      displayName: input.displayName,
+      avatarUrl: null,
+      currentCefrLevel: input.currentCefrLevel,
+      learningGoal: input.learningGoal ?? null,
+      preferredLanguage: input.preferredLanguage ?? 'vi',
+    });
     return Promise.resolve(this.toSafeUser(user));
   }
 
   updateLastLogin(id: string): Promise<PublicUserRecord> {
+    this.requiredAccountDates(id).lastLoginAt = new Date();
     return Promise.resolve(this.requiredSafeUser(id));
   }
 
@@ -133,6 +369,16 @@ class InMemoryUsersRepository {
     }
   }
 
+  setRoleByEmail(email: string, role: AuthUserRecord['role']): void {
+    const user = [...this.users.values()].find(
+      (candidate) => candidate.email === email,
+    );
+
+    if (user) {
+      user.role = role;
+    }
+  }
+
   private requiredSafeUser(id: string): PublicUserRecord {
     const user = this.users.get(id);
 
@@ -141,6 +387,26 @@ class InMemoryUsersRepository {
     }
 
     return this.toSafeUser(user);
+  }
+
+  private requiredAccountDates(id: string): {
+    createdAt: Date;
+    lastLoginAt: Date | null;
+    updatedAt: Date;
+  } {
+    const dates = this.accountDates.get(id);
+
+    if (!dates) {
+      throw new Error('account dates not found');
+    }
+
+    return dates;
+  }
+
+  private activeAdminCount(): number {
+    return [...this.users.values()].filter(
+      (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
+    ).length;
   }
 
   private toSafeUser(user: AuthUserRecord): PublicUserRecord {
@@ -153,7 +419,7 @@ class InMemoryUsersRepository {
   }
 }
 
-describe('Auth API (e2e)', () => {
+describe('Auth and Users APIs (e2e)', () => {
   let app: INestApplication<App>;
   let repository: InMemoryUsersRepository;
 
@@ -168,6 +434,8 @@ describe('Auth API (e2e)', () => {
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(UsersRepository)
       .useValue(repository)
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = moduleFixture.createNestApplication<App>();
@@ -179,6 +447,27 @@ describe('Auth API (e2e)', () => {
   beforeEach(() => repository.reset());
 
   afterAll(async () => app.close());
+
+  const registerWithRole = async (
+    input: typeof registration,
+    role: 'ADMIN' | 'USER',
+  ): Promise<AuthResponseBody> => {
+    const registered = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(input)
+      .expect(201);
+    repository.setRoleByEmail(input.email, role);
+
+    if (role === 'USER') {
+      return responseBody<AuthResponseBody>(registered);
+    }
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: input.email, password: input.password })
+      .expect(200);
+    return responseBody<AuthResponseBody>(login);
+  };
 
   it('publishes Swagger operations for exactly the five documented Auth APIs', async () => {
     const response = await request(app.getHttpServer())
@@ -206,6 +495,568 @@ describe('Auth API (e2e)', () => {
       'patchAuthChangePassword',
     );
     expect(paths['/api/v1/auth/me']).toBeUndefined();
+  });
+
+  it('publishes the documented Users self-service Swagger operations', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swaggerBody = responseBody<{
+      paths: Record<
+        string,
+        Record<string, { operationId: string; responses: object }>
+      >;
+    }>(response);
+    const usersMe = swaggerBody.paths['/api/v1/users/me'];
+
+    expect(usersMe.get.operationId).toBe('getUsersMe');
+    expect(usersMe.patch.operationId).toBe('patchUsersMe');
+  });
+
+  it('publishes the documented admin Users operations', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swaggerBody = responseBody<{
+      paths: Record<
+        string,
+        Record<
+          string,
+          {
+            operationId: string;
+            parameters: Array<{ name: string }>;
+            responses: Record<string, object>;
+            security: Array<Record<string, string[]>>;
+          }
+        >
+      >;
+    }>(response);
+    const listOperation = swaggerBody.paths['/api/v1/admin/users'].get;
+    const detailOperation =
+      swaggerBody.paths['/api/v1/admin/users/{userId}'].get;
+    const statusOperation =
+      swaggerBody.paths['/api/v1/admin/users/{userId}/status'].patch;
+    const roleOperation =
+      swaggerBody.paths['/api/v1/admin/users/{userId}/role'].patch;
+
+    expect(listOperation.operationId).toBe('getAdminUsers');
+    expect(listOperation.parameters.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['page', 'limit', 'q', 'role', 'status', 'sort']),
+    );
+    expect(Object.keys(listOperation.responses)).toEqual(
+      expect.arrayContaining(['200', '400', '401', '403', '500']),
+    );
+    expect(listOperation.security).toContainEqual({ BearerAuth: [] });
+    expect(detailOperation.operationId).toBe('getAdminUsersByUserId');
+    expect(detailOperation.parameters.map(({ name }) => name)).toContain(
+      'userId',
+    );
+    expect(Object.keys(detailOperation.responses)).toEqual(
+      expect.arrayContaining(['200', '400', '401', '403', '404', '500']),
+    );
+    expect(statusOperation.operationId).toBe('patchAdminUsersByUserIdStatus');
+    expect(roleOperation.operationId).toBe('patchAdminUsersByUserIdRole');
+    for (const operation of [statusOperation, roleOperation]) {
+      expect(Object.keys(operation.responses)).toEqual(
+        expect.arrayContaining([
+          '200',
+          '400',
+          '401',
+          '403',
+          '404',
+          '409',
+          '500',
+        ]),
+      );
+      expect(operation.security).toContainEqual({ BearerAuth: [] });
+    }
+  });
+
+  it('USR-003 and USR-004 require authentication', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/users?page=1&limit=20')
+      .expect(401);
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/users/${randomUUID()}`)
+      .expect(401);
+  });
+
+  it('USR-003 and USR-004 reject a normal USER with 403', async () => {
+    const normalUser = await registerWithRole(registration, 'USER');
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/users?page=1&limit=20')
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/users/${normalUser.data.user.id}`)
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .expect(403);
+  });
+
+  it('USR-003 lists users with correct pagination and no sensitive fields', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    await registerWithRole(registration, 'USER');
+    await registerWithRole(
+      { ...registration, email: 'second@example.com', displayName: 'Second' },
+      'USER',
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/users?page=1&limit=2&sort=oldest')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    const body = responseBody<AdminUserListResponseBody>(response);
+
+    expect(body.data.items).toHaveLength(2);
+    expect(body.data.meta).toEqual({
+      page: 1,
+      limit: 2,
+      total: 3,
+      totalPages: 2,
+    });
+    expect(JSON.stringify(body)).not.toContain('passwordHash');
+  });
+
+  it('USR-003 applies role/status filters and email/display-name search', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    await registerWithRole(registration, 'USER');
+    await registerWithRole(
+      {
+        ...registration,
+        email: 'learner@example.com',
+        displayName: 'Special Learner',
+      },
+      'USER',
+    );
+    repository.setStatusByEmail('learner@example.com', 'SUSPENDED');
+
+    const roleFilter = await request(app.getHttpServer())
+      .get('/api/v1/admin/users?page=1&limit=20&role=ADMIN')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    expect(
+      responseBody<AdminUserListResponseBody>(roleFilter).data.meta.total,
+    ).toBe(1);
+
+    const statusAndEmail = await request(app.getHttpServer())
+      .get(
+        '/api/v1/admin/users?page=1&limit=20&status=SUSPENDED&q=learner%40example.com',
+      )
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    expect(
+      responseBody<AdminUserListResponseBody>(statusAndEmail).data.items[0]
+        .email,
+    ).toBe('learner@example.com');
+
+    const displayName = await request(app.getHttpServer())
+      .get('/api/v1/admin/users?page=1&limit=20&q=%20Special%20')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    expect(
+      responseBody<AdminUserListResponseBody>(displayName).data.meta.total,
+    ).toBe(1);
+  });
+
+  it.each([
+    'limit=20',
+    'page=1',
+    'page=0&limit=20',
+    'page=1&limit=101',
+    'page=1&limit=20&role=OWNER',
+    'page=1&limit=20&status=DELETED',
+    'page=1&limit=20&sort=email',
+  ])('USR-003 rejects invalid query %s', async (query) => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/users?${query}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(400);
+  });
+
+  it('USR-004 returns safe detail and zero-value lightweight counts', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const target = await registerWithRole(registration, 'USER');
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/admin/users/${target.data.user.id}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    const body = responseBody<AdminUserDetailResponseBody>(response);
+
+    expect(body.data.user).toMatchObject({
+      id: target.data.user.id,
+      email: registration.email,
+      role: 'USER',
+      status: 'ACTIVE',
+    });
+    expect(body.data.learningSummary).toEqual({
+      savedVocabularyCount: 0,
+      masteredVocabularyCount: 0,
+      completedArticleCount: 0,
+    });
+    expect(JSON.stringify(body)).not.toContain('passwordHash');
+  });
+
+  it('USR-004 rejects an invalid UUID and returns 404 for a missing user', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/users/not-a-uuid')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/users/${randomUUID()}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(404);
+  });
+
+  it('USR-005 and USR-006 require authentication and reject a normal USER', async () => {
+    const user = await registerWithRole(registration, 'USER');
+    const targetId = randomUUID();
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${targetId}/status`)
+      .send({ status: 'SUSPENDED' })
+      .expect(401);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${targetId}/role`)
+      .send({ role: 'ADMIN' })
+      .expect(401);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${targetId}/status`)
+      .set('Authorization', `Bearer ${user.data.accessToken}`)
+      .send({ status: 'SUSPENDED' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${targetId}/role`)
+      .set('Authorization', `Bearer ${user.data.accessToken}`)
+      .send({ role: 'ADMIN' })
+      .expect(403);
+  });
+
+  it('USR-005 changes status, remains idempotent, and Auth rejects the inactive account', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const target = await registerWithRole(registration, 'USER');
+
+    const suspended = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${target.data.user.id}/status`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ status: 'SUSPENDED' })
+      .expect(200);
+    const suspendedBody =
+      responseBody<UpdatedUserStatusResponseBody>(suspended);
+    expect(suspendedBody.data).toMatchObject({
+      id: target.data.user.id,
+      status: 'SUSPENDED',
+    });
+    expect(suspendedBody.data.updatedAt).toEqual(expect.any(String));
+    expect(JSON.stringify(suspendedBody)).not.toContain('passwordHash');
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${target.data.user.id}/status`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ status: 'SUSPENDED' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/v1/users/me')
+      .set('Authorization', `Bearer ${target.data.accessToken}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: registration.email, password: registration.password })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${target.data.user.id}/status`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ status: 'ACTIVE' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${target.data.user.id}/status`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ status: 'DISABLED' })
+      .expect(200);
+  });
+
+  it('USR-006 promotes and demotes another user with a safe response', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const target = await registerWithRole(registration, 'USER');
+
+    const promoted = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${target.data.user.id}/role`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ role: 'ADMIN' })
+      .expect(200);
+    const promotedBody = responseBody<UpdatedUserRoleResponseBody>(promoted);
+    expect(promotedBody.data).toMatchObject({
+      id: target.data.user.id,
+      role: 'ADMIN',
+    });
+    expect(promotedBody.data.updatedAt).toEqual(expect.any(String));
+    expect(JSON.stringify(promotedBody)).not.toContain('passwordHash');
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/users?page=1&limit=20')
+      .set('Authorization', `Bearer ${target.data.accessToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${target.data.user.id}/role`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ role: 'USER' })
+      .expect(200);
+  });
+
+  it.each([
+    ['status', { status: 'DELETED' }],
+    ['status', {}],
+    ['role', { role: 'OWNER' }],
+  ])('USR-005/006 reject invalid %s requests', async (route, body) => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/not-a-uuid/${route}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send(body)
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${randomUUID()}/${route}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send(body)
+      .expect(400);
+  });
+
+  it.each([
+    ['status', { status: 'ACTIVE' }],
+    ['role', { role: 'ADMIN' }],
+  ])('USR-005/006 return 404 for a missing %s target', async (route, body) => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${randomUUID()}/${route}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send(body)
+      .expect(404);
+  });
+
+  it.each(['SUSPENDED', 'DISABLED'] as const)(
+    'USR-005 rejects self-%s with 409',
+    async (status) => {
+      const admin = await registerWithRole(
+        { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+        'ADMIN',
+      );
+
+      const response = await request(app.getHttpServer())
+        .patch(`/api/v1/admin/users/${admin.data.user.id}/status`)
+        .set('Authorization', `Bearer ${admin.data.accessToken}`)
+        .send({ status })
+        .expect(409);
+      expect(responseBody<ErrorResponseBody>(response).error.code).toBe(
+        'CONFLICT',
+      );
+    },
+  );
+
+  it('USR-006 rejects self-demotion and preserves the last active admin', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+
+    const response = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/users/${admin.data.user.id}/role`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ role: 'USER' })
+      .expect(409);
+    expect(responseBody<ErrorResponseBody>(response).error.code).toBe(
+      'CONFLICT',
+    );
+  });
+
+  it('USR-001 returns the authenticated account and profile without sensitive fields', async () => {
+    const registered = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(registration)
+      .expect(201);
+    const accessToken =
+      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/users/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const body = responseBody<MyAccountResponseBody>(response);
+
+    expect(body.data).toMatchObject({
+      email: registration.email,
+      role: 'USER',
+      status: 'ACTIVE',
+      profile: {
+        displayName: registration.displayName,
+        avatarUrl: null,
+        currentCefrLevel: registration.currentCefrLevel,
+        learningGoal: registration.learningGoal,
+        preferredLanguage: 'vi',
+      },
+    });
+    expect(body.data).not.toHaveProperty('passwordHash');
+    expect(JSON.stringify(body)).not.toContain('passwordHash');
+  });
+
+  it('USR-001 and USR-002 require authentication', async () => {
+    await request(app.getHttpServer()).get('/api/v1/users/me').expect(401);
+    await request(app.getHttpServer())
+      .patch('/api/v1/users/me')
+      .send({ displayName: 'Updated Name' })
+      .expect(401);
+  });
+
+  it('USR-002 partially updates only the authenticated profile and persists it', async () => {
+    const registered = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(registration)
+      .expect(201);
+    const accessToken =
+      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const updated = await request(app.getHttpServer())
+      .patch('/api/v1/users/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ displayName: '  Updated Name  ', currentCefrLevel: 'B2' })
+      .expect(200);
+    const updatedBody = responseBody<UpdateMyProfileResponseBody>(updated);
+
+    expect(updatedBody.data.user).toMatchObject({
+      email: registration.email,
+      role: 'USER',
+      status: 'ACTIVE',
+    });
+    expect(updatedBody.data.profile).toMatchObject({
+      displayName: 'Updated Name',
+      currentCefrLevel: 'B2',
+      learningGoal: registration.learningGoal,
+      preferredLanguage: 'vi',
+    });
+
+    const laterGet = await request(app.getHttpServer())
+      .get('/api/v1/users/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(responseBody<MyAccountResponseBody>(laterGet).data.profile).toEqual(
+      updatedBody.data.profile,
+    );
+  });
+
+  it('USR-002 rejects unknown account fields and leaves the profile unchanged', async () => {
+    const registered = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(registration)
+      .expect(201);
+    const accessToken =
+      responseBody<AuthResponseBody>(registered).data.accessToken;
+
+    for (const attempt of [
+      { email: 'other@example.com' },
+      { role: 'ADMIN' },
+      { status: 'DISABLED' },
+    ]) {
+      await request(app.getHttpServer())
+        .patch('/api/v1/users/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(attempt)
+        .expect(400);
+    }
+
+    const laterGet = await request(app.getHttpServer())
+      .get('/api/v1/users/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      responseBody<MyAccountResponseBody>(laterGet).data.profile.displayName,
+    ).toBe(registration.displayName);
+  });
+
+  it.each([
+    ['invalid CEFR level', { currentCefrLevel: 'B9' }],
+    ['blank display name', { displayName: '   ' }],
+    ['empty payload', {}],
+    ['explicit null', { avatarUrl: null }],
+  ])('USR-002 rejects %s', async (_case, payload) => {
+    const registered = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(registration)
+      .expect(201);
+    const accessToken =
+      responseBody<AuthResponseBody>(registered).data.accessToken;
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/users/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send(payload)
+      .expect(400);
+  });
+
+  it('USR-002 cannot target another user', async () => {
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(registration)
+      .expect(201);
+    const secondRegistration = {
+      ...registration,
+      email: 'second@example.com',
+      displayName: 'Second User',
+    };
+    const second = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(secondRegistration)
+      .expect(201);
+    const firstBody = responseBody<AuthResponseBody>(first);
+    const secondBody = responseBody<AuthResponseBody>(second);
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/users/me')
+      .set('Authorization', `Bearer ${firstBody.data.accessToken}`)
+      .send({
+        userId: secondBody.data.user.id,
+        displayName: 'Compromised',
+      })
+      .expect(400);
+
+    const secondGet = await request(app.getHttpServer())
+      .get('/api/v1/users/me')
+      .set('Authorization', `Bearer ${secondBody.data.accessToken}`)
+      .expect(200);
+    expect(
+      responseBody<MyAccountResponseBody>(secondGet).data.profile.displayName,
+    ).toBe(secondRegistration.displayName);
   });
 
   it('AUT-001 registers a normalized USER and sets an HttpOnly refresh cookie', async () => {

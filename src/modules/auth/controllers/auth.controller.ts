@@ -63,7 +63,7 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({
     operationId: 'postAuthRegister',
-    summary: 'Đăng ký tài khoản USER và tạo hồ sơ học tập',
+    summary: 'Register a USER account and create a learning profile',
   })
   @ApiCreatedResponse({ type: AuthSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -87,7 +87,7 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({
     operationId: 'postAuthLogin',
-    summary: 'Đăng nhập bằng email và mật khẩu',
+    summary: 'Log in with email and password',
   })
   @ApiOkResponse({ type: AuthSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -112,7 +112,7 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     operationId: 'postAuthRefresh',
-    summary: 'Cấp access token mới từ refresh token',
+    summary: 'Issue a new access token using a refresh token',
     description:
       'Reads the refreshToken HttpOnly cookie and rotates it. No request body is accepted.',
   })
@@ -138,7 +138,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     operationId: 'postAuthLogout',
-    summary: 'Đăng xuất và xóa refresh-token cookie',
+    summary: 'Log out and clear the refresh-token cookie',
   })
   @ApiBearerAuth('BearerAuth')
   @ApiOkResponse({ type: MessageSuccessResponseDto })
@@ -155,7 +155,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     operationId: 'patchAuthChangePassword',
-    summary: 'Đổi mật khẩu của tài khoản đang đăng nhập',
+    summary: 'Change the authenticated account password',
   })
   @ApiBearerAuth('BearerAuth')
   @ApiOkResponse({ type: MessageSuccessResponseDto })
