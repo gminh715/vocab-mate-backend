@@ -45,7 +45,7 @@ export class AccessTokenSuccessResponseDto {
 }
 
 export class MessageDataDto {
-  @ApiProperty({ example: 'Thao tác thành công.' })
+  @ApiProperty({ example: 'Operation completed successfully.' })
   message!: string;
 }
 
