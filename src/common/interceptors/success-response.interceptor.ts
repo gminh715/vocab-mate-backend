@@ -11,15 +11,41 @@ export interface ApiSuccessResponse<T> {
   data: T;
 }
 
-@Injectable()
-export class SuccessResponseInterceptor<T> implements NestInterceptor<
+export interface ApiSuccessResponseWithMeta<
   T,
-  ApiSuccessResponse<T>
-> {
+  M,
+> extends ApiSuccessResponse<T> {
+  meta: M;
+}
+
+class ResponseDataWithMeta {
+  constructor(
+    readonly data: unknown,
+    readonly meta: unknown,
+  ) {}
+}
+
+export const responseDataWithMeta = <T, M>(
+  data: T,
+  meta: M,
+): ResponseDataWithMeta => new ResponseDataWithMeta(data, meta);
+
+@Injectable()
+export class SuccessResponseInterceptor<T> implements NestInterceptor {
   intercept(
     _context: ExecutionContext,
     next: CallHandler<T>,
-  ): Observable<ApiSuccessResponse<T>> {
-    return next.handle().pipe(map((data) => ({ success: true, data })));
+  ): Observable<
+    ApiSuccessResponse<T> | ApiSuccessResponseWithMeta<unknown, unknown>
+  > {
+    return next
+      .handle()
+      .pipe(
+        map((result) =>
+          result instanceof ResponseDataWithMeta
+            ? { success: true as const, data: result.data, meta: result.meta }
+            : { success: true as const, data: result },
+        ),
+      );
   }
 }
