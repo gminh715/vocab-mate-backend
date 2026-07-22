@@ -3,6 +3,7 @@ import { UserRole, UserStatus } from '../../../../generated/prisma/enums';
 import { PublicUserDto } from '../../auth/dto/auth-response.dto';
 import { MyProfileDto } from './my-profile-response.dto';
 
+/** Swagger response schemas for administrative user operations. */
 export class AdminUserListProfileDto {
   @ApiProperty({ example: 'Nguyen Van A' })
   displayName!: string;

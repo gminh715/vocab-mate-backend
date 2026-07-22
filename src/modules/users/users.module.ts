@@ -3,8 +3,8 @@ import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
 import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { AdminUsersService } from './admin-users.service';
-import { AdminUsersController } from './controllers/admin-users.controller';
+import { AdminService } from './admin.service';
+import { AdminController } from './controllers/admin.controller';
 import { UsersController } from './controllers/users.controller';
 import { UsersRepository } from './users.repository';
 import { UsersService } from './users.service';
@@ -15,13 +15,13 @@ import { UsersService } from './users.service';
  * only registers the guards needed by its controllers.
  */
 @Module({
-  controllers: [UsersController, AdminUsersController],
+  controllers: [UsersController, AdminController],
   providers: [
     UsersRepository,
     UsersService,
     JwtAuthGuard,
     RolesGuard,
-    AdminUsersService,
+    AdminService,
     SuccessResponseInterceptor,
     ApiExceptionFilter,
   ],

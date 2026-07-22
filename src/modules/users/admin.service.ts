@@ -33,7 +33,7 @@ export interface AdminUserListResponse {
  * documented HTTP exceptions without depending on request/response objects.
  */
 @Injectable()
-export class AdminUsersService {
+export class AdminService {
   constructor(private readonly usersRepository: UsersRepository) {}
 
   async findAll(query: AdminUserListQueryDto): Promise<AdminUserListResponse> {

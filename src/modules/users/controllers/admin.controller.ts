@@ -33,7 +33,7 @@ import type { AuthenticatedUser } from '../../auth/auth.types';
 import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { AdminUsersService } from '../admin-users.service';
+import { AdminService } from '../admin.service';
 import { AdminUserListQueryDto } from '../dto/admin-user-list-query.dto';
 import { AdminUserParamsDto } from '../dto/admin-user-params.dto';
 import {
@@ -41,14 +41,14 @@ import {
   AdminUserListSuccessResponseDto,
   UpdateUserRoleSuccessResponseDto,
   UpdateUserStatusSuccessResponseDto,
-} from '../dto/admin-users-response.dto';
+} from '../dto/admin-response.dto';
 import { UpdateUserRoleDto } from '../dto/update-user-role.dto';
 import { UpdateUserStatusDto } from '../dto/update-user-status.dto';
 
 /**
  * ADMIN-only HTTP boundary for user administration.
  * Guards enforce authentication and role authorization before delegation;
- * business invariants remain in AdminUsersService.
+ * business invariants remain in AdminService.
  */
 @ApiTags('Admin Users')
 @Controller('admin/users')
@@ -57,8 +57,8 @@ import { UpdateUserStatusDto } from '../dto/update-user-status.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')
-export class AdminUsersController {
-  constructor(private readonly adminUsersService: AdminUsersService) {}
+export class AdminController {
+  constructor(private readonly adminService: AdminService) {}
 
   @Get()
   @Version('1')
@@ -75,7 +75,7 @@ export class AdminUsersController {
   @ApiForbiddenResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   findAll(@Query() query: AdminUserListQueryDto) {
-    return this.adminUsersService.findAll(query);
+    return this.adminService.findAll(query);
   }
 
   @Get(':userId')
@@ -94,7 +94,7 @@ export class AdminUsersController {
   @ApiNotFoundResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   findOne(@Param() params: AdminUserParamsDto) {
-    return this.adminUsersService.findOne(params.userId);
+    return this.adminService.findOne(params.userId);
   }
 
   @Patch(':userId/status')
@@ -122,11 +122,7 @@ export class AdminUsersController {
     @Param() params: AdminUserParamsDto,
     @Body() dto: UpdateUserStatusDto,
   ) {
-    return this.adminUsersService.updateStatus(
-      actingAdmin.id,
-      params.userId,
-      dto,
-    );
+    return this.adminService.updateStatus(actingAdmin.id, params.userId, dto);
   }
 
   @Patch(':userId/role')
@@ -154,10 +150,6 @@ export class AdminUsersController {
     @Param() params: AdminUserParamsDto,
     @Body() dto: UpdateUserRoleDto,
   ) {
-    return this.adminUsersService.updateRole(
-      actingAdmin.id,
-      params.userId,
-      dto,
-    );
+    return this.adminService.updateRole(actingAdmin.id, params.userId, dto);
   }
 }

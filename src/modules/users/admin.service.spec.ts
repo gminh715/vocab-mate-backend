@@ -6,27 +6,27 @@ import {
   ConcurrentAdminMutationError,
   UsersRepository,
 } from './users.repository';
-import { AdminUsersService } from './admin-users.service';
+import { AdminService } from './admin.service';
 
-describe('AdminUsersService', () => {
+describe('AdminService', () => {
   const repository = {
     findAdminUsers: jest.fn(),
     findAdminUserDetail: jest.fn(),
     updateAdminUserStatus: jest.fn(),
     updateAdminUserRole: jest.fn(),
   };
-  let service: AdminUsersService;
+  let service: AdminService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        AdminUsersService,
+        AdminService,
         { provide: UsersRepository, useValue: repository },
       ],
     }).compile();
 
-    service = module.get(AdminUsersService);
+    service = module.get(AdminService);
   });
 
   it('maps repository totals to pagination metadata', async () => {
