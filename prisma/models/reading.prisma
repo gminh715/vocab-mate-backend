@@ -1,0 +1,20 @@
+model UserArticleProgress {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  articleId       String        @map("article_id") @db.Uuid
+  status          ReadingStatus @default(READING)
+  firstOpenedAt   DateTime      @default(now()) @map("first_opened_at") @db.Timestamptz(6)
+  lastReadAt      DateTime      @default(now()) @map("last_read_at") @db.Timestamptz(6)
+  completedAt     DateTime?     @map("completed_at") @db.Timestamptz(6)
+  lastBlockKey    String?       @map("last_block_key") @db.Text
+  progressPercent Decimal?      @map("progress_percent") @db.Decimal(5, 2)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_user_article_progress_user")
+  article Article @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_user_article_progress_article")
+
+  @@unique([userId, articleId], map: "uq_user_article_progress_user_article")
+  @@index([userId, status, lastReadAt(sort: Desc)], map: "idx_user_article_progress_user_status")
+  @@map("user_article_progress")
+}

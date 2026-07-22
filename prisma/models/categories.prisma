@@ -1,0 +1,19 @@
+model Category {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.Text
+  slug            String   @unique(map: "uq_categories_slug") @db.Citext
+  description     String?  @db.Text
+  isActive        Boolean  @default(true) @map("is_active")
+  displayOrder    Int      @default(0) @map("display_order")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  updatedByUserId String   @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  createdBy User      @relation("CategoryCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_categories_created_by")
+  updatedBy User      @relation("CategoryUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_categories_updated_by")
+  articles  Article[]
+
+  @@index([isActive, displayOrder], map: "idx_categories_active_order")
+  @@map("categories")
+}

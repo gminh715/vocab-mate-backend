@@ -1,0 +1,28 @@
+model VocabularyCollection {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  name        String   @db.Text
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user  User                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vocabulary_collections_user")
+  items VocabularyCollectionItem[]
+
+  @@unique([userId, name], map: "uq_vocabulary_collections_user_name")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_vocabulary_collections_user")
+  @@map("vocabulary_collections")
+}
+
+model VocabularyCollectionItem {
+  collectionId     String   @map("collection_id") @db.Uuid
+  userVocabularyId String   @map("user_vocabulary_id") @db.Uuid
+  addedAt          DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
+
+  collection     VocabularyCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vocabulary_collection_items_collection")
+  userVocabulary UserVocabulary       @relation(fields: [userVocabularyId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vocabulary_collection_items_user_vocabulary")
+
+  @@id([collectionId, userVocabularyId], map: "pk_vocabulary_collection_items")
+  @@index([userVocabularyId], map: "idx_vocabulary_collection_items_vocabulary")
+  @@map("vocabulary_collection_items")
+}
