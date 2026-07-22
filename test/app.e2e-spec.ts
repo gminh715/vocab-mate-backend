@@ -10,6 +10,11 @@ import { configureApp, setupSwagger } from '../src/app.setup';
 import type { AuthConfig } from '../src/config/auth.config';
 import { AUTH_CONFIG } from '../src/config/config.module';
 import { PrismaService } from '../src/database/prisma.service';
+import {
+  type AdminCategoryRecord,
+  CategoriesRepository,
+  type PublicCategoryRecord,
+} from '../src/modules/categories/categories.repository';
 import type {
   AdminUserDetailRecord,
   AdminUserListQuery,
@@ -26,6 +31,7 @@ import type {
   UserProfileRecord,
 } from '../src/modules/users/users.repository';
 import { UsersRepository } from '../src/modules/users/users.repository';
+import { InMemoryCategoriesRepository } from './support/in-memory-categories.repository';
 
 const authConfig: AuthConfig = {
   accessSecret: 'e2e-access-secret-at-least-32-characters',
@@ -104,6 +110,27 @@ interface UpdatedUserRoleResponseBody {
 interface ErrorResponseBody {
   success: false;
   error: { code: string; message: string; details?: string[] };
+}
+
+interface AdminCategoryListResponseBody {
+  success: true;
+  data: { items: AdminCategoryRecord[] };
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
+interface AdminCategoryDetailResponseBody {
+  success: true;
+  data: { category: AdminCategoryRecord; articleCount: number };
+}
+
+interface CategoryMutationResponseBody {
+  success: true;
+  data: { category: PublicCategoryRecord };
+}
+
+interface CategoryStatusResponseBody {
+  success: true;
+  data: { id: string; isActive: boolean };
 }
 
 const responseBody = <T>(response: { text: string }): T =>
@@ -422,9 +449,11 @@ class InMemoryUsersRepository {
 describe('Auth and Users APIs (e2e)', () => {
   let app: INestApplication<App>;
   let repository: InMemoryUsersRepository;
+  let categoriesRepository: InMemoryCategoriesRepository;
 
   beforeAll(async () => {
     repository = new InMemoryUsersRepository();
+    categoriesRepository = new InMemoryCategoriesRepository();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -434,6 +463,8 @@ describe('Auth and Users APIs (e2e)', () => {
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(UsersRepository)
       .useValue(repository)
+      .overrideProvider(CategoriesRepository)
+      .useValue(categoriesRepository)
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -444,7 +475,10 @@ describe('Auth and Users APIs (e2e)', () => {
     await app.init();
   });
 
-  beforeEach(() => repository.reset());
+  beforeEach(() => {
+    repository.reset();
+    categoriesRepository.reset();
+  });
 
   afterAll(async () => app.close());
 
@@ -570,6 +604,415 @@ describe('Auth and Users APIs (e2e)', () => {
       );
       expect(operation.security).toContainEqual({ BearerAuth: [] });
     }
+  });
+
+  it('publishes CAT-003 through CAT-008 with ADMIN security and corrected schemas', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swagger = responseBody<{
+      paths: Record<
+        string,
+        Record<
+          string,
+          {
+            operationId: string;
+            parameters?: Array<{ name: string }>;
+            responses: Record<string, object>;
+            security: Array<Record<string, string[]>>;
+          }
+        >
+      >;
+    }>(response);
+    const list = swagger.paths['/api/v1/admin/categories'].get;
+    const create = swagger.paths['/api/v1/admin/categories'].post;
+    const detail = swagger.paths['/api/v1/admin/categories/{categoryId}'].get;
+    const update = swagger.paths['/api/v1/admin/categories/{categoryId}'].patch;
+    const updateStatus =
+      swagger.paths['/api/v1/admin/categories/{categoryId}/status'].patch;
+    const deleteCategory =
+      swagger.paths['/api/v1/admin/categories/{categoryId}'].delete;
+
+    expect(list.operationId).toBe('getAdminCategories');
+    expect(list.parameters?.map(({ name }) => name)).toEqual([
+      'page',
+      'limit',
+      'q',
+      'isActive',
+    ]);
+    expect(detail.operationId).toBe('getAdminCategoriesByCategoryId');
+    expect(create.operationId).toBe('postAdminCategories');
+    expect(update.operationId).toBe('patchAdminCategoriesByCategoryId');
+    expect(updateStatus.operationId).toBe(
+      'patchAdminCategoriesByCategoryIdStatus',
+    );
+    expect(deleteCategory.operationId).toBe(
+      'deleteAdminCategoriesByCategoryId',
+    );
+    expect(Object.keys(create.responses)).toContain('201');
+    expect(Object.keys(detail.responses)).toEqual(
+      expect.arrayContaining(['200', '400', '401', '403', '404', '500']),
+    );
+    expect(Object.keys(update.responses)).toEqual(
+      expect.arrayContaining(['200', '400', '401', '403', '404', '409', '500']),
+    );
+    expect(Object.keys(updateStatus.responses)).toEqual(
+      expect.arrayContaining(['200', '400', '401', '403', '404', '500']),
+    );
+    expect(Object.keys(updateStatus.responses)).not.toContain('409');
+    expect(Object.keys(deleteCategory.responses)).toEqual(
+      expect.arrayContaining(['204', '400', '401', '403', '404', '409', '500']),
+    );
+    expect(deleteCategory.responses['204']).not.toHaveProperty('content');
+    for (const operation of [
+      list,
+      detail,
+      create,
+      update,
+      updateStatus,
+      deleteCategory,
+    ]) {
+      expect(operation.security).toContainEqual({ BearerAuth: [] });
+    }
+  });
+
+  it('CAT-003 through CAT-006 require authentication and ADMIN authorization', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/categories?page=1&limit=20')
+      .expect(401);
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/categories/22222222-2222-4222-8222-222222222222')
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/categories')
+      .send({ name: 'New', slug: 'new' })
+      .expect(401);
+    await request(app.getHttpServer())
+      .patch('/api/v1/admin/categories/22222222-2222-4222-8222-222222222222')
+      .send({ name: 'Updated' })
+      .expect(401);
+    await request(app.getHttpServer())
+      .patch(
+        '/api/v1/admin/categories/22222222-2222-4222-8222-222222222222/status',
+      )
+      .send({ isActive: false })
+      .expect(401);
+    await request(app.getHttpServer())
+      .delete('/api/v1/admin/categories/11111111-1111-4111-8111-111111111111')
+      .expect(401);
+
+    const normalUser = await registerWithRole(registration, 'USER');
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/categories?page=1&limit=20')
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/categories')
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .send({ name: 'New', slug: 'new' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(
+        '/api/v1/admin/categories/22222222-2222-4222-8222-222222222222/status',
+      )
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .send({ isActive: false })
+      .expect(403);
+    await request(app.getHttpServer())
+      .delete('/api/v1/admin/categories/11111111-1111-4111-8111-111111111111')
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .expect(403);
+  });
+
+  it('CAT-003 returns active and inactive categories with root pagination metadata', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/categories?page=1&limit=3')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    const body = responseBody<AdminCategoryListResponseBody>(response);
+
+    expect(body.meta).toEqual({
+      page: 1,
+      limit: 3,
+      total: 5,
+      totalPages: 2,
+    });
+    expect(body.data.items).toHaveLength(3);
+    expect(body.data.items.some(({ isActive }) => !isActive)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('createdByUserId');
+    expect(JSON.stringify(body)).not.toContain('articles');
+  });
+
+  it('CAT-003 applies normalized q and boolean filters', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const response = await request(app.getHttpServer())
+      .get(
+        '/api/v1/admin/categories?page=1&limit=20&q=%20technology%20&isActive=false',
+      )
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    const body = responseBody<AdminCategoryListResponseBody>(response);
+
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0]).toMatchObject({
+      slug: 'hidden-technology',
+      isActive: false,
+    });
+  });
+
+  it('CAT-004 returns category plus articleCount without article records', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/categories/22222222-2222-4222-8222-222222222222')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    const body = responseBody<AdminCategoryDetailResponseBody>(response);
+
+    expect(body.data.category.slug).toBe('technology');
+    expect(body.data.articleCount).toBe(3);
+    expect(body.data).not.toHaveProperty('article');
+    expect(JSON.stringify(body)).not.toContain('createdByUserId');
+  });
+
+  it('CAT-005 creates with normalized fields and documented defaults', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/admin/categories')
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .send({ name: '  Business  ', slug: '  BUSINESS  ' })
+      .expect(201);
+    const createdBody = responseBody<CategoryMutationResponseBody>(created);
+    expect(createdBody.data.category).toMatchObject({
+      name: 'Business',
+      slug: 'business',
+    });
+
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/categories/${createdBody.data.category.id}`)
+      .set('Authorization', `Bearer ${admin.data.accessToken}`)
+      .expect(200);
+    expect(
+      responseBody<AdminCategoryDetailResponseBody>(detail).data.category,
+    ).toMatchObject({ isActive: true, displayOrder: 0 });
+  });
+
+  it('CAT-005 rejects duplicate slugs, invalid input, and client audit fields', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/categories')
+      .set('Authorization', authorization)
+      .send({ name: 'Duplicate', slug: 'TECHNOLOGY' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/categories')
+      .set('Authorization', authorization)
+      .send({ name: '', slug: 'invalid_slug' })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/categories')
+      .set('Authorization', authorization)
+      .send({
+        name: 'Audit Attempt',
+        slug: 'audit-attempt',
+        createdByUserId: admin.data.user.id,
+      })
+      .expect(400);
+  });
+
+  it('CAT-006 partially updates while preserving omitted fields and status', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const categoryId = '55555555-5555-4555-8555-555555555555';
+
+    const updated = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .send({ name: '  Hidden Updated  ' })
+      .expect(200);
+    expect(
+      responseBody<CategoryMutationResponseBody>(updated).data.category,
+    ).toMatchObject({
+      id: categoryId,
+      name: 'Hidden Updated',
+      slug: 'hidden-technology',
+    });
+
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<AdminCategoryDetailResponseBody>(detail).data.category,
+    ).toMatchObject({ isActive: false, description: 'Inactive category' });
+  });
+
+  it('CAT-006 rejects empty/status updates and maps missing or duplicate slugs', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const categoryId = '22222222-2222-4222-8222-222222222222';
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .send({ isActive: false })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .send({ slug: 'science' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${randomUUID()}`)
+      .set('Authorization', authorization)
+      .send({ name: 'Missing' })
+      .expect(404);
+  });
+
+  it('CAT-007 deactivates and reactivates a used category without changing its articles', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const categoryId = '22222222-2222-4222-8222-222222222222';
+
+    const deactivated = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}/status`)
+      .set('Authorization', authorization)
+      .send({ isActive: false })
+      .expect(200);
+    expect(responseBody<CategoryStatusResponseBody>(deactivated)).toEqual({
+      success: true,
+      data: { id: categoryId, isActive: false },
+    });
+
+    const publicList = await request(app.getHttpServer())
+      .get('/api/v1/categories')
+      .expect(200);
+    expect(publicList.text).not.toContain('technology');
+    await request(app.getHttpServer())
+      .get('/api/v1/categories/technology')
+      .expect(404);
+
+    const adminDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<AdminCategoryDetailResponseBody>(adminDetail).data,
+    ).toMatchObject({
+      category: { id: categoryId, isActive: false },
+      articleCount: 3,
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}/status`)
+      .set('Authorization', authorization)
+      .send({ isActive: false })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}/status`)
+      .set('Authorization', authorization)
+      .send({ isActive: true })
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/v1/categories/technology')
+      .expect(200);
+  });
+
+  it('CAT-007 validates status input and maps unknown categories to 404', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const categoryId = '22222222-2222-4222-8222-222222222222';
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${categoryId}/status`)
+      .set('Authorization', authorization)
+      .send({ isActive: 'false' })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/categories/${randomUUID()}/status`)
+      .set('Authorization', authorization)
+      .send({ isActive: false })
+      .expect(404);
+  });
+
+  it('CAT-008 deletes an unused category with an empty 204 response', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const categoryId = '11111111-1111-4111-8111-111111111111';
+
+    const deleted = await request(app.getHttpServer())
+      .delete(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .expect(204);
+    expect(deleted.text).toBe('');
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/categories/${categoryId}`)
+      .set('Authorization', authorization)
+      .expect(404);
+  });
+
+  it('CAT-008 blocks used categories and returns 404 for unknown categories', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+
+    const conflict = await request(app.getHttpServer())
+      .delete('/api/v1/admin/categories/22222222-2222-4222-8222-222222222222')
+      .set('Authorization', authorization)
+      .expect(409);
+    expect(responseBody<ErrorResponseBody>(conflict)).toMatchObject({
+      success: false,
+      error: {
+        code: 'CONFLICT',
+        message: 'Category is used by articles; deactivate it instead',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/admin/categories/${randomUUID()}`)
+      .set('Authorization', authorization)
+      .expect(404);
   });
 
   it('USR-003 and USR-004 require authentication', async () => {
