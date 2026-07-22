@@ -1,0 +1,94 @@
+enum UserRole {
+  ADMIN
+  USER
+
+  @@map("user_role")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+
+  @@map("user_status")
+}
+
+enum CefrLevel {
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+
+  @@map("cefr_level")
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+
+  @@map("article_status")
+}
+
+enum LearningStatus {
+  NEW
+  LEARNING
+  REVIEWING
+  MASTERED
+  IGNORED
+
+  @@map("learning_status")
+}
+
+enum ReadingStatus {
+  READING
+  COMPLETED
+
+  @@map("reading_status")
+}
+
+enum LexicalUnitType {
+  WORD
+  PHRASE
+
+  @@map("lexical_unit_type")
+}
+
+enum QuizStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+
+  @@map("quiz_status")
+}
+
+enum QuestionType {
+  SELECT_MEANING
+  SELECT_WORD
+  SELECT_CORRECT_CONTEXT
+  FILL_BLANK
+
+  @@map("question_type")
+}
+
+enum ReviewSessionType {
+  QUIZ
+
+  @@map("review_session_type")
+}
+
+enum ReviewSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+
+  @@map("review_session_status")
+}
+
+enum ReviewItemType {
+  QUIZ_QUESTION
+
+  @@map("review_item_type")
+}
