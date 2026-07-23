@@ -10,6 +10,7 @@ import { configureApp, setupSwagger } from '../src/app.setup';
 import type { AuthConfig } from '../src/config/auth.config';
 import { AUTH_CONFIG } from '../src/config/config.module';
 import { PrismaService } from '../src/database/prisma.service';
+import { ArticlesRepository } from '../src/modules/articles/repositories/articles.repository';
 import {
   type AdminCategoryRecord,
   CategoriesRepository,
@@ -32,6 +33,7 @@ import type {
 } from '../src/modules/users/users.repository';
 import { UsersRepository } from '../src/modules/users/users.repository';
 import { InMemoryCategoriesRepository } from './support/in-memory-categories.repository';
+import { InMemoryArticlesRepository } from './support/in-memory-articles.repository';
 
 const authConfig: AuthConfig = {
   accessSecret: 'e2e-access-secret-at-least-32-characters',
@@ -450,10 +452,12 @@ describe('Auth and Users APIs (e2e)', () => {
   let app: INestApplication<App>;
   let repository: InMemoryUsersRepository;
   let categoriesRepository: InMemoryCategoriesRepository;
+  let articlesRepository: InMemoryArticlesRepository;
 
   beforeAll(async () => {
     repository = new InMemoryUsersRepository();
     categoriesRepository = new InMemoryCategoriesRepository();
+    articlesRepository = new InMemoryArticlesRepository();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -465,6 +469,8 @@ describe('Auth and Users APIs (e2e)', () => {
       .useValue(repository)
       .overrideProvider(CategoriesRepository)
       .useValue(categoriesRepository)
+      .overrideProvider(ArticlesRepository)
+      .useValue(articlesRepository)
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -478,6 +484,7 @@ describe('Auth and Users APIs (e2e)', () => {
   beforeEach(() => {
     repository.reset();
     categoriesRepository.reset();
+    articlesRepository.reset();
   });
 
   afterAll(async () => app.close());
@@ -501,6 +508,94 @@ describe('Auth and Users APIs (e2e)', () => {
       .send({ email: input.email, password: input.password })
       .expect(200);
     return responseBody<AuthResponseBody>(login);
+  };
+
+  const prepareParsedArticle = async (
+    authorization: string,
+    contentHtml: string,
+  ): Promise<{
+    articleId: string;
+    contentHtml: string;
+    sentences: Array<{
+      id: string;
+      sentenceOrder: number;
+      sentenceText: string;
+    }>;
+  }> => {
+    const articleId = '44444444-4444-4444-8444-444444444444';
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .send({ contentHtml })
+      .expect(200);
+    const parsed = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/parse-content`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(200);
+    const listed = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/sentences?page=1&limit=100`)
+      .set('Authorization', authorization)
+      .expect(200);
+    return {
+      articleId,
+      contentHtml: responseBody<{ data: { contentHtml: string } }>(parsed).data
+        .contentHtml,
+      sentences: responseBody<{
+        data: {
+          items: Array<{
+            id: string;
+            sentenceOrder: number;
+            sentenceText: string;
+          }>;
+        };
+      }>(listed).data.items,
+    };
+  };
+
+  const termPayload = (value: string, unitType: 'WORD' | 'PHRASE') => ({
+    value,
+    wordDisplay: value,
+    lemma: value,
+    normalizedLemma: value,
+    unitType,
+    partOfSpeech: unitType === 'WORD' ? 'noun' : 'noun phrase',
+    cefrLevel: 'B1',
+    contextualMeaningVi: 'Nghĩa theo ngữ cảnh',
+    definitionEn: `Definition for ${value}`,
+    contextualExplanation: `Explanation for ${value}`,
+    examples: [
+      {
+        sentence: `${value} appears in context.`,
+        translationVi: `${value} xuất hiện trong ngữ cảnh.`,
+      },
+    ],
+  });
+
+  const preparePublishableArticle = async (
+    authorization: string,
+  ): Promise<{
+    articleId: string;
+    sentenceId: string;
+    termId: string;
+  }> => {
+    const prepared = await prepareParsedArticle(
+      authorization,
+      '<p>Digital tools improve learning.</p>',
+    );
+    const created = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${prepared.sentences[0].id}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(termPayload('tools', 'WORD'))
+      .expect(201);
+    return {
+      articleId: prepared.articleId,
+      sentenceId: prepared.sentences[0].id,
+      termId: responseBody<{ data: { term: { id: string } } }>(created).data
+        .term.id,
+    };
   };
 
   it('publishes Swagger operations for exactly the five documented Auth APIs', async () => {
@@ -1013,6 +1108,1261 @@ describe('Auth and Users APIs (e2e)', () => {
       .delete(`/api/v1/admin/categories/${randomUUID()}`)
       .set('Authorization', authorization)
       .expect(404);
+  });
+
+  it('publishes ART-003 through ART-007 with ADMIN security and documented responses', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swagger = responseBody<{
+      paths: Record<
+        string,
+        Record<
+          string,
+          {
+            operationId: string;
+            parameters?: Array<{ name: string }>;
+            responses: Record<string, object>;
+            security: Array<Record<string, string[]>>;
+          }
+        >
+      >;
+    }>(response);
+    const collection = swagger.paths['/api/v1/admin/articles'];
+    const member = swagger.paths['/api/v1/admin/articles/{articleId}'];
+
+    expect(collection.get.operationId).toBe('getAdminArticles');
+    expect(collection.get.parameters?.map(({ name }) => name)).toEqual([
+      'page',
+      'limit',
+      'q',
+      'categoryId',
+      'cefrLevel',
+      'status',
+      'sort',
+    ]);
+    expect(collection.post.operationId).toBe('postAdminArticles');
+    expect(Object.keys(collection.post.responses)).toContain('201');
+    expect(member.get.operationId).toBe('getAdminArticlesByArticleId');
+    expect(member.patch.operationId).toBe('patchAdminArticlesByArticleId');
+    expect(member.delete.operationId).toBe('deleteAdminArticlesByArticleId');
+    expect(Object.keys(member.delete.responses)).toContain('204');
+    for (const operation of [
+      collection.get,
+      collection.post,
+      member.get,
+      member.patch,
+      member.delete,
+    ]) {
+      expect(operation.security).toContainEqual({ BearerAuth: [] });
+    }
+  });
+
+  it('ART-003 through ART-007 require ADMIN authentication', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/articles?page=1&limit=20')
+      .expect(401);
+
+    const normalUser = await registerWithRole(registration, 'USER');
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/articles')
+      .set('Authorization', `Bearer ${normalUser.data.accessToken}`)
+      .send({})
+      .expect(403);
+  });
+
+  it('ART-003 lists all statuses with database-style filters and no HTML', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const response = await request(app.getHttpServer())
+      .get(
+        '/api/v1/admin/articles?page=1&limit=20&q=draft&status=DRAFT&sort=oldest',
+      )
+      .set('Authorization', authorization)
+      .expect(200);
+    const body = responseBody<{
+      success: true;
+      data: { items: Array<Record<string, unknown>>; meta: { total: number } };
+    }>(response);
+
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0]).toMatchObject({
+      slug: 'draft-article',
+      status: 'DRAFT',
+    });
+    expect(body.data.items[0]).not.toHaveProperty('contentHtml');
+    expect(body.data.meta.total).toBe(1);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/articles?page=1&limit=101')
+      .set('Authorization', authorization)
+      .expect(400);
+  });
+
+  it('ART-004 returns current content state and efficient aggregate counts', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/articles/11111111-1111-4111-8111-111111111111')
+      .set('Authorization', authorization)
+      .expect(200);
+    const body = responseBody<{
+      data: {
+        article: Record<string, unknown>;
+        sentenceCount: number;
+        termCount: number;
+        quizCount: number;
+      };
+    }>(response);
+
+    expect(body.data.article).toMatchObject({
+      slug: 'how-technology-changes-learning',
+      contentVersion: 1,
+      contentHtml: '<p>Private reader payload.</p>',
+    });
+    expect(body.data).toMatchObject({
+      sentenceCount: 0,
+      termCount: 0,
+      quizCount: 4,
+    });
+    expect(body.data.article).not.toHaveProperty('createdBy');
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${randomUUID()}`)
+      .set('Authorization', authorization)
+      .expect(404);
+  });
+
+  it('ART-005 creates a sanitized version-one DRAFT and handles invalid references', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const payload = {
+      categoryId: '22222222-2222-4222-8222-222222222222',
+      title: '  Admin Article  ',
+      slug: '  ADMIN-ARTICLE  ',
+      summary: '  Summary  ',
+      contentHtml:
+        '<script>bad()</script><p onclick="bad()">Safe reader content</p>',
+      cefrLevel: 'B1',
+    };
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/admin/articles')
+      .set('Authorization', authorization)
+      .send(payload)
+      .expect(201);
+    const article = responseBody<{
+      data: { article: Record<string, unknown> };
+    }>(created).data.article;
+
+    expect(article).toMatchObject({
+      title: 'Admin Article',
+      slug: 'admin-article',
+      status: 'DRAFT',
+      contentVersion: 1,
+      contentHtml: '<p>Safe reader content</p>',
+      publishedAt: null,
+      archivedAt: null,
+    });
+
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/articles')
+      .set('Authorization', authorization)
+      .send(payload)
+      .expect(409);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/articles')
+      .set('Authorization', authorization)
+      .send({ ...payload, slug: 'other', categoryId: randomUUID() })
+      .expect(404);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/articles')
+      .set('Authorization', authorization)
+      .send({
+        ...payload,
+        slug: 'invalid-html',
+        contentHtml: '<script>x</script>',
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/articles')
+      .set('Authorization', authorization)
+      .send({
+        ...payload,
+        slug: 'audit-attempt',
+        createdByUserId: randomUUID(),
+      })
+      .expect(400);
+  });
+
+  it('ART-006 distinguishes metadata and content updates and rejects archived mutation', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const draftId = '44444444-4444-4444-8444-444444444444';
+
+    const metadata = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${draftId}`)
+      .set('Authorization', authorization)
+      .send({ title: 'Updated Draft' })
+      .expect(200);
+    expect(
+      responseBody<{
+        data: { article: { contentVersion: number }; contentChanged: boolean };
+      }>(metadata).data,
+    ).toMatchObject({
+      article: { contentVersion: 1 },
+      contentChanged: false,
+    });
+
+    const content = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${draftId}`)
+      .set('Authorization', authorization)
+      .send({ contentHtml: '<p onmouseover="bad()">New content</p>' })
+      .expect(200);
+    expect(
+      responseBody<{
+        data: {
+          article: { contentVersion: number; contentHtml: string };
+          contentChanged: boolean;
+        };
+      }>(content).data,
+    ).toMatchObject({
+      article: { contentVersion: 2, contentHtml: '<p>New content</p>' },
+      contentChanged: true,
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${draftId}`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch('/api/v1/admin/articles/55555555-5555-4555-8555-555555555555')
+      .set('Authorization', authorization)
+      .send({ title: 'Blocked' })
+      .expect(409);
+  });
+
+  it('ART-007 returns empty 204 only for an unused draft', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const unusedDraft = await articlesRepository.create({
+      categoryId: '22222222-2222-4222-8222-222222222222',
+      title: 'Unused Draft',
+      slug: 'unused-draft',
+      summary: 'Summary',
+      contentHtml: '<p>Content</p>',
+      cefrLevel: 'B1',
+      createdByUserId: admin.data.user.id,
+      updatedByUserId: admin.data.user.id,
+    });
+    const deleted = await request(app.getHttpServer())
+      .delete(`/api/v1/admin/articles/${unusedDraft.id}`)
+      .set('Authorization', authorization)
+      .expect(204);
+    expect(deleted.text).toBe('');
+
+    await request(app.getHttpServer())
+      .delete('/api/v1/admin/articles/11111111-1111-4111-8111-111111111111')
+      .set('Authorization', authorization)
+      .expect(409);
+
+    const created = await articlesRepository.create({
+      categoryId: '22222222-2222-4222-8222-222222222222',
+      title: 'Used Draft',
+      slug: 'used-draft',
+      summary: 'Summary',
+      contentHtml: '<p>Content</p>',
+      cefrLevel: 'B1',
+      createdByUserId: admin.data.user.id,
+      updatedByUserId: admin.data.user.id,
+    });
+    articlesRepository.setDeleteSafety(created.id, { readingProgressCount: 1 });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/admin/articles/${created.id}`)
+      .set('Authorization', authorization)
+      .expect(409);
+  });
+
+  it('documents ART-008 through ART-011 as ADMIN operations', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swagger = responseBody<{
+      paths: Record<
+        string,
+        Record<
+          string,
+          {
+            operationId: string;
+            responses: Record<string, object>;
+            security: Array<Record<string, string[]>>;
+          }
+        >
+      >;
+    }>(response);
+    const parse =
+      swagger.paths['/api/v1/admin/articles/{articleId}/parse-content'].post;
+    const sentences =
+      swagger.paths['/api/v1/admin/articles/{articleId}/sentences'];
+    const sentence =
+      swagger.paths[
+        '/api/v1/admin/articles/{articleId}/sentences/{sentenceId}'
+      ];
+
+    expect(parse.operationId).toBe('postAdminArticleParseContent');
+    expect(Object.keys(parse.responses)).toEqual(
+      expect.arrayContaining(['200', '409', '422']),
+    );
+    expect(sentences.get.operationId).toBe('getAdminArticleSentences');
+    expect(sentence.get.operationId).toBe('getAdminArticleSentenceById');
+    expect(sentence.patch.operationId).toBe('patchAdminArticleSentenceById');
+    for (const operation of [
+      parse,
+      sentences.get,
+      sentence.get,
+      sentence.patch,
+    ]) {
+      expect(operation.security).toContainEqual({ BearerAuth: [] });
+    }
+  });
+
+  it('ART-008 parses atomically, creates matching current-version rows, and force-replaces markers', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const articleId = '44444444-4444-4444-8444-444444444444';
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .send({
+        contentHtml:
+          '<h2>Daily news.</h2><p>Dr. Smith arrived. Students listened.</p>',
+      })
+      .expect(200);
+
+    const parsed = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/parse-content`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(200);
+    const parsedData = responseBody<{
+      data: {
+        contentVersion: number;
+        sentenceCount: number;
+        contentHtml: string;
+      };
+    }>(parsed).data;
+    const firstMarkerIds = [
+      ...parsedData.contentHtml.matchAll(/data-sentence-id="([^"]+)"/g),
+    ].map((match) => match[1]);
+    expect(parsedData).toMatchObject({ contentVersion: 2, sentenceCount: 3 });
+    expect(new Set(firstMarkerIds).size).toBe(3);
+
+    const listed = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/sentences?page=1&limit=100`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const listData = responseBody<{
+      data: {
+        contentVersion: number;
+        items: Array<{
+          id: string;
+          contentVersion: number;
+          sentenceOrder: number;
+        }>;
+        meta: { total: number };
+      };
+    }>(listed).data;
+    expect(listData.contentVersion).toBe(2);
+    expect(listData.items.map(({ contentVersion }) => contentVersion)).toEqual([
+      2, 2, 2,
+    ]);
+    expect(listData.items.map(({ sentenceOrder }) => sentenceOrder)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(new Set(listData.items.map(({ id }) => id))).toEqual(
+      new Set(firstMarkerIds),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/parse-content`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(409);
+
+    const forced = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/parse-content`)
+      .set('Authorization', authorization)
+      .send({ force: true })
+      .expect(200);
+    const forcedHtml = responseBody<{ data: { contentHtml: string } }>(forced)
+      .data.contentHtml;
+    expect(forcedHtml).not.toContain(firstMarkerIds[0]);
+    expect(forcedHtml.match(/data-sentence-id=/g)).toHaveLength(3);
+  });
+
+  it('ART-008 rolls back HTML and rows when persistence fails', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const articleId = '44444444-4444-4444-8444-444444444444';
+    articlesRepository.failNextParse();
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/parse-content`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(500);
+
+    const article = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { article: { contentHtml: string } } }>(article).data
+        .article.contentHtml,
+    ).toBe('<p>Draft content.</p>');
+    const list = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/sentences?page=1&limit=20`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { items: unknown[]; meta: { total: number } } }>(
+        list,
+      ).data,
+    ).toMatchObject({ items: [], meta: { total: 0 } });
+  });
+
+  it('ART-009 through ART-011 enforce pagination, current ownership, immutable text, and metadata-only updates', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const articleId = '44444444-4444-4444-8444-444444444444';
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .send({ contentHtml: '<p>One. Two! Three?</p>' })
+      .expect(200);
+    const parsed = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/parse-content`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(200);
+    const originalHtml = responseBody<{ data: { contentHtml: string } }>(parsed)
+      .data.contentHtml;
+
+    const page = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/sentences?page=2&limit=1`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const pageData = responseBody<{
+      data: {
+        items: Array<{
+          id: string;
+          sentenceOrder: number;
+          sentenceText: string;
+        }>;
+        meta: { page: number; total: number; totalPages: number };
+      };
+    }>(page).data;
+    expect(pageData).toMatchObject({
+      items: [{ sentenceOrder: 2, sentenceText: 'Two!' }],
+      meta: { page: 2, total: 3, totalPages: 3 },
+    });
+    const sentenceId = pageData.items[0].id;
+
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/sentences/${sentenceId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { terms: unknown[] } }>(detail).data.terms,
+    ).toEqual([]);
+    await request(app.getHttpServer())
+      .get(
+        `/api/v1/admin/articles/11111111-1111-4111-8111-111111111111/sentences/${sentenceId}`,
+      )
+      .set('Authorization', authorization)
+      .expect(404);
+
+    const updated = await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${articleId}/sentences/${sentenceId}`)
+      .set('Authorization', authorization)
+      .send({ translationVi: '  Bản dịch  ', isActive: false })
+      .expect(200);
+    expect(
+      responseBody<{
+        data: { sentence: { translationVi: string; isActive: boolean } };
+      }>(updated).data.sentence,
+    ).toMatchObject({ translationVi: 'Bản dịch', isActive: false });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${articleId}/sentences/${sentenceId}`)
+      .set('Authorization', authorization)
+      .send({ sentenceText: 'Tampered' })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/articles/${articleId}/sentences/${sentenceId}`)
+      .set('Authorization', authorization)
+      .send({ explanationVi: '   ' })
+      .expect(400);
+
+    const inactive = await request(app.getHttpServer())
+      .get(
+        `/api/v1/admin/articles/${articleId}/sentences?page=1&limit=20&isActive=false`,
+      )
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { items: Array<{ id: string }> } }>(
+        inactive,
+      ).data.items.map(({ id }) => id),
+    ).toEqual([sentenceId]);
+    const article = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { article: { contentHtml: string } } }>(article).data
+        .article.contentHtml,
+    ).toBe(originalHtml);
+  });
+
+  it('rejects archived or unparseable articles and protects sentence routes', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    await request(app.getHttpServer())
+      .post(
+        '/api/v1/admin/articles/55555555-5555-4555-8555-555555555555/parse-content',
+      )
+      .set('Authorization', authorization)
+      .send({})
+      .expect(409);
+
+    const imageOnly = await articlesRepository.create({
+      categoryId: '22222222-2222-4222-8222-222222222222',
+      title: 'Image only',
+      slug: 'image-only',
+      summary: 'No reader text',
+      contentHtml: '<figure><img src="https://example.com/image.png"></figure>',
+      cefrLevel: 'A1',
+      createdByUserId: admin.data.user.id,
+      updatedByUserId: admin.data.user.id,
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${imageOnly.id}/parse-content`)
+      .set('Authorization', authorization)
+      .send({})
+      .expect(422);
+    await request(app.getHttpServer())
+      .get(
+        '/api/v1/admin/articles/44444444-4444-4444-8444-444444444444/sentences?page=1&limit=20',
+      )
+      .expect(401);
+  });
+
+  it('documents ART-012 through ART-016 as ADMIN operations', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swagger = responseBody<{
+      paths: Record<
+        string,
+        Record<
+          string,
+          {
+            operationId: string;
+            responses: Record<string, object>;
+            security: Array<Record<string, string[]>>;
+          }
+        >
+      >;
+    }>(response);
+    const create =
+      swagger.paths[
+        '/api/v1/admin/articles/{articleId}/sentences/{sentenceId}/terms'
+      ].post;
+    const collection =
+      swagger.paths['/api/v1/admin/articles/{articleId}/terms'].get;
+    const member =
+      swagger.paths['/api/v1/admin/articles/{articleId}/terms/{termId}'];
+
+    expect(create.operationId).toBe('postAdminArticleSentenceTerm');
+    expect(collection.operationId).toBe('getAdminArticleTerms');
+    expect(member.get.operationId).toBe('getAdminArticleTermById');
+    expect(member.patch.operationId).toBe('patchAdminArticleTermById');
+    expect(member.delete.operationId).toBe('deleteAdminArticleTermById');
+    for (const operation of [
+      create,
+      collection,
+      member.get,
+      member.patch,
+      member.delete,
+    ]) {
+      expect(operation.security).toContainEqual({ BearerAuth: [] });
+    }
+    await request(app.getHttpServer())
+      .get(
+        '/api/v1/admin/articles/44444444-4444-4444-8444-444444444444/terms?page=1&limit=20',
+      )
+      .expect(401);
+  });
+
+  it('ART-012 creates matching markers atomically and rolls back failed writes', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const prepared = await prepareParsedArticle(
+      authorization,
+      '<p>Digital tools help digital tools reach people.</p>',
+    );
+    const sentenceId = prepared.sentences[0].id;
+    const created = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${sentenceId}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(termPayload('digital tools', 'PHRASE'))
+      .expect(201);
+    const createdData = responseBody<{
+      data: {
+        term: { id: string; sentenceId: string };
+        updatedContentHtml: string;
+      };
+    }>(created).data;
+    expect(createdData.term.sentenceId).toBe(sentenceId);
+    expect(
+      createdData.updatedContentHtml.match(
+        new RegExp(`data-term-id="${createdData.term.id}"`, 'g'),
+      ),
+    ).toHaveLength(2);
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${sentenceId}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(termPayload('absent phrase', 'PHRASE'))
+      .expect(422);
+
+    articlesRepository.failNextTermWrite();
+    await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${sentenceId}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(termPayload('people', 'WORD'))
+      .expect(500);
+    const article = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${prepared.articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const persistedHtml = responseBody<{
+      data: { article: { contentHtml: string } };
+    }>(article).data.article.contentHtml;
+    expect(persistedHtml).toBe(createdData.updatedContentHtml);
+    expect(persistedHtml).not.toContain('>people</span>');
+    const terms = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${prepared.articleId}/terms?page=1&limit=20`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { meta: { total: number } } }>(terms).data.meta
+        .total,
+    ).toBe(1);
+  });
+
+  it('ART-013 through ART-015 filter current terms, enforce ownership, and only rewrite HTML for marker changes', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const prepared = await prepareParsedArticle(
+      authorization,
+      '<p>Alpha works. Beta helps.</p>',
+    );
+    const alpha = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${prepared.sentences[0].id}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(termPayload('Alpha', 'WORD'))
+      .expect(201);
+    const alphaTerm = responseBody<{
+      data: { term: { id: string; sentenceId: string } };
+    }>(alpha).data.term;
+    const betaPayload = {
+      ...termPayload('Beta', 'WORD'),
+      cefrLevel: 'B2',
+      definitionEn: undefined,
+      contextualExplanation: undefined,
+      examples: [],
+    };
+    const beta = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${prepared.sentences[1].id}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(betaPayload)
+      .expect(201);
+    const betaTerm = responseBody<{ data: { term: { id: string } } }>(beta).data
+      .term;
+
+    const page = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${prepared.articleId}/terms?page=2&limit=1`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: {
+          items: Array<{
+            id: string;
+            sentenceOrder: number;
+            hasDefinitionEn: boolean;
+            hasExamples: boolean;
+            contentHtml?: string;
+          }>;
+          meta: { page: number; total: number; totalPages: number };
+        };
+      }>(page).data,
+    ).toMatchObject({
+      items: [
+        {
+          id: betaTerm.id,
+          sentenceOrder: 2,
+          hasDefinitionEn: false,
+          hasExamples: false,
+        },
+      ],
+      meta: { page: 2, total: 2, totalPages: 2 },
+    });
+    const filtered = await request(app.getHttpServer())
+      .get(
+        `/api/v1/admin/articles/${prepared.articleId}/terms?page=1&limit=20&sentenceId=${alphaTerm.sentenceId}&cefrLevel=B1&unitType=WORD&isActive=true&q=alpha`,
+      )
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { items: Array<{ id: string }> } }>(filtered).data
+        .items,
+    ).toEqual([expect.objectContaining({ id: alphaTerm.id })]);
+
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${prepared.articleId}/terms/${alphaTerm.id}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: { term: { id: string }; sentence: { id: string } };
+      }>(detail).data,
+    ).toMatchObject({
+      term: { id: alphaTerm.id },
+      sentence: { id: alphaTerm.sentenceId },
+    });
+    await request(app.getHttpServer())
+      .get(
+        `/api/v1/admin/articles/11111111-1111-4111-8111-111111111111/terms/${alphaTerm.id}`,
+      )
+      .set('Authorization', authorization)
+      .expect(404);
+
+    const before = responseBody<{
+      data: { article: { contentHtml: string } };
+    }>(
+      await request(app.getHttpServer())
+        .get(`/api/v1/admin/articles/${prepared.articleId}`)
+        .set('Authorization', authorization)
+        .expect(200),
+    ).data.article.contentHtml;
+    const metadata = await request(app.getHttpServer())
+      .patch(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${alphaTerm.id}`,
+      )
+      .set('Authorization', authorization)
+      .send({ contextualMeaningVi: 'Nghĩa đã cập nhật' })
+      .expect(200);
+    expect(
+      responseBody<{ data: { contentHtmlChanged: boolean } }>(metadata).data
+        .contentHtmlChanged,
+    ).toBe(false);
+    const valueChange = await request(app.getHttpServer())
+      .patch(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${alphaTerm.id}`,
+      )
+      .set('Authorization', authorization)
+      .send({
+        value: 'works',
+        wordDisplay: 'works',
+        lemma: 'work',
+        normalizedLemma: 'work',
+      })
+      .expect(200);
+    const valueChangeData = responseBody<{
+      data: {
+        term: { id: string; value: string };
+        contentHtmlChanged: boolean;
+        contentHtml?: string;
+      };
+    }>(valueChange).data;
+    expect(valueChangeData).toMatchObject({
+      term: { id: alphaTerm.id, value: 'works' },
+      contentHtmlChanged: true,
+    });
+    expect(valueChangeData.contentHtml).toBeUndefined();
+    const after = responseBody<{
+      data: { article: { contentHtml: string } };
+    }>(
+      await request(app.getHttpServer())
+        .get(`/api/v1/admin/articles/${prepared.articleId}`)
+        .set('Authorization', authorization)
+        .expect(200),
+    ).data.article.contentHtml;
+    expect(after).not.toBe(before);
+    expect(after).toContain(`data-term-id="${alphaTerm.id}">works</span>`);
+
+    await request(app.getHttpServer())
+      .patch(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${alphaTerm.id}`,
+      )
+      .set('Authorization', authorization)
+      .send({ value: 'missing' })
+      .expect(422);
+    await request(app.getHttpServer())
+      .patch(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${alphaTerm.id}`,
+      )
+      .set('Authorization', authorization)
+      .send({ synonyms: [' '] })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${alphaTerm.id}`,
+      )
+      .set('Authorization', authorization)
+      .send({ sentenceId: randomUUID() })
+      .expect(400);
+  });
+
+  it('ART-016 unwraps unused markers and preserves referenced terms', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const prepared = await prepareParsedArticle(
+      authorization,
+      '<p>Alpha works. Beta helps.</p>',
+    );
+    const createdTerms: Array<{ id: string }> = [];
+    for (const [index, value] of ['Alpha', 'Beta'].entries()) {
+      const created = await request(app.getHttpServer())
+        .post(
+          `/api/v1/admin/articles/${prepared.articleId}/sentences/${prepared.sentences[index].id}/terms`,
+        )
+        .set('Authorization', authorization)
+        .send(termPayload(value, 'WORD'))
+        .expect(201);
+      createdTerms.push(
+        responseBody<{ data: { term: { id: string } } }>(created).data.term,
+      );
+    }
+
+    articlesRepository.setTermReferenced(createdTerms[1].id);
+    await request(app.getHttpServer())
+      .delete(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${createdTerms[1].id}`,
+      )
+      .set('Authorization', authorization)
+      .expect(409);
+    await request(app.getHttpServer())
+      .delete(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${createdTerms[0].id}`,
+      )
+      .set('Authorization', authorization)
+      .expect(204);
+
+    const article = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${prepared.articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const contentHtml = responseBody<{
+      data: { article: { contentHtml: string } };
+    }>(article).data.article.contentHtml;
+    expect(contentHtml).toContain('Alpha works.');
+    expect(contentHtml).not.toContain(createdTerms[0].id);
+    expect(contentHtml).toContain(createdTerms[1].id);
+    await request(app.getHttpServer())
+      .get(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${createdTerms[0].id}`,
+      )
+      .set('Authorization', authorization)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get(
+        `/api/v1/admin/articles/${prepared.articleId}/terms/${createdTerms[1].id}`,
+      )
+      .set('Authorization', authorization)
+      .expect(200);
+  });
+
+  it('documents ART-017 through ART-020 as ADMIN operations', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const swagger = responseBody<{
+      paths: Record<
+        string,
+        Record<
+          string,
+          {
+            operationId: string;
+            parameters?: Array<{ name: string }>;
+            responses: Record<string, object>;
+            security: Array<Record<string, string[]>>;
+          }
+        >
+      >;
+      components: {
+        schemas: Record<string, { properties?: Record<string, unknown> }>;
+      };
+    }>(response);
+    const publish =
+      swagger.paths['/api/v1/admin/articles/{articleId}/publish'].post;
+    const archive =
+      swagger.paths['/api/v1/admin/articles/{articleId}/archive'].post;
+    const restore =
+      swagger.paths['/api/v1/admin/articles/{articleId}/restore-draft'].post;
+    const preview =
+      swagger.paths['/api/v1/admin/articles/{articleId}/preview'].get;
+
+    expect(publish.operationId).toBe('postAdminArticlePublish');
+    expect(Object.keys(publish.responses)).toEqual(
+      expect.arrayContaining(['200', '404', '409', '422']),
+    );
+    expect(archive.operationId).toBe('postAdminArticleArchive');
+    expect(restore.operationId).toBe('postAdminArticleRestoreDraft');
+    expect(preview.operationId).toBe('getAdminArticlePreview');
+    expect(preview.parameters?.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['articleId', 'cefrLevel']),
+    );
+    expect(
+      swagger.components.schemas.ArticlePreviewDataDto.properties,
+    ).toHaveProperty('terms');
+    expect(
+      swagger.components.schemas.ArticlePreviewDataDto.properties,
+    ).toHaveProperty('validationWarnings');
+    for (const operation of [publish, archive, restore, preview]) {
+      expect(operation.security).toContainEqual({ BearerAuth: [] });
+    }
+    await request(app.getHttpServer())
+      .post(
+        '/api/v1/admin/articles/44444444-4444-4444-8444-444444444444/publish',
+      )
+      .expect(401);
+    await request(app.getHttpServer())
+      .get(
+        '/api/v1/admin/articles/44444444-4444-4444-8444-444444444444/preview',
+      )
+      .expect(401);
+  });
+
+  it('ART-017 publishes a valid draft and returns structured failures for an unparsed draft', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const articleId = '44444444-4444-4444-8444-444444444444';
+
+    const invalid = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/publish`)
+      .set('Authorization', authorization)
+      .expect(422);
+    expect(
+      responseBody<{
+        error: { issues: Array<{ code: string }> };
+      }>(invalid).error.issues,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'MISSING_PARSE' }),
+        expect.objectContaining({ code: 'MINIMUM_TERMS_NOT_MET' }),
+      ]),
+    );
+
+    await preparePublishableArticle(authorization);
+    const published = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/publish`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: { id: string; status: string; publishedAt: string };
+      }>(published).data,
+    ).toMatchObject({ id: articleId, status: 'PUBLISHED' });
+    expect(
+      Number.isNaN(
+        Date.parse(
+          responseBody<{ data: { publishedAt: string } }>(published).data
+            .publishedAt,
+        ),
+      ),
+    ).toBe(false);
+    await request(app.getHttpServer())
+      .get('/api/v1/articles/draft-article')
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/publish`)
+      .set('Authorization', authorization)
+      .expect(409);
+  });
+
+  it('ART-018 and ART-019 archive without deleting history and restore clean draft timestamps', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const { articleId, termId } =
+      await preparePublishableArticle(authorization);
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/publish`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const publishedDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const originalPublishedAt = responseBody<{
+      data: { article: { publishedAt: string } };
+    }>(publishedDetail).data.article.publishedAt;
+    articlesRepository.setDeleteSafety(articleId, {
+      readingProgressCount: 2,
+      savedVocabularyCount: 1,
+      quizCount: 3,
+    });
+    articlesRepository.setTermReferenced(termId);
+
+    const archived = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/archive`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: { id: string; status: string; archivedAt: string };
+      }>(archived).data,
+    ).toMatchObject({ id: articleId, status: 'ARCHIVED' });
+    await request(app.getHttpServer())
+      .get('/api/v1/articles/draft-article')
+      .expect(404);
+    const safety = await articlesRepository.findDeleteSafety(articleId);
+    expect(safety).toMatchObject({
+      readingProgressCount: 2,
+      savedVocabularyCount: 1,
+      quizCount: 3,
+    });
+    const archivedDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: {
+          article: {
+            status: string;
+            publishedAt: string;
+            archivedAt: string;
+          };
+          sentenceCount: number;
+          termCount: number;
+        };
+      }>(archivedDetail).data,
+    ).toMatchObject({
+      article: {
+        status: 'ARCHIVED',
+        publishedAt: originalPublishedAt,
+      },
+      sentenceCount: 1,
+      termCount: 1,
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/archive`)
+      .set('Authorization', authorization)
+      .expect(409);
+
+    const restored = await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/restore-draft`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { id: string; status: string } }>(restored).data,
+    ).toEqual({ id: articleId, status: 'DRAFT' });
+    const restoredDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: {
+          article: {
+            status: string;
+            publishedAt: string | null;
+            archivedAt: string | null;
+          };
+          sentenceCount: number;
+          termCount: number;
+        };
+      }>(restoredDetail).data,
+    ).toMatchObject({
+      article: {
+        status: 'DRAFT',
+        publishedAt: null,
+        archivedAt: null,
+      },
+      sentenceCount: 1,
+      termCount: 1,
+    });
+  });
+
+  it('ART-020 previews draft CEFR highlights, shared warnings, and current-version-only terms', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const articleId = '44444444-4444-4444-8444-444444444444';
+
+    const warningPreview = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/preview`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const warningPreviewData = responseBody<{
+      data: {
+        terms: unknown[];
+        validationWarnings: Array<{ code: string }>;
+      };
+    }>(warningPreview).data;
+    expect(warningPreviewData.terms).toEqual([]);
+    expect(
+      warningPreviewData.validationWarnings.map(({ code }) => code),
+    ).toContain('MISSING_PARSE');
+
+    const prepared = await prepareParsedArticle(
+      authorization,
+      '<p>Alpha helps. Beta works.</p>',
+    );
+    const alpha = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${articleId}/sentences/${prepared.sentences[0].id}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send({ ...termPayload('Alpha', 'WORD'), cefrLevel: 'A2' })
+      .expect(201);
+    const alphaId = responseBody<{ data: { term: { id: string } } }>(alpha).data
+      .term.id;
+    const beta = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${articleId}/sentences/${prepared.sentences[1].id}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send({ ...termPayload('Beta', 'WORD'), cefrLevel: 'C1' })
+      .expect(201);
+    const betaId = responseBody<{ data: { term: { id: string } } }>(beta).data
+      .term.id;
+
+    const preview = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/preview?cefrLevel=B2`)
+      .set('Authorization', authorization)
+      .expect(200);
+    const previewData = responseBody<{
+      data: {
+        article: { id: string; contentHtml?: string };
+        contentHtml: string;
+        terms: Array<{ id: string; isHighlighted: boolean }>;
+        validationWarnings: unknown[];
+      };
+    }>(preview).data;
+    expect(previewData.article).not.toHaveProperty('contentHtml');
+    expect(previewData.contentHtml).toContain('data-sentence-id');
+    expect(previewData.terms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: alphaId, isHighlighted: false }),
+        expect.objectContaining({ id: betaId, isHighlighted: true }),
+      ]),
+    );
+    expect(previewData.validationWarnings).toEqual([]);
+
+    const next = await prepareParsedArticle(
+      authorization,
+      '<p>Gamma changes.</p>',
+    );
+    const gamma = await request(app.getHttpServer())
+      .post(
+        `/api/v1/admin/articles/${articleId}/sentences/${next.sentences[0].id}/terms`,
+      )
+      .set('Authorization', authorization)
+      .send(termPayload('Gamma', 'WORD'))
+      .expect(201);
+    const gammaId = responseBody<{ data: { term: { id: string } } }>(gamma).data
+      .term.id;
+    const currentPreview = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}/preview`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{
+        data: { terms: Array<{ id: string }> };
+      }>(currentPreview).data.terms.map(({ id }) => id),
+    ).toEqual([gammaId]);
+  });
+
+  it('guards lifecycle transitions against concurrent state changes', async () => {
+    const admin = await registerWithRole(
+      { ...registration, email: 'admin@example.com', displayName: 'Admin' },
+      'ADMIN',
+    );
+    const authorization = `Bearer ${admin.data.accessToken}`;
+    const articleId = '44444444-4444-4444-8444-444444444444';
+    articlesRepository.failNextStatusTransition();
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/admin/articles/${articleId}/archive`)
+      .set('Authorization', authorization)
+      .expect(409);
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/articles/${articleId}`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(
+      responseBody<{ data: { article: { status: string } } }>(detail).data
+        .article.status,
+    ).toBe('DRAFT');
   });
 
   it('USR-003 and USR-004 require authentication', async () => {

@@ -90,6 +90,15 @@ describe('CategoriesRepository', () => {
     });
   });
 
+  it('finds an active category by ID for article mutations', async () => {
+    await repository.findActiveById('category-id');
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: 'category-id', isActive: true },
+      select: { id: true, name: true, slug: true },
+    });
+  });
+
   it('paginates and counts all matching admin categories with stable sorting', async () => {
     findMany.mockResolvedValue([]);
     count.mockResolvedValue(21);
