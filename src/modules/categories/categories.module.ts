@@ -18,5 +18,6 @@ import { CategoriesService } from './categories.service';
     JwtAuthGuard,
     RolesGuard,
   ],
+  exports: [CategoriesRepository],
 })
 export class CategoriesModule {}

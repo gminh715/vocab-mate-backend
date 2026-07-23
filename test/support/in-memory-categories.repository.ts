@@ -125,6 +125,13 @@ export class InMemoryCategoriesRepository {
     return Promise.resolve(category ? this.toPublic(category) : null);
   }
 
+  findActiveById(categoryId: string): Promise<PublicCategoryRecord | null> {
+    const category = this.categories.find(
+      (candidate) => candidate.isActive && candidate.id === categoryId,
+    );
+    return Promise.resolve(category ? this.toPublic(category) : null);
+  }
+
   findAdminCategories(
     query: AdminCategoryListQuery,
   ): Promise<AdminCategoryListResult> {
