@@ -35,5 +35,6 @@ import { ArticlesService } from './services/articles.service';
     JwtAuthGuard,
     RolesGuard,
   ],
+  exports: [ArticleContentService],
 })
 export class ArticlesModule {}

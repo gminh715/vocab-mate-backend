@@ -7,6 +7,7 @@ import {
 import { DomUtils, parseDocument } from 'htmlparser2';
 import { type ChildNode, Element, isTag } from 'domhandler';
 import { ArticleStatus, CefrLevel } from '../../../../generated/prisma/enums';
+import { isCefrAtOrAbove } from '../../../common/utils/cefr-level.util';
 import type { PublicationValidationIssueDto } from '../dto/article-publication.dto';
 import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import {
@@ -19,15 +20,6 @@ import {
 const SENTENCE_MARKER_ATTRIBUTE = 'data-sentence-id';
 const TERM_MARKER_ATTRIBUTE = 'data-term-id';
 const MINIMUM_LOOKUP_TERM_COUNT = 1;
-const CEFR_RANK: Record<CefrLevel, number> = {
-  [CefrLevel.A1]: 1,
-  [CefrLevel.A2]: 2,
-  [CefrLevel.B1]: 3,
-  [CefrLevel.B2]: 4,
-  [CefrLevel.C1]: 5,
-  [CefrLevel.C2]: 6,
-};
-
 interface SentenceMarker {
   id: string;
   text: string;
@@ -173,8 +165,7 @@ export class ArticlePublicationService {
             .filter((term) => term.isActive && term.isLookupEnabled)
             .map((term) => ({
               ...term,
-              isHighlighted:
-                CEFR_RANK[term.cefrLevel] >= CEFR_RANK[previewLevel],
+              isHighlighted: isCefrAtOrAbove(term.cefrLevel, previewLevel),
             }))
         : [],
     );
