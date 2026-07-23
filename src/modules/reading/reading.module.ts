@@ -17,5 +17,6 @@ import { ReadingService } from './reading.service';
     SuccessResponseInterceptor,
     ApiExceptionFilter,
   ],
+  exports: [ReadingService],
 })
 export class ReadingModule {}

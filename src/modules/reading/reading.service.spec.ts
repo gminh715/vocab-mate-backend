@@ -93,6 +93,7 @@ describe('ReadingService', () => {
   let repository: {
     findReaderArticle: jest.Mock;
     findContextualTerm: jest.Mock;
+    findContextualTermForSave: jest.Mock;
     listUserHistory: jest.Mock;
     findUserArticleProgress: jest.Mock;
     upsertUserArticleProgress: jest.Mock;
@@ -105,6 +106,7 @@ describe('ReadingService', () => {
     repository = {
       findReaderArticle: jest.fn(),
       findContextualTerm: jest.fn(),
+      findContextualTermForSave: jest.fn(),
       listUserHistory: jest.fn(),
       findUserArticleProgress: jest.fn(),
       upsertUserArticleProgress: jest.fn(),
@@ -244,6 +246,50 @@ describe('ReadingService', () => {
     await expect(
       service.getContextualTerm('user-id', articleId, termId),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('reuses current-version contextual eligibility for vocabulary saves', async () => {
+    repository.findContextualTermForSave.mockResolvedValue({
+      ...lookupRecord(),
+      parentSentence: {
+        ...lookupRecord().parentSentence,
+        contentVersion: 3,
+      },
+      sourceArticle: { id: articleId, contentVersion: 3 },
+    });
+
+    await expect(
+      service.getContextualTermForSave(termId),
+    ).resolves.toMatchObject({
+      term: { id: termId },
+      parentSentence: { contentVersion: 3 },
+    });
+  });
+
+  it('rejects stale and lookup-disabled contextual terms for vocabulary saves', async () => {
+    repository.findContextualTermForSave.mockResolvedValueOnce({
+      ...lookupRecord(),
+      parentSentence: {
+        ...lookupRecord().parentSentence,
+        contentVersion: 2,
+      },
+      sourceArticle: { id: articleId, contentVersion: 3 },
+    });
+    await expect(
+      service.getContextualTermForSave(termId),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    repository.findContextualTermForSave.mockResolvedValueOnce({
+      ...lookupRecord({ isLookupEnabled: false }),
+      parentSentence: {
+        ...lookupRecord().parentSentence,
+        contentVersion: 3,
+      },
+      sourceArticle: { id: articleId, contentVersion: 3 },
+    });
+    await expect(
+      service.getContextualTermForSave(termId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('maps owner-only history and standard pagination metadata', async () => {

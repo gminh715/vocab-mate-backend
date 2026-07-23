@@ -136,6 +136,18 @@ export interface ContextualTermLookupRecord {
   save: ContextualSaveRecord | null;
 }
 
+export interface SavableContextualTermRecord {
+  term: ContextualTermRecord;
+  parentSentence: ContextualParentSentenceRecord & {
+    contentVersion: number;
+  };
+  sourceArticle: {
+    id: string;
+    contentVersion: number;
+  };
+  isLookupEnabled: boolean;
+}
+
 const readerArticleSelect = {
   id: true,
   title: true,
@@ -226,6 +238,40 @@ const contextualTermSelect = {
   skill: true,
   isLookupEnabled: true,
   sentence: { select: contextualParentSentenceSelect },
+} as const;
+
+const savableContextualTermSelect = {
+  id: true,
+  value: true,
+  wordDisplay: true,
+  lemma: true,
+  unitType: true,
+  partOfSpeech: true,
+  ipa: true,
+  cefrLevel: true,
+  contextualMeaningVi: true,
+  definitionEn: true,
+  contextualExplanation: true,
+  synonyms: true,
+  antonyms: true,
+  collocations: true,
+  relatedTerms: true,
+  vocabularyTopic: true,
+  examples: true,
+  skill: true,
+  isLookupEnabled: true,
+  sentence: {
+    select: {
+      ...contextualParentSentenceSelect,
+      contentVersion: true,
+      article: {
+        select: {
+          id: true,
+          contentVersion: true,
+        },
+      },
+    },
+  },
 } as const;
 
 const SERIALIZABLE_RETRY_LIMIT = 3;
@@ -342,6 +388,42 @@ export class ReadingRepository {
         save,
       };
     });
+  }
+
+  async findContextualTermForSave(
+    termId: string,
+  ): Promise<SavableContextualTermRecord | null> {
+    const result = await this.prisma.articleSentenceTerm.findFirst({
+      where: {
+        id: termId,
+        isActive: true,
+        sentence: {
+          is: {
+            isActive: true,
+            article: {
+              is: {
+                status: ArticleStatus.PUBLISHED,
+              },
+            },
+          },
+        },
+      },
+      select: savableContextualTermSelect,
+    });
+    if (!result) return null;
+
+    const {
+      sentence: { article, ...parentSentence },
+      isLookupEnabled,
+      ...term
+    } = result;
+
+    return {
+      term,
+      parentSentence,
+      sourceArticle: article,
+      isLookupEnabled,
+    };
   }
 
   async listUserHistory(

@@ -17,6 +17,7 @@ import {
   type ReadingHistoryRecord,
   ReadingProgressMutationConflictError,
   type ReaderProgressRecord,
+  type SavableContextualTermRecord,
   ReadingRepository,
 } from './reading.repository';
 
@@ -65,6 +66,25 @@ export class ReadingService {
       parentSentence: result.parentSentence,
       saveState: this.mapSaveState(result),
     };
+  }
+
+  async getContextualTermForSave(
+    termId: string,
+  ): Promise<SavableContextualTermRecord> {
+    const result =
+      await this.readingRepository.findContextualTermForSave(termId);
+    if (
+      !result ||
+      result.parentSentence.contentVersion !==
+        result.sourceArticle.contentVersion
+    ) {
+      throw new NotFoundException('Published contextual term not found');
+    }
+    if (!result.isLookupEnabled) {
+      throw new ForbiddenException('Contextual term lookup is disabled');
+    }
+
+    return result;
   }
 
   async getHistory(userId: string, query: ReadingHistoryQueryDto) {

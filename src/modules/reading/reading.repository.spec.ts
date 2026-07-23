@@ -72,6 +72,7 @@ describe('ReadingRepository', () => {
           provide: PrismaService,
           useValue: {
             article: { findFirst: articleFindFirst },
+            articleSentenceTerm: { findFirst: termFindFirst },
             userArticleProgress: {
               findMany: progressFindMany,
               count: progressCount,
@@ -473,5 +474,64 @@ describe('ReadingRepository', () => {
     expect(progressDeleteMany).toHaveBeenCalledWith({
       where: { userId: 'owner-id', articleId: 'article-id' },
     });
+  });
+
+  it('projects the published active source needed for an immutable vocabulary snapshot', async () => {
+    termFindFirst.mockResolvedValue({
+      id: 'term-id',
+      value: 'harmful',
+      wordDisplay: 'harmful',
+      lemma: 'harmful',
+      unitType: 'WORD',
+      partOfSpeech: 'adjective',
+      ipa: null,
+      cefrLevel: 'B1',
+      contextualMeaningVi: 'có hại',
+      definitionEn: null,
+      contextualExplanation: null,
+      synonyms: [],
+      antonyms: [],
+      collocations: [],
+      relatedTerms: [],
+      vocabularyTopic: null,
+      examples: [],
+      skill: null,
+      isLookupEnabled: true,
+      sentence: {
+        id: 'sentence-id',
+        sentenceOrder: 1,
+        sentenceText: 'It is harmful.',
+        translationVi: 'Điều đó có hại.',
+        explanationVi: null,
+        referenceExplanation: null,
+        skill: null,
+        contentVersion: 4,
+        article: { id: 'article-id', contentVersion: 4 },
+      },
+    });
+
+    await expect(
+      repository.findContextualTermForSave('term-id'),
+    ).resolves.toMatchObject({
+      term: { id: 'term-id' },
+      parentSentence: { id: 'sentence-id', contentVersion: 4 },
+      sourceArticle: { id: 'article-id', contentVersion: 4 },
+      isLookupEnabled: true,
+    });
+
+    const query = termFindFirst.mock.calls[0][0];
+    expect(query.where).toEqual({
+      id: 'term-id',
+      isActive: true,
+      sentence: {
+        is: {
+          isActive: true,
+          article: { is: { status: ArticleStatus.PUBLISHED } },
+        },
+      },
+    });
+    expect(JSON.stringify(query.select)).not.toMatch(
+      /createdAt|updatedAt|createdBy|updatedBy|contentHtml/,
+    );
   });
 });
