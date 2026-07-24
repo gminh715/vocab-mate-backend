@@ -133,6 +133,33 @@ describe('ArticlePublicationService', () => {
     );
   });
 
+  it('accepts equivalent entity and void-tag serialization but rejects unsafe markup', () => {
+    const equivalent = createSnapshot();
+    equivalent.article.contentHtml = equivalent.article.contentHtml.replace(
+      'Digital ',
+      '<br>Digital &#x201c;',
+    );
+    equivalent.article.contentHtml = equivalent.article.contentHtml.replace(
+      ' improve',
+      '&#x201d; improve',
+    );
+
+    expect(
+      service.validateForPublication(equivalent).map(({ code }) => code),
+    ).not.toContain('UNSANITIZED_CONTENT_HTML');
+
+    const unsafe = createSnapshot();
+    unsafe.article.contentHtml = unsafe.article.contentHtml.replace(
+      '<p>',
+      '<p onclick="bad()">',
+    );
+    expect(service.validateForPublication(unsafe)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'UNSANITIZED_CONTENT_HTML' }),
+      ]),
+    );
+  });
+
   it.each([ArticleStatus.PUBLISHED, ArticleStatus.ARCHIVED])(
     'rejects publish from %s',
     async (status) => {

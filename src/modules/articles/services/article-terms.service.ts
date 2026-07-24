@@ -19,6 +19,7 @@ import {
   TermMarkerNotFoundError,
   TermValueNotFoundError,
 } from '../helpers/term-marker.helper';
+import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import {
   ArticleTermReferencedError,
   ArticleTermStateConflictError,
@@ -63,12 +64,14 @@ export class ArticleTermsService {
     const termId = randomUUID();
     let updatedContentHtml: string;
     try {
-      updatedContentHtml = TermMarkerHelper.insert(
-        context.article.contentHtml,
-        sentenceId,
-        termId,
-        dto.value,
-        dto.unitType,
+      updatedContentHtml = HtmlSanitizerHelper.sanitize(
+        TermMarkerHelper.insert(
+          context.article.contentHtml,
+          sentenceId,
+          termId,
+          dto.value,
+          dto.unitType,
+        ),
       );
     } catch (error: unknown) {
       this.mapMarkerError(error);
@@ -164,12 +167,14 @@ export class ArticleTermsService {
           nextValue,
           nextUnitType,
         );
-        updatedContentHtml = TermMarkerHelper.replace(
-          context.article.contentHtml,
-          context.sentence.id,
-          termId,
-          nextValue,
-          nextUnitType,
+        updatedContentHtml = HtmlSanitizerHelper.sanitize(
+          TermMarkerHelper.replace(
+            context.article.contentHtml,
+            context.sentence.id,
+            termId,
+            nextValue,
+            nextUnitType,
+          ),
         );
       }
     } catch (error: unknown) {
@@ -221,10 +226,12 @@ export class ArticleTermsService {
 
     let updatedContentHtml: string;
     try {
-      updatedContentHtml = TermMarkerHelper.unwrap(
-        context.article.contentHtml,
-        context.sentence.id,
-        termId,
+      updatedContentHtml = HtmlSanitizerHelper.sanitize(
+        TermMarkerHelper.unwrap(
+          context.article.contentHtml,
+          context.sentence.id,
+          termId,
+        ),
       );
     } catch (error: unknown) {
       this.mapMarkerError(error);

@@ -230,7 +230,7 @@ export class ArticlePublicationService {
         'Article content must contain supported non-empty HTML.',
         article.id,
       );
-    } else if (sanitizedHtml !== article.contentHtml) {
+    } else if (!HtmlSanitizerHelper.isWithinPolicy(article.contentHtml)) {
       addIssue(
         'UNSANITIZED_CONTENT_HTML',
         'Article content contains markup outside the HTML allowlist.',

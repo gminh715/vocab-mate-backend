@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { ArticleStatus } from '../../../../generated/prisma/enums';
 import { SentenceParserHelper } from '../helpers/sentence-parser.helper';
+import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import {
   ArticlesRepository,
   type ReplaceParsedContentInput,
@@ -56,6 +57,9 @@ describe('ArticleSentencesService', () => {
         ].map((match) => match[1]),
       ),
     ).toEqual(new Set(input.sentences.map(({ id }) => id)));
+    expect(input.annotatedContentHtml).toBe(
+      HtmlSanitizerHelper.sanitize(input.annotatedContentHtml),
+    );
   });
 
   it('rejects duplicate parsing unless force is true', async () => {
