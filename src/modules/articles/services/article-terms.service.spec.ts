@@ -9,6 +9,7 @@ import {
   ArticlesRepository,
   type TermMarkerWriteInput,
 } from '../repositories/articles.repository';
+import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import { ArticleTermsService } from './article-terms.service';
 
 const sentenceId = '11111111-1111-4111-8111-111111111111';
@@ -120,6 +121,9 @@ describe('ArticleTermsService', () => {
     );
 
     expect(result.updatedContentHtml.match(/data-term-id=/g)).toHaveLength(2);
+    expect(result.updatedContentHtml).toBe(
+      HtmlSanitizerHelper.sanitize(result.updatedContentHtml),
+    );
     expect(repository.createTermWithMarker).toHaveBeenCalledTimes(1);
     expect(repository.createTermWithMarker).toHaveBeenCalledWith(
       expect.objectContaining({

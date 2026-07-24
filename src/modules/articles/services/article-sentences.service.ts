@@ -57,6 +57,9 @@ export class ArticleSentencesService {
 
     const sanitizedContent = HtmlSanitizerHelper.sanitize(state.contentHtml);
     const parsed = SentenceParserHelper.parse(sanitizedContent);
+    const annotatedContentHtml = HtmlSanitizerHelper.sanitize(
+      parsed.contentHtml,
+    );
     if (parsed.sentences.length === 0) {
       throw new UnprocessableEntityException(
         'Article content contains no parseable reading sentences',
@@ -68,7 +71,7 @@ export class ArticleSentencesService {
         articleId,
         contentVersion: state.contentVersion,
         sourceContentHtml: state.contentHtml,
-        annotatedContentHtml: parsed.contentHtml,
+        annotatedContentHtml,
         actingAdminId,
         sentences: parsed.sentences,
       });
@@ -89,7 +92,7 @@ export class ArticleSentencesService {
     return {
       contentVersion: state.contentVersion,
       sentenceCount: parsed.sentences.length,
-      contentHtml: parsed.contentHtml,
+      contentHtml: annotatedContentHtml,
     };
   }
 

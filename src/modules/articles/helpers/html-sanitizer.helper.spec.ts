@@ -29,6 +29,28 @@ describe('HtmlSanitizerHelper', () => {
     );
   });
 
+  it('allows only supported text alignment styles', () => {
+    const result = HtmlSanitizerHelper.sanitize(
+      '<p style="text-align: center; color: red">Centered</p><h2 style="text-align: justify">Heading</h2>',
+    );
+
+    expect(result).toBe(
+      '<p style="text-align:center">Centered</p><h2 style="text-align:justify">Heading</h2>',
+    );
+  });
+
+  it('treats entity and void-tag serialization as policy-equivalent', () => {
+    const serialized =
+      '<p><span data-sentence-id="s1"><br>Quoted &#x201c;text&#x201d;.</span></p>';
+
+    expect(HtmlSanitizerHelper.isWithinPolicy(serialized)).toBe(true);
+    expect(
+      HtmlSanitizerHelper.isWithinPolicy(
+        '<p onclick="bad()">Unsafe<script>alert(1)</script></p>',
+      ),
+    ).toBe(false);
+  });
+
   it('is deterministic', () => {
     const input = '<p><a href="https://example.com">Safe</a></p>';
     expect(HtmlSanitizerHelper.sanitize(input)).toBe(
