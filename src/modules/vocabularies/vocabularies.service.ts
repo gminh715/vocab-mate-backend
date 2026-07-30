@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -9,6 +10,8 @@ import { ReadingService } from '../reading/reading.service';
 import type {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
+  UpdateLearningStatusDto,
+  UpdatePersonalNoteDto,
 } from './dto/vocabulary-request.dto';
 import {
   InvalidVocabularyCollectionsError,
@@ -74,7 +77,56 @@ export class VocabulariesService {
     };
   }
 
+  async updateNote(
+    userId: string,
+    userVocabularyId: string,
+    dto: UpdatePersonalNoteDto,
+  ) {
+    await this.findOne(userId, userVocabularyId);
+    const note = dto.personalNote ? dto.personalNote.trim() : null;
+    await this.vocabulariesRepository.updatePersonalNote(
+      userId,
+      userVocabularyId,
+      note || null,
+    );
+    return this.findOne(userId, userVocabularyId);
+  }
+
+  async updateStatus(
+    userId: string,
+    userVocabularyId: string,
+    dto: UpdateLearningStatusDto,
+  ) {
+    await this.findOne(userId, userVocabularyId);
+    await this.vocabulariesRepository.updateLearningStatus(
+      userId,
+      userVocabularyId,
+      dto.learningStatus,
+    );
+    return this.findOne(userId, userVocabularyId);
+  }
+
+  async remove(userId: string, userVocabularyId: string) {
+    await this.findOne(userId, userVocabularyId);
+    try {
+      await this.vocabulariesRepository.deleteOwned(userId, userVocabularyId);
+    } catch (error: unknown) {
+      if (hasPrismaCode(error, 'P2003')) {
+        throw new ConflictException(
+          'Saved vocabulary is referenced in review history',
+        );
+      }
+      throw error;
+    }
+  }
+
   async save(userId: string, dto: SaveVocabularyDto) {
+    if (!dto.collectionIds?.length) {
+      throw new BadRequestException(
+        'At least one collection is required to save vocabulary',
+      );
+    }
+
     const source = await this.readingService.getContextualTermForSave(
       dto.articleSentenceTermId,
     );
@@ -88,7 +140,7 @@ export class VocabulariesService {
     }
 
     const collectionIds = [
-      ...new Set((dto.collectionIds ?? []).map((id) => id.toLowerCase())),
+      ...new Set(dto.collectionIds.map((id) => id.toLowerCase())),
     ];
     try {
       const result = await this.vocabulariesRepository.createWithCollections(

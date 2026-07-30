@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -45,18 +46,13 @@ export class RegisterDto {
   @IsEnum(CefrLevel)
   currentCefrLevel!: CefrLevel;
 
-  @ApiPropertyOptional({ example: 'Learn 10 words per day', maxLength: 500 })
+  @ApiPropertyOptional({ enum: CefrLevel, example: CefrLevel.B2 })
   @IsOptional()
-  @Transform(trimString)
-  @IsString()
-  @MaxLength(500)
-  learningGoal?: string;
+  @IsEnum(CefrLevel)
+  learningGoal?: CefrLevel;
 
-  @ApiPropertyOptional({ example: 'vi', default: 'vi', maxLength: 20 })
+  @ApiPropertyOptional({ enum: ['vi', 'en'], example: 'vi', default: 'vi' })
   @IsOptional()
-  @Transform(trimString)
-  @IsString()
-  @MinLength(2)
-  @MaxLength(20)
+  @IsIn(['vi', 'en'])
   preferredLanguage?: string;
 }

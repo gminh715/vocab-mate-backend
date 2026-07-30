@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { CefrLevel } from '../../../generated/prisma/enums';
 import type { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 import {
   AuthUserRecord,
@@ -14,6 +15,29 @@ import {
   UpdateMyProfileInput,
   UsersRepository,
 } from './users.repository';
+
+const CEFR_ORDER: Record<CefrLevel, number> = {
+  A1: 0,
+  A2: 1,
+  B1: 2,
+  B2: 3,
+  C1: 4,
+  C2: 5,
+};
+
+const validateLearningGoalConstraint = (
+  currentCefrLevel: CefrLevel,
+  learningGoal?: CefrLevel | null,
+) => {
+  if (
+    learningGoal &&
+    CEFR_ORDER[learningGoal] <= CEFR_ORDER[currentCefrLevel]
+  ) {
+    throw new BadRequestException(
+      'Learning goal CEFR level must be higher than current CEFR level',
+    );
+  }
+};
 
 const isUniqueConstraintError = (error: unknown): error is { code: 'P2002' } =>
   typeof error === 'object' &&
@@ -87,6 +111,15 @@ export class UsersService {
       throw new BadRequestException('At least one profile field is required');
     }
 
+    const currentAccount = await this.getMe(userId);
+    const targetCefr =
+      input.currentCefrLevel ?? currentAccount.profile.currentCefrLevel;
+    const targetGoal =
+      input.learningGoal !== undefined
+        ? input.learningGoal
+        : currentAccount.profile.learningGoal;
+    validateLearningGoalConstraint(targetCefr, targetGoal);
+
     try {
       return await this.usersRepository.updateMyProfile(userId, input);
     } catch (error: unknown) {
@@ -101,6 +134,7 @@ export class UsersService {
   async createRegisteredUser(
     input: CreateRegisteredUserInput,
   ): Promise<PublicUserRecord> {
+    validateLearningGoalConstraint(input.currentCefrLevel, input.learningGoal);
     try {
       return await this.usersRepository.createWithProfile(input);
     } catch (error: unknown) {

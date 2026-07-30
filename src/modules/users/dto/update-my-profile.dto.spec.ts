@@ -12,20 +12,27 @@ describe('UpdateMyProfileDto', () => {
   it('trims supported text fields', async () => {
     const dto = plainToInstance(UpdateMyProfileDto, {
       displayName: '  Nguyen Van A  ',
-      learningGoal: '  Learn daily  ',
       preferredLanguage: '  vi  ',
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
     expect(dto).toMatchObject({
       displayName: 'Nguyen Van A',
-      learningGoal: 'Learn daily',
       preferredLanguage: 'vi',
     });
   });
 
+  it('accepts valid CEFR enum for learningGoal', async () => {
+    const dto = plainToInstance(UpdateMyProfileDto, {
+      learningGoal: 'B2',
+    });
+
+    await expect(validate(dto)).resolves.toHaveLength(0);
+  });
+
   it.each([
     ['invalid CEFR level', { currentCefrLevel: 'B9' }],
+    ['invalid learningGoal CEFR', { learningGoal: 'INVALID' }],
     ['blank display name', { displayName: '   ' }],
     ['invalid avatar URL', { avatarUrl: 'not-a-url' }],
     ['explicit null', { learningGoal: null }],

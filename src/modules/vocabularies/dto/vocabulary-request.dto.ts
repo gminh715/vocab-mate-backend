@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -129,19 +130,39 @@ export class SaveVocabularyDto {
   @MaxLength(MAX_PERSONAL_NOTE_LENGTH)
   personalNote?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     type: [String],
     items: { type: 'string', format: 'uuid' },
+    minItems: 1,
     maxItems: MAX_COLLECTION_IDS,
     example: [
       '550e8400-e29b-41d4-a716-446655440010',
       '550e8400-e29b-41d4-a716-446655440011',
     ],
   })
-  @IsOptional()
   @Transform(trimStringArray)
   @IsArray()
+  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_COLLECTION_IDS)
   @IsUUID(undefined, { each: true })
-  collectionIds?: string[];
+  collectionIds!: string[];
+}
+
+export class UpdatePersonalNoteDto {
+  @ApiPropertyOptional({
+    example: 'Remember the negative connotation.',
+    nullable: true,
+    maxLength: MAX_PERSONAL_NOTE_LENGTH,
+  })
+  @IsOptional()
+  @Transform(trimString)
+  @IsString()
+  @MaxLength(MAX_PERSONAL_NOTE_LENGTH)
+  personalNote?: string | null;
+}
+
+export class UpdateLearningStatusDto {
+  @ApiProperty({ enum: LearningStatus })
+  @IsEnum(LearningStatus)
+  learningStatus!: LearningStatus;
 }

@@ -22,7 +22,7 @@ const account: MyAccountRecord & {
     displayName: 'Nguyen Van A',
     avatarUrl: null,
     currentCefrLevel: 'B1',
-    learningGoal: 'Learn 10 words per day',
+    learningGoal: 'B2',
     preferredLanguage: 'vi',
   },
 };
@@ -74,9 +74,11 @@ describe('UsersService', () => {
   });
 
   it('updates only the supplied profile fields for the authenticated user', async () => {
+    repository.findMyAccount.mockResolvedValue(account);
     const dto = {
       displayName: 'Updated Name',
       currentCefrLevel: 'B2' as const,
+      learningGoal: 'C1' as const,
     };
     const updated: UpdatedMyProfileRecord = {
       user: {
@@ -93,6 +95,18 @@ describe('UsersService', () => {
     expect(repository.updateMyProfile).toHaveBeenCalledWith(account.id, dto);
   });
 
+  it('rejects a learning goal that is equal to or lower than current CEFR level', async () => {
+    repository.findMyAccount.mockResolvedValue(account);
+    const dto = {
+      learningGoal: 'B1' as const, // account has currentCefrLevel: 'B1'
+    };
+
+    await expect(service.updateMe(account.id, dto)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(repository.updateMyProfile).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty PATCH', async () => {
     await expect(service.updateMe(account.id, {})).rejects.toBeInstanceOf(
       BadRequestException,
@@ -101,6 +115,7 @@ describe('UsersService', () => {
   });
 
   it('maps a missing profile update to NotFoundException', async () => {
+    repository.findMyAccount.mockResolvedValue(account);
     repository.updateMyProfile.mockRejectedValue(
       Object.assign(new Error('not found'), { code: 'P2025' }),
     );

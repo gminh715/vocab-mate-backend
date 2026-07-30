@@ -42,7 +42,7 @@ describe('Vocabulary request DTOs', () => {
     );
   });
 
-  it('requires collectionIds to be a UUID array and trims personalNote', async () => {
+  it('requires at least one collection UUID and trims personalNote', async () => {
     const dto = plainToInstance(SaveVocabularyDto, {
       articleSentenceTermId: TERM_ID,
       personalNote: '  Remember this  ',
@@ -58,17 +58,28 @@ describe('Vocabulary request DTOs', () => {
       collectionIds: COLLECTION_ID,
     });
     await expect(validate(invalid)).resolves.not.toHaveLength(0);
+
+    for (const collectionIds of [undefined, []]) {
+      const withoutCollection = plainToInstance(SaveVocabularyDto, {
+        articleSentenceTermId: TERM_ID,
+        ...(collectionIds === undefined ? {} : { collectionIds }),
+      });
+      const errors = await validate(withoutCollection);
+      expect(errors.map(({ property }) => property)).toContain('collectionIds');
+    }
   });
 
   it('rejects blank notes and client-controlled snapshot or scheduling fields', async () => {
     const blank = plainToInstance(SaveVocabularyDto, {
       articleSentenceTermId: TERM_ID,
       personalNote: '   ',
+      collectionIds: [COLLECTION_ID],
     });
     await expect(validate(blank)).resolves.not.toHaveLength(0);
 
     const injected = plainToInstance(SaveVocabularyDto, {
       articleSentenceTermId: TERM_ID,
+      collectionIds: [COLLECTION_ID],
       learningStatus: 'MASTERED',
       savedMeaningVi: 'client value',
       nextReviewAt: new Date().toISOString(),

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -283,6 +284,21 @@ describe('VocabulariesService', () => {
     );
   });
 
+  it('rejects saving vocabulary without a collection before reading the source', async () => {
+    await expect(
+      service.save('owner-id', {
+        articleSentenceTermId: TERM_ID,
+        collectionIds: [],
+      }),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'At least one collection is required to save vocabulary',
+      ),
+    );
+    expect(readingService.getContextualTermForSave).not.toHaveBeenCalled();
+    expect(repository.createWithCollections).not.toHaveBeenCalled();
+  });
+
   it('rejects a missing required translation with a structured readiness error', async () => {
     readingService.getContextualTermForSave.mockResolvedValue({
       ...sourceRecord(),
@@ -293,7 +309,10 @@ describe('VocabulariesService', () => {
     });
 
     await expect(
-      service.save('owner-id', { articleSentenceTermId: TERM_ID }),
+      service.save('owner-id', {
+        articleSentenceTermId: TERM_ID,
+        collectionIds: [COLLECTION_ID],
+      }),
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(repository.createWithCollections).not.toHaveBeenCalled();
   });
@@ -307,7 +326,10 @@ describe('VocabulariesService', () => {
     readingService.getContextualTermForSave.mockRejectedValue(error);
 
     await expect(
-      service.save('owner-id', { articleSentenceTermId: TERM_ID }),
+      service.save('owner-id', {
+        articleSentenceTermId: TERM_ID,
+        collectionIds: [COLLECTION_ID],
+      }),
     ).rejects.toBe(error);
     expect(repository.createWithCollections).not.toHaveBeenCalled();
   });
@@ -319,7 +341,10 @@ describe('VocabulariesService', () => {
     );
 
     await expect(
-      service.save('owner-id', { articleSentenceTermId: TERM_ID }),
+      service.save('owner-id', {
+        articleSentenceTermId: TERM_ID,
+        collectionIds: [COLLECTION_ID],
+      }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 

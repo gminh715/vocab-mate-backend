@@ -72,6 +72,21 @@ const collectionItemsSelect = (userId: string) =>
     },
   }) as const;
 
+export const dueVocabularyWhere = (
+  now: Date,
+): Prisma.UserVocabularyWhereInput => ({
+  learningStatus: {
+    in: [LearningStatus.NEW, LearningStatus.LEARNING, LearningStatus.REVIEWING],
+  },
+  OR: [
+    { nextReviewAt: { lte: now } },
+    {
+      learningStatus: LearningStatus.NEW,
+      nextReviewAt: null,
+    },
+  ],
+});
+
 export const vocabularySnapshotListSelect = {
   id: true,
   articleSentenceTermId: true,
@@ -181,22 +196,7 @@ export class VocabulariesRepository {
       });
     }
     if (query.dueOnly) {
-      filters.push({
-        learningStatus: {
-          in: [
-            LearningStatus.NEW,
-            LearningStatus.LEARNING,
-            LearningStatus.REVIEWING,
-          ],
-        },
-        OR: [
-          { nextReviewAt: { lte: now } },
-          {
-            learningStatus: LearningStatus.NEW,
-            nextReviewAt: null,
-          },
-        ],
-      });
+      filters.push(dueVocabularyWhere(now));
     }
 
     const where: Prisma.UserVocabularyWhereInput = {
@@ -265,5 +265,35 @@ export class VocabulariesRepository {
         select: vocabularyDetailSelect(userId),
       });
     });
+  }
+
+  updatePersonalNote(userId: string, id: string, note: string | null) {
+    return this.prisma.userVocabulary.updateMany({
+      where: { id, userId },
+      data: { personalNote: note },
+    });
+  }
+
+  updateLearningStatus(
+    userId: string,
+    id: string,
+    learningStatus: LearningStatusType,
+  ) {
+    return this.prisma.userVocabulary.updateMany({
+      where: { id, userId },
+      data: { learningStatus },
+    });
+  }
+
+  async deleteOwned(userId: string, id: string) {
+    const record = await this.prisma.userVocabulary.findFirst({
+      where: { id, userId },
+    });
+    if (!record) return false;
+
+    await this.prisma.userVocabulary.delete({
+      where: { id },
+    });
+    return true;
   }
 }

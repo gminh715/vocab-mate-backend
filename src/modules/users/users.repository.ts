@@ -23,7 +23,7 @@ export interface CreateRegisteredUserInput {
   passwordHash: string;
   displayName: string;
   currentCefrLevel: CefrLevel;
-  learningGoal?: string;
+  learningGoal?: CefrLevel;
   preferredLanguage?: string;
 }
 
@@ -31,7 +31,7 @@ export interface UserProfileRecord {
   displayName: string;
   avatarUrl: string | null;
   currentCefrLevel: CefrLevel;
-  learningGoal: string | null;
+  learningGoal: CefrLevel | null;
   preferredLanguage: string;
 }
 
@@ -43,7 +43,7 @@ export interface UpdateMyProfileInput {
   displayName?: string;
   avatarUrl?: string;
   currentCefrLevel?: CefrLevel;
-  learningGoal?: string;
+  learningGoal?: CefrLevel;
   preferredLanguage?: string;
 }
 

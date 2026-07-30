@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   UseFilters,
@@ -19,6 +21,7 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiInternalServerErrorResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -38,6 +41,8 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
+  UpdateLearningStatusDto,
+  UpdatePersonalNoteDto,
   VocabularyParamsDto,
 } from '../dto/vocabulary-request.dto';
 import {
@@ -137,5 +142,72 @@ export class VocabulariesController {
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   save(@CurrentUser() user: AuthenticatedUser, @Body() dto: SaveVocabularyDto) {
     return this.vocabulariesService.save(user.id, dto);
+  }
+
+  @Patch(':userVocabularyId')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'patchVocabularyNote',
+    summary: 'Update personal note of a saved vocabulary',
+  })
+  @ApiOkResponse({ type: VocabularyDetailSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  updateNote(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param() params: VocabularyParamsDto,
+    @Body() dto: UpdatePersonalNoteDto,
+  ) {
+    return this.vocabulariesService.updateNote(
+      user.id,
+      params.userVocabularyId,
+      dto,
+    );
+  }
+
+  @Patch(':userVocabularyId/status')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'patchVocabularyStatus',
+    summary: 'Update learning status of a saved vocabulary',
+  })
+  @ApiOkResponse({ type: VocabularyDetailSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  updateStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param() params: VocabularyParamsDto,
+    @Body() dto: UpdateLearningStatusDto,
+  ) {
+    return this.vocabulariesService.updateStatus(
+      user.id,
+      params.userVocabularyId,
+      dto,
+    );
+  }
+
+  @Delete(':userVocabularyId')
+  @Version('1')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    operationId: 'deleteVocabulary',
+    summary: 'Delete a saved vocabulary snapshot',
+  })
+  @ApiNoContentResponse({
+    description: 'Saved vocabulary deleted successfully.',
+  })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param() params: VocabularyParamsDto,
+  ): Promise<void> {
+    return this.vocabulariesService.remove(user.id, params.userVocabularyId);
   }
 }

@@ -52,6 +52,7 @@ interface SwaggerOperation {
 
 interface SwaggerSchema {
   properties: Record<string, { type?: string }>;
+  required?: string[];
 }
 
 const responseBody = <T>(response: { text: string }): T =>
@@ -379,6 +380,9 @@ describe('Vocabulary APIs (e2e)', () => {
       swagger.components.schemas.SaveVocabularyDto.properties.collectionIds
         .type,
     ).toBe('array');
+    expect(swagger.components.schemas.SaveVocabularyDto.required).toContain(
+      'collectionIds',
+    );
     expect(
       swagger.components.schemas.VocabularyDetailDataDto.properties.collections
         .type,
@@ -511,6 +515,19 @@ describe('Vocabulary APIs (e2e)', () => {
       .expect(422);
 
     expect(repository.rows).toHaveLength(initialCount);
+  });
+
+  it('rejects saving vocabulary without at least one collection', async () => {
+    for (const body of [
+      { articleSentenceTermId: SECOND_TERM_ID },
+      { articleSentenceTermId: SECOND_TERM_ID, collectionIds: [] },
+    ]) {
+      await request(app.getHttpServer())
+        .post('/api/v1/vocabularies')
+        .set('Authorization', 'Bearer user-a')
+        .send(body)
+        .expect(400);
+    }
   });
 
   it('rejects a scalar collectionId and client-controlled snapshot fields', async () => {

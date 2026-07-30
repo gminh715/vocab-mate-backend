@@ -16,8 +16,8 @@ export class MyProfileDto {
   @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1 })
   currentCefrLevel!: CefrLevel;
 
-  @ApiProperty({ example: 'Learn 10 words per day', nullable: true })
-  learningGoal!: string | null;
+  @ApiProperty({ enum: CefrLevel, example: CefrLevel.B2, nullable: true })
+  learningGoal!: CefrLevel | null;
 
   @ApiProperty({ example: 'vi' })
   preferredLanguage!: string;

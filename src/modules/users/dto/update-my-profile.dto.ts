@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsString,
   IsUrl,
   MaxLength,
@@ -42,18 +43,13 @@ export class UpdateMyProfileDto {
   @IsEnum(CefrLevel)
   currentCefrLevel?: CefrLevel;
 
-  @ApiPropertyOptional({ example: 'Learn 10 words per day', maxLength: 500 })
+  @ApiPropertyOptional({ enum: CefrLevel, example: CefrLevel.B2 })
   @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MaxLength(500)
-  learningGoal?: string;
+  @IsEnum(CefrLevel)
+  learningGoal?: CefrLevel;
 
-  @ApiPropertyOptional({ example: 'vi', minLength: 2, maxLength: 20 })
+  @ApiPropertyOptional({ enum: ['vi', 'en'], example: 'vi' })
   @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MinLength(2)
-  @MaxLength(20)
+  @IsIn(['vi', 'en'])
   preferredLanguage?: string;
 }
