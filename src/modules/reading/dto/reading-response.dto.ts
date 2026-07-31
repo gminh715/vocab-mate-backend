@@ -13,6 +13,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import {
+  AiGenerationStatus,
   ArticleStatus,
   CefrLevel,
   LearningStatus,
@@ -294,8 +295,8 @@ export class ContextualTermDto {
   @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1 })
   cefrLevel!: CefrLevel;
 
-  @ApiProperty({ example: 'có hại' })
-  contextualMeaningVi!: string;
+  @ApiProperty({ example: 'có hại', nullable: true })
+  contextualMeaningVi!: string | null;
 
   @ApiProperty({
     example: 'causing damage or injury',
@@ -308,6 +309,15 @@ export class ContextualTermDto {
     nullable: true,
   })
   contextualExplanation!: string | null;
+
+  @ApiProperty({
+    enum: AiGenerationStatus,
+    example: AiGenerationStatus.READY,
+  })
+  explanationStatus!: AiGenerationStatus;
+
+  @ApiProperty({ format: 'date-time', nullable: true })
+  explanationGeneratedAt!: Date | null;
 
   @ApiProperty({ type: [String], example: ['damaging'] })
   synonyms!: string[];

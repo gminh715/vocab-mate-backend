@@ -15,7 +15,13 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { CefrLevel, LexicalUnitType } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  CefrLevel,
+  LexicalUnitType,
+  TermOrigin,
+  TermReviewStatus,
+} from '../../../../generated/prisma/enums';
 import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
 import {
   ArticleSentenceDto,
@@ -250,6 +256,21 @@ export class ArticleTermListQueryDto {
   @ValidateIf(isSupplied)
   @IsEnum(LexicalUnitType)
   unitType?: LexicalUnitType;
+
+  @ApiPropertyOptional({ enum: TermOrigin })
+  @ValidateIf(isSupplied)
+  @IsEnum(TermOrigin)
+  origin?: TermOrigin;
+
+  @ApiPropertyOptional({ enum: TermReviewStatus })
+  @ValidateIf(isSupplied)
+  @IsEnum(TermReviewStatus)
+  reviewStatus?: TermReviewStatus;
+
+  @ApiPropertyOptional({ enum: AiGenerationStatus })
+  @ValidateIf(isSupplied)
+  @IsEnum(AiGenerationStatus)
+  explanationStatus?: AiGenerationStatus;
 
   @ApiPropertyOptional()
   @ValidateIf(isSupplied)

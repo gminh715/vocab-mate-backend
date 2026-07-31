@@ -25,12 +25,16 @@ const CEFR_ORDER: Record<CefrLevel, number> = {
   C2: 5,
 };
 
+const isCefrLevel = (value: string): value is CefrLevel =>
+  Object.hasOwn(CEFR_ORDER, value);
+
 const validateLearningGoalConstraint = (
   currentCefrLevel: CefrLevel,
-  learningGoal?: CefrLevel | null,
+  learningGoal?: string | null,
 ) => {
   if (
     learningGoal &&
+    isCefrLevel(learningGoal) &&
     CEFR_ORDER[learningGoal] <= CEFR_ORDER[currentCefrLevel]
   ) {
     throw new BadRequestException(

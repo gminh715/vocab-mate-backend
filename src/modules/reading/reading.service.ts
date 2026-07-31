@@ -4,9 +4,16 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { ReadingStatus } from '../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ReadingStatus,
+} from '../../../generated/prisma/enums';
 import { isCefrAtOrAbove } from '../../common/utils/cefr-level.util';
+import type { TermEnrichmentResult } from '../ai/ai.contracts';
+import { AiService } from '../ai/ai.service';
 import { ArticleContentService } from '../articles/services/article-content.service';
 import type {
   ReadingHistoryQueryDto,
@@ -14,6 +21,8 @@ import type {
 } from './dto/reading-response.dto';
 import {
   type ContextualTermLookupRecord,
+  type ContextualTermEnrichmentClaimRecord,
+  ContextualTermEnrichmentStateConflictError,
   type ReadingHistoryRecord,
   ReadingProgressMutationConflictError,
   type ReaderProgressRecord,
@@ -21,11 +30,15 @@ import {
   ReadingRepository,
 } from './reading.repository';
 
+const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
 @Injectable()
 export class ReadingService {
   constructor(
     private readonly readingRepository: ReadingRepository,
     private readonly articleContentService: ArticleContentService,
+    private readonly aiService: AiService,
   ) {}
 
   async getReaderArticle(userId: string, slug: string) {
@@ -49,23 +62,105 @@ export class ReadingService {
   }
 
   async getContextualTerm(userId: string, articleId: string, termId: string) {
-    const result = await this.readingRepository.findContextualTerm(
+    const cached = await this.readingRepository.findContextualTerm(
       userId,
       articleId,
       termId,
     );
-    if (!result) {
-      throw new NotFoundException('Published contextual term not found');
+    this.requireLookupAccessible(cached);
+
+    if (cached.term.explanationStatus === AiGenerationStatus.READY) {
+      return this.mapContextualTerm(cached);
     }
-    if (!result.isLookupEnabled) {
-      throw new ForbiddenException('Contextual term lookup is disabled');
+    if (cached.term.explanationStatus === AiGenerationStatus.PROCESSING) {
+      this.throwEnrichmentUnavailable();
     }
 
-    return {
-      term: result.term,
-      parentSentence: result.parentSentence,
-      saveState: this.mapSaveState(result),
-    };
+    const claim = await this.readingRepository.claimContextualTermEnrichment(
+      articleId,
+      termId,
+    );
+    if (!claim) {
+      const refreshed = await this.readingRepository.findContextualTerm(
+        userId,
+        articleId,
+        termId,
+      );
+      this.requireLookupAccessible(refreshed);
+      if (refreshed.term.explanationStatus === AiGenerationStatus.READY) {
+        return this.mapContextualTerm(refreshed);
+      }
+      this.throwEnrichmentUnavailable();
+    }
+
+    let enrichment: TermEnrichmentResult;
+    try {
+      enrichment = await this.aiService.enrichContextualTerm({
+        articleId: claim.article.id,
+        articleTitle: claim.article.title,
+        termId: claim.term.id,
+        value: claim.term.value,
+        wordDisplay: claim.term.wordDisplay,
+        lemma: claim.term.lemma,
+        normalizedLemma: claim.term.normalizedLemma,
+        unitType: claim.term.unitType,
+        partOfSpeech: claim.term.partOfSpeech,
+        cefrLevel: claim.term.cefrLevel,
+        parentSentenceText: claim.parentSentence.sentenceText,
+        surroundingSentenceContext: this.buildSurroundingContext(claim),
+      });
+    } catch {
+      await this.readingRepository.failContextualTermEnrichment(
+        claim.article.id,
+        claim.article.contentVersion,
+        claim.term.id,
+        this.sanitizeEnrichmentError(
+          'AI contextual-term enrichment failed safely',
+        ),
+      );
+      throw new ServiceUnavailableException(
+        'Contextual term enrichment is temporarily unavailable; retry later',
+      );
+    }
+
+    try {
+      await this.readingRepository.completeContextualTermEnrichment({
+        articleId: claim.article.id,
+        contentVersion: claim.article.contentVersion,
+        termId: claim.term.id,
+        parentSentenceId: claim.parentSentence.id,
+        generatedAt: new Date(),
+        enrichment,
+      });
+    } catch (error: unknown) {
+      await this.readingRepository.failContextualTermEnrichment(
+        claim.article.id,
+        claim.article.contentVersion,
+        claim.term.id,
+        this.sanitizeEnrichmentError(
+          'Contextual term source changed during enrichment',
+        ),
+      );
+      if (error instanceof ContextualTermEnrichmentStateConflictError) {
+        throw new ConflictException(
+          'Article or contextual term changed during enrichment; retry the lookup',
+        );
+      }
+      throw error;
+    }
+
+    const enriched = await this.readingRepository.findContextualTerm(
+      userId,
+      articleId,
+      termId,
+    );
+    this.requireLookupAccessible(enriched);
+    if (enriched.term.explanationStatus !== AiGenerationStatus.READY) {
+      throw new ConflictException(
+        'Contextual term enrichment did not reach a ready state; retry the lookup',
+      );
+    }
+    return this.mapContextualTerm(enriched);
   }
 
   async getContextualTermForSave(
@@ -82,6 +177,22 @@ export class ReadingService {
     }
     if (!result.isLookupEnabled) {
       throw new ForbiddenException('Contextual term lookup is disabled');
+    }
+    if (result.term.explanationStatus !== AiGenerationStatus.READY) {
+      throw new UnprocessableEntityException(
+        'Contextual term is not ready to be saved',
+      );
+    }
+    this.requireSavableText(result.term.wordDisplay);
+    this.requireSavableText(result.term.lemma);
+    this.requireSavableText(result.term.partOfSpeech);
+    this.requireSavableText(result.term.contextualMeaningVi);
+    this.requireSavableText(result.parentSentence.sentenceText);
+    this.requireSavableText(result.parentSentence.translationVi);
+    if (!this.hasCanonicalExamples(result.term.examples)) {
+      throw new UnprocessableEntityException(
+        'Contextual term is not ready to be saved',
+      );
     }
 
     return result;
@@ -215,6 +326,78 @@ export class ReadingService {
           userVocabularyId: null,
           learningStatus: null,
         };
+  }
+
+  private mapContextualTerm(result: ContextualTermLookupRecord) {
+    return {
+      term: result.term,
+      parentSentence: result.parentSentence,
+      saveState: this.mapSaveState(result),
+    };
+  }
+
+  private requireLookupAccessible(
+    result: ContextualTermLookupRecord | null,
+  ): asserts result is ContextualTermLookupRecord {
+    if (!result) {
+      throw new NotFoundException('Published contextual term not found');
+    }
+    if (!result.isLookupEnabled) {
+      throw new ForbiddenException('Contextual term lookup is disabled');
+    }
+  }
+
+  private throwEnrichmentUnavailable(): never {
+    throw new ServiceUnavailableException(
+      'Contextual term enrichment is already processing; retry later',
+    );
+  }
+
+  private buildSurroundingContext(
+    claim: ContextualTermEnrichmentClaimRecord,
+  ): string {
+    const context = claim.neighboringSentences
+      .filter(({ id }) => id !== claim.parentSentence.id)
+      .map(
+        ({ sentenceOrder, sentenceText }) =>
+          `[${sentenceOrder}] ${sentenceText.slice(0, 1000)}`,
+      )
+      .join('\n')
+      .slice(0, 4000)
+      .trim();
+
+    return context || claim.parentSentence.sentenceText.slice(0, 4000).trim();
+  }
+
+  private sanitizeEnrichmentError(message: string): string {
+    return message
+      .replace(/\s+/gu, ' ')
+      .replace(/[^\p{L}\p{N}\p{P}\p{Zs}]/gu, '')
+      .trim()
+      .slice(0, 500);
+  }
+
+  private requireSavableText(value: string | null): void {
+    if (!value?.trim()) {
+      throw new UnprocessableEntityException(
+        'Contextual term is not ready to be saved',
+      );
+    }
+  }
+
+  private hasCanonicalExamples(value: unknown): boolean {
+    if (!Array.isArray(value) || value.length > 2) return false;
+    const examples: unknown[] = value;
+
+    return examples.every(
+      (example) =>
+        isUnknownRecord(example) &&
+        Object.keys(example).length === 2 &&
+        typeof example.sentence === 'string' &&
+        example.sentence.trim().length > 0 &&
+        typeof example.translationVi === 'string' &&
+        example.translationVi.trim().length > 0,
+    );
   }
 
   private mapHistoryItem(item: ReadingHistoryRecord) {

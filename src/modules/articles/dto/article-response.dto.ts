@@ -1,5 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArticleStatus, CefrLevel } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+  CefrLevel,
+} from '../../../../generated/prisma/enums';
 import { PublicCategoryDto } from '../../categories/dto/category-response.dto';
 import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
 
@@ -123,6 +127,39 @@ export class AdminArticleListItemDto extends PublicArticleCardDto {
   @ApiProperty({ format: 'uuid' })
   categoryId!: string;
 
+  @ApiProperty({ example: 'guardian', nullable: true })
+  importSource!: string | null;
+
+  @ApiProperty({
+    example: 'technology/2026/jul/30/example-article',
+    nullable: true,
+  })
+  externalId!: string | null;
+
+  @ApiProperty({
+    example:
+      'https://www.theguardian.com/technology/2026/jul/30/example-article',
+    nullable: true,
+  })
+  canonicalUrl!: string | null;
+
+  @ApiProperty({
+    example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    nullable: true,
+    minLength: 64,
+    maxLength: 64,
+  })
+  contentHash!: string | null;
+
+  @ApiProperty({ format: 'date-time', nullable: true })
+  sourcePublishedAt!: Date | null;
+
+  @ApiProperty({ enum: AiGenerationStatus, nullable: true })
+  aiAnalysisStatus!: AiGenerationStatus | null;
+
+  @ApiProperty({ nullable: true })
+  aiAnalysisError!: string | null;
+
   @ApiProperty({ enum: ArticleStatus, example: ArticleStatus.DRAFT })
   status!: ArticleStatus;
 
@@ -172,6 +209,39 @@ export class AdminArticleDto {
 
   @ApiProperty({ nullable: true })
   thumbnailUrl!: string | null;
+
+  @ApiProperty({ example: 'guardian', nullable: true })
+  importSource!: string | null;
+
+  @ApiProperty({
+    example: 'technology/2026/jul/30/example-article',
+    nullable: true,
+  })
+  externalId!: string | null;
+
+  @ApiProperty({
+    example:
+      'https://www.theguardian.com/technology/2026/jul/30/example-article',
+    nullable: true,
+  })
+  canonicalUrl!: string | null;
+
+  @ApiProperty({
+    example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    nullable: true,
+    minLength: 64,
+    maxLength: 64,
+  })
+  contentHash!: string | null;
+
+  @ApiProperty({ format: 'date-time', nullable: true })
+  sourcePublishedAt!: Date | null;
+
+  @ApiProperty({ enum: AiGenerationStatus, nullable: true })
+  aiAnalysisStatus!: AiGenerationStatus | null;
+
+  @ApiProperty({ nullable: true })
+  aiAnalysisError!: string | null;
 
   @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1 })
   cefrLevel!: CefrLevel;

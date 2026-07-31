@@ -184,6 +184,33 @@ describe('ArticlesRepository admin queries', () => {
     );
   });
 
+  it('serializes count queries on the interactive transaction client', async () => {
+    articleFindUnique.mockResolvedValue({
+      id: 'article-id',
+      contentVersion: 3,
+      title: 'Article',
+    });
+    let resolveSentenceCount!: (value: number) => void;
+    sentenceCount.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSentenceCount = resolve;
+      }),
+    );
+
+    const result = repository.findAdminArticleDetail('article-id');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(sentenceCount).toHaveBeenCalledTimes(1);
+    expect(termCount).not.toHaveBeenCalled();
+    expect(quizCount).not.toHaveBeenCalled();
+
+    resolveSentenceCount(4);
+    await result;
+
+    expect(termCount).toHaveBeenCalledTimes(1);
+    expect(quizCount).toHaveBeenCalledTimes(1);
+  });
+
   it('forces draft/version/timestamps and trusted audits on create', async () => {
     articleCreate.mockResolvedValue({ id: 'article-id' });
 

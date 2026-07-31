@@ -25,6 +25,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
@@ -56,6 +57,7 @@ import {
   ParseArticleContentDto,
   ParseArticleContentSuccessResponseDto,
 } from '../dto/article-sentence.dto';
+import { ArticleAnalysisSuccessResponseDto } from '../dto/article-analysis.dto';
 import {
   AdminArticleDetailSuccessResponseDto,
   AdminArticleListSuccessResponseDto,
@@ -63,6 +65,7 @@ import {
   ArticleUpdateSuccessResponseDto,
 } from '../dto/article-response.dto';
 import { ArticlesService } from '../services/articles.service';
+import { ArticleAnalysisService } from '../services/article-analysis.service';
 import { ArticlePublicationService } from '../services/article-publication.service';
 import { ArticleSentencesService } from '../services/article-sentences.service';
 
@@ -76,6 +79,7 @@ import { ArticleSentencesService } from '../services/article-sentences.service';
 export class AdminArticlesController {
   constructor(
     private readonly articlesService: ArticlesService,
+    private readonly articleAnalysisService: ArticleAnalysisService,
     private readonly articleSentencesService: ArticleSentencesService,
     private readonly articlePublicationService: ArticlePublicationService,
   ) {}
@@ -168,6 +172,34 @@ export class AdminArticlesController {
     );
   }
 
+  @Post(':articleId/analyze')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'postAdminArticleAnalyze',
+    summary: 'Analyze a parsed draft and create pending AI term candidates',
+    description:
+      'Atomically claims one parsed DRAFT, runs bounded provider-neutral AI analysis outside a transaction, validates the remote result, then stores metadata and inactive pending term candidates only if the content version is unchanged.',
+  })
+  @ApiOkResponse({ type: ArticleAnalysisSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiForbiddenResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
+  @ApiUnprocessableEntityResponse({ type: ApiErrorResponseDto })
+  @ApiServiceUnavailableResponse({ type: ApiErrorResponseDto })
+  @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
+  analyze(
+    @CurrentUser() actingAdmin: AuthenticatedUser,
+    @Param() params: AdminArticleParamsDto,
+  ) {
+    return this.articleAnalysisService.analyze(
+      actingAdmin.id,
+      params.articleId,
+    );
+  }
+
   @Post(':articleId/publish')
   @Version('1')
   @HttpCode(HttpStatus.OK)
@@ -175,7 +207,7 @@ export class AdminArticlesController {
     operationId: 'postAdminArticlePublish',
     summary: 'Publish a validated draft article',
     description:
-      'Runs the shared publication checklist and conditionally transitions the unchanged draft to PUBLISHED.',
+      'Explicit ADMIN action that runs the shared publication checklist and conditionally transitions the unchanged draft to PUBLISHED. Analysis and moderation never publish automatically.',
   })
   @ApiOkResponse({ type: ArticlePublishSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

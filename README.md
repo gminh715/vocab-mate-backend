@@ -28,8 +28,108 @@
 ## Project setup
 
 ```bash
-$ npm install
+npm ci
+npm run prisma:generate
+npm run prisma:validate
 ```
+
+### Guardian Open Platform setup
+
+An API key is required. Register a key for this application through the
+Guardian Open Platform, copy `.env.example` to `.env`, and replace the safe
+placeholder:
+
+```dotenv
+GUARDIAN_API_KEY="replace-with-your-guardian-api-key"
+```
+
+The application uses only the official Content API `/search` endpoint. Metadata
+discovery does not request article text. An explicit admin sync requests article
+text with `show-fields=...,body`, validates and sanitizes it, and fails that item
+safely when Guardian does not return a usable body. It never requests the
+publisher `webUrl` and has no publisher-page scraping fallback.
+
+The Guardian currently documents Developer access as up to one call per second
+and 500 calls per day. This application imposes a stricter small page-size
+limit, bounded timeout and response size, one bounded retry for eligible
+failures, and a serialized process-local one-second request-start throttle.
+That in-memory throttle does not coordinate multiple application instances or
+provide a shared daily quota budget.
+
+No other Guardian environment variables are read: the official API URL and
+safety limits are fixed inside the backend. Guardian attribution and the
+original source link must remain visible wherever imported content is shown.
+Operators are responsible for staying within the access tier, content licence,
+attribution, retention, and other current Guardian terms. In particular, do not
+assume a Developer key authorizes AI processing: verify the intended use with
+the current terms and obtain the appropriate Guardian agreement or commercial
+access where required. At the time of this verification, the standard Open
+Platform terms also describe a 24-hour content lifecycle and restrictions on AI
+processing. Because this admin flow persists imported drafts and analyzes them,
+do not enable it under those standard terms without an agreement that permits
+the intended retention and AI use.
+
+`preferredLanguage` is only the user's UI display-language preference. It is
+not sent to Guardian or AI providers and does not select, translate, filter, or
+otherwise affect articles, explanations, vocabulary content, or ingestion.
+
+Guardian references:
+
+- [Content API search](https://open-platform.theguardian.com/documentation/search)
+- [Developer access limits](https://open-platform.theguardian.com/access/)
+- [Open Platform terms](https://www.theguardian.com/open-platform/terms-and-conditions)
+
+The ADMIN-only ingestion contracts remain:
+
+- `GET /api/v1/admin/news/search`: optional `q`, `section`, `fromDate`, and
+  `toDate`; `page` defaults to 1; `pageSize` defaults to 5 and is capped at 10;
+  `orderBy` is `newest`, `oldest`, or `relevance` and defaults to `newest`.
+- `POST /api/v1/admin/news/sync`: the same discovery fields plus required
+  `defaultCategoryId`; `pageSize` defaults to 5 and is capped at 5. Results are
+  imported independently as parsed `DRAFT` articles.
+
+Both operations require `q` or `section`. Search responses never expose
+Guardian `fields.body`; sync item responses never expose article content.
+
+### Admin-triggered learning flow
+
+There is no scheduler, queue, automatic publication, publisher scraper, or
+active GNews runtime integration. The supported synchronous flow is:
+
+1. An authenticated ADMIN searches Guardian metadata and syncs one bounded
+   result into a sanitized, parsed `DRAFT`.
+2. An authenticated ADMIN explicitly analyzes the unchanged parsed draft.
+   Gemini is attempted first and Groq is used only for eligible failures.
+3. AI candidates remain inactive and unmarked until an authenticated ADMIN
+   explicitly approves or rejects each candidate.
+4. An authenticated ADMIN explicitly publishes the validated draft.
+5. An authenticated user opens the reader and looks up an approved exact term
+   occurrence. Missing enrichment is generated outside a transaction and
+   cached by `article_sentence_terms.id`.
+6. The existing vocabulary endpoint saves an immutable contextual snapshot.
+   Later source-term enrichment changes do not rewrite saved vocabulary rows.
+
+### Manual Guardian learning-flow checklist
+
+- Use a non-production database and safe test accounts; confirm ADMIN routes
+  reject an unauthenticated user and a normal USER.
+- Search Guardian and confirm the API response contains metadata and source
+  links, but no `fields.body`, raw Guardian response, or complete key-bearing
+  request URL.
+- Sync one result and confirm a parsed `DRAFT` is created from sanitized
+  `fields.body`; confirm no request is made to `webUrl`.
+- Analyze the draft, approve one candidate, reject another, and confirm only the
+  approved occurrence receives exactly one `data-term-id` marker.
+- Publish explicitly, open the reader as a USER, and confirm the rejected term
+  is inaccessible.
+- Look up the approved term twice; confirm only the first request invokes AI and
+  the second returns the READY cache for the exact term ID.
+- Save the term, then edit the source enrichment and confirm the saved context,
+  translation, and canonical examples remain unchanged.
+- Exercise Guardian 401/403, 429, timeout, invalid/oversized response, unusable
+  body, AI fallback/failure, duplicate import, and concurrent lookup cases with
+  mocks only. Confirm errors contain no keys, prompts, provider output, article
+  body, model/provider details, or stack traces.
 
 ## Compile and run the project
 
@@ -41,20 +141,20 @@ $ npm run start
 $ npm run start:dev
 
 # production mode
-$ npm run start:prod
+npm run start:prod
 ```
 
 ## Run tests
 
 ```bash
 # unit tests
-$ npm run test
+npm run test
 
 # e2e tests
-$ npm run test:e2e
+npm run test:e2e
 
 # test coverage
-$ npm run test:cov
+npm run test:cov
 ```
 
 ## Deployment

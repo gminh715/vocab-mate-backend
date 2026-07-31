@@ -34,6 +34,29 @@ describe('TermMarkerHelper', () => {
     expect(html.match(/data-term-id="term-1"/g)).toHaveLength(2);
   });
 
+  it('inserts and requires exactly one marker for AI candidate approval', () => {
+    const html = TermMarkerHelper.insertFirst(
+      sentence('Digital tools help. Digital tools connect people.'),
+      'sentence-1',
+      'term-1',
+      'digital tools',
+      'PHRASE',
+    );
+
+    expect(html.match(/data-term-id="term-1"/g)).toHaveLength(1);
+    expect(() =>
+      TermMarkerHelper.assertSingleMarker(html, 'sentence-1', 'term-1'),
+    ).not.toThrow();
+
+    const duplicated = html.replace(
+      'Digital tools connect',
+      '<span data-term-id="term-1">Digital tools</span> connect',
+    );
+    expect(() =>
+      TermMarkerHelper.assertSingleMarker(duplicated, 'sentence-1', 'term-1'),
+    ).toThrow(TermMarkerConflictError);
+  });
+
   it('preserves inline elements when a phrase crosses text nodes', () => {
     const html = TermMarkerHelper.insert(
       sentence('take <em>into</em> account today.'),
@@ -131,5 +154,25 @@ describe('TermMarkerHelper', () => {
     expect(replaced).not.toMatch(
       /data-term-id="term-1"[^>]*>\s*<span data-term-id=/,
     );
+  });
+
+  it('keeps exactly one marker when replacing an approved AI occurrence', () => {
+    const oldHtml = TermMarkerHelper.insertFirst(
+      sentence('Digital tools help. Digital tools connect people.'),
+      'sentence-1',
+      'term-1',
+      'Digital',
+      'WORD',
+    );
+    const replaced = TermMarkerHelper.replaceFirst(
+      oldHtml,
+      'sentence-1',
+      'term-1',
+      'Digital tools',
+      'PHRASE',
+    );
+
+    expect(replaced.match(/data-term-id="term-1"/g)).toHaveLength(1);
+    expect(replaced).toContain('>Digital tools</span> help');
   });
 });

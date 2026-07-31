@@ -4,7 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ArticleStatus } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+  CefrLevel,
+} from '../../../../generated/prisma/enums';
 import { CategoriesRepository } from '../../categories/categories.repository';
 import { ArticleSort } from '../dto/get-articles-query.dto';
 import { ArticlesRepository } from '../repositories/articles.repository';
@@ -17,6 +21,8 @@ interface ArticlesRepositoryMock {
   findAdminArticles: jest.Mock;
   findAdminArticleDetail: jest.Mock;
   create: jest.Mock;
+  findImportedDuplicate: jest.Mock;
+  createImported: jest.Mock;
   findMutationState: jest.Mock;
   update: jest.Mock;
   updateContent: jest.Mock;
@@ -37,6 +43,8 @@ describe('ArticlesService', () => {
       findAdminArticles: jest.fn(),
       findAdminArticleDetail: jest.fn(),
       create: jest.fn(),
+      findImportedDuplicate: jest.fn(),
+      createImported: jest.fn(),
       findMutationState: jest.fn(),
       update: jest.fn(),
       updateContent: jest.fn(),
@@ -205,6 +213,67 @@ describe('ArticlesService', () => {
     });
   });
 
+  it('creates imported drafts with fixed pre-analysis state and sanitized content', async () => {
+    repository.createImported.mockResolvedValue({ id: 'imported-id' });
+    contentService.sanitize.mockReturnValue('<p>Sanitized import.</p>');
+
+    await service.createImportedDraft('admin-id', {
+      categoryId: 'category-id',
+      title: 'Imported report',
+      slug: 'imported-report-abc123',
+      summary: 'Summary',
+      contentHtml: '<p onclick="bad()">Sanitized import.</p>',
+      importSource: 'guardian',
+      externalId: 'external-id',
+      canonicalUrl: 'https://example.com/story',
+      contentHash: 'a'.repeat(64),
+      sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
+      sourceName: 'Example',
+    });
+
+    expect(repository.createImported).toHaveBeenCalledWith({
+      categoryId: 'category-id',
+      title: 'Imported report',
+      slug: 'imported-report-abc123',
+      summary: 'Summary',
+      contentHtml: '<p>Sanitized import.</p>',
+      importSource: 'guardian',
+      externalId: 'external-id',
+      canonicalUrl: 'https://example.com/story',
+      contentHash: 'a'.repeat(64),
+      sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
+      sourceName: 'Example',
+      cefrLevel: CefrLevel.B1,
+      aiAnalysisStatus: AiGenerationStatus.PENDING,
+      createdByUserId: 'admin-id',
+      updatedByUserId: 'admin-id',
+    });
+  });
+
+  it('maps an imported uniqueness race to the provider-neutral duplicate error', async () => {
+    repository.createImported.mockRejectedValue(
+      Object.assign(new Error('unique'), { code: 'P2002' }),
+    );
+
+    await expect(
+      service.createImportedDraft('admin-id', {
+        categoryId: 'category-id',
+        title: 'Imported report',
+        slug: 'imported-report-abc123',
+        summary: 'Summary',
+        contentHtml: '<p>Imported.</p>',
+        importSource: 'guardian',
+        externalId: 'external-id',
+        canonicalUrl: 'https://example.com/story',
+        contentHash: 'a'.repeat(64),
+        sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
+      }),
+    ).rejects.toMatchObject({
+      name: 'Error',
+      message: 'Imported article already exists',
+    });
+  });
+
   it('rejects missing or inactive categories before create', async () => {
     categoriesRepository.findActiveById.mockResolvedValue(null);
 
@@ -256,10 +325,15 @@ describe('ArticlesService', () => {
       article: { id: 'article-id' },
       contentChanged: true,
     });
-    expect(repository.updateContent).toHaveBeenCalledWith('article-id', 3, {
-      contentHtml: '<p>New</p>',
-      updatedByUserId: 'admin-id',
-    });
+    expect(repository.updateContent).toHaveBeenCalledWith(
+      'article-id',
+      3,
+      {
+        contentHtml: '<p>New</p>',
+        updatedByUserId: 'admin-id',
+      },
+      true,
+    );
     expect(repository.update).not.toHaveBeenCalled();
   });
 

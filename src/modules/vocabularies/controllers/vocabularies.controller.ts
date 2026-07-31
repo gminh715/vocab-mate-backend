@@ -116,7 +116,7 @@ export class VocabulariesController {
     operationId: 'postVocabulary',
     summary: 'Save an eligible contextual term as an immutable snapshot',
     description:
-      'Creates a NEW vocabulary snapshot and all requested owner collection memberships atomically. Scheduling fields start null.',
+      'Requires a READY exact contextual term with complete snapshot fields, then creates a NEW immutable vocabulary snapshot and all requested owner collection memberships atomically. Later source enrichment changes do not rewrite the snapshot; scheduling fields start null.',
   })
   @ApiCreatedResponse({ type: VocabularySaveSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

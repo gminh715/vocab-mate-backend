@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import {
+  AiGenerationStatus,
   ArticleStatus,
   type CefrLevel,
   type LearningStatus,
   type LexicalUnitType,
   ReadingStatus,
+  TermReviewStatus,
 } from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 
@@ -102,9 +104,11 @@ export interface ContextualTermRecord {
   partOfSpeech: string;
   ipa: string | null;
   cefrLevel: CefrLevel;
-  contextualMeaningVi: string;
+  contextualMeaningVi: string | null;
   definitionEn: string | null;
   contextualExplanation: string | null;
+  explanationStatus: AiGenerationStatus;
+  explanationGeneratedAt: Date | null;
   synonyms: string[];
   antonyms: string[];
   collocations: string[];
@@ -146,6 +150,67 @@ export interface SavableContextualTermRecord {
     contentVersion: number;
   };
   isLookupEnabled: boolean;
+}
+
+export interface ContextualTermEnrichmentClaimRecord {
+  article: {
+    id: string;
+    title: string;
+    contentVersion: number;
+  };
+  term: {
+    id: string;
+    value: string;
+    wordDisplay: string;
+    lemma: string;
+    normalizedLemma: string;
+    unitType: LexicalUnitType;
+    partOfSpeech: string;
+    cefrLevel: CefrLevel;
+  };
+  parentSentence: {
+    id: string;
+    sentenceOrder: number;
+    sentenceText: string;
+  };
+  neighboringSentences: Array<{
+    id: string;
+    sentenceOrder: number;
+    sentenceText: string;
+  }>;
+}
+
+export interface ContextualTermEnrichmentData {
+  contextualMeaningVi: string;
+  definitionEn: string;
+  contextualExplanation: string;
+  ipa: string | null;
+  synonyms: string[];
+  antonyms: string[];
+  collocations: string[];
+  relatedTerms: string[];
+  vocabularyTopic: string | null;
+  examples: Array<{
+    sentence: string;
+    translationVi: string;
+  }>;
+  sentenceTranslationVi: string;
+}
+
+export interface CompleteContextualTermEnrichmentInput {
+  articleId: string;
+  contentVersion: number;
+  termId: string;
+  parentSentenceId: string;
+  generatedAt: Date;
+  enrichment: ContextualTermEnrichmentData;
+}
+
+export class ContextualTermEnrichmentStateConflictError extends Error {
+  constructor() {
+    super('Contextual term enrichment state changed');
+    this.name = ContextualTermEnrichmentStateConflictError.name;
+  }
 }
 
 const readerArticleSelect = {
@@ -229,6 +294,8 @@ const contextualTermSelect = {
   contextualMeaningVi: true,
   definitionEn: true,
   contextualExplanation: true,
+  explanationStatus: true,
+  explanationGeneratedAt: true,
   synonyms: true,
   antonyms: true,
   collocations: true,
@@ -252,6 +319,8 @@ const savableContextualTermSelect = {
   contextualMeaningVi: true,
   definitionEn: true,
   contextualExplanation: true,
+  explanationStatus: true,
+  explanationGeneratedAt: true,
   synonyms: true,
   antonyms: true,
   collocations: true,
@@ -284,6 +353,12 @@ const isTransactionConflictError = (
   'code' in error &&
   error.code === 'P2034';
 
+const hasNonEmptyText = (value: string | null): boolean =>
+  Boolean(value?.trim());
+
+const hasStoredExamples = (value: Prisma.JsonValue): boolean =>
+  Array.isArray(value) && value.length > 0;
+
 @Injectable()
 export class ReadingRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -305,30 +380,29 @@ export class ReadingRepository {
         contentVersion,
         isActive: true,
       } as const;
-      const [profile, termCandidates, progress] = await Promise.all([
-        transaction.userProfile.findUnique({
-          where: { userId },
-          select: { currentCefrLevel: true },
-        }),
-        transaction.articleSentenceTerm.findMany({
-          where: {
-            isActive: true,
-            isLookupEnabled: true,
-            sentence: { is: currentSentenceWhere },
+      const profile = await transaction.userProfile.findUnique({
+        where: { userId },
+        select: { currentCefrLevel: true },
+      });
+      const termCandidates = await transaction.articleSentenceTerm.findMany({
+        where: {
+          reviewStatus: TermReviewStatus.APPROVED,
+          isActive: true,
+          isLookupEnabled: true,
+          sentence: { is: currentSentenceWhere },
+        },
+        orderBy: { id: 'asc' },
+        select: { id: true, cefrLevel: true },
+      });
+      const progress = await transaction.userArticleProgress.findUnique({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId: article.id,
           },
-          orderBy: { id: 'asc' },
-          select: { id: true, cefrLevel: true },
-        }),
-        transaction.userArticleProgress.findUnique({
-          where: {
-            userId_articleId: {
-              userId,
-              articleId: article.id,
-            },
-          },
-          select: readerProgressSelect,
-        }),
-      ]);
+        },
+        select: readerProgressSelect,
+      });
 
       return {
         article,
@@ -355,6 +429,7 @@ export class ReadingRepository {
       const result = await transaction.articleSentenceTerm.findFirst({
         where: {
           id: termId,
+          reviewStatus: TermReviewStatus.APPROVED,
           isActive: true,
           sentence: {
             is: {
@@ -396,6 +471,7 @@ export class ReadingRepository {
     const result = await this.prisma.articleSentenceTerm.findFirst({
       where: {
         id: termId,
+        reviewStatus: TermReviewStatus.APPROVED,
         isActive: true,
         sentence: {
           is: {
@@ -424,6 +500,285 @@ export class ReadingRepository {
       sourceArticle: article,
       isLookupEnabled,
     };
+  }
+
+  async claimContextualTermEnrichment(
+    articleId: string,
+    termId: string,
+  ): Promise<ContextualTermEnrichmentClaimRecord | null> {
+    return this.prisma.$transaction(async (transaction) => {
+      const article = await transaction.article.findFirst({
+        where: publishedArticleIdWhere(articleId),
+        select: { id: true, title: true, contentVersion: true },
+      });
+      if (!article) return null;
+
+      const claimed = await transaction.articleSentenceTerm.updateMany({
+        where: {
+          id: termId,
+          reviewStatus: TermReviewStatus.APPROVED,
+          explanationStatus: {
+            in: [AiGenerationStatus.PENDING, AiGenerationStatus.FAILED],
+          },
+          isActive: true,
+          isLookupEnabled: true,
+          sentence: {
+            is: {
+              articleId: article.id,
+              contentVersion: article.contentVersion,
+              isActive: true,
+              article: {
+                is: {
+                  status: ArticleStatus.PUBLISHED,
+                  contentVersion: article.contentVersion,
+                },
+              },
+            },
+          },
+        },
+        data: {
+          explanationStatus: AiGenerationStatus.PROCESSING,
+          explanationError: null,
+          updatedAt: new Date(),
+        },
+      });
+      if (claimed.count !== 1) return null;
+
+      const result = await transaction.articleSentenceTerm.findFirst({
+        where: {
+          id: termId,
+          explanationStatus: AiGenerationStatus.PROCESSING,
+          sentence: {
+            is: {
+              articleId: article.id,
+              contentVersion: article.contentVersion,
+              isActive: true,
+            },
+          },
+        },
+        select: {
+          id: true,
+          value: true,
+          wordDisplay: true,
+          lemma: true,
+          normalizedLemma: true,
+          unitType: true,
+          partOfSpeech: true,
+          cefrLevel: true,
+          sentence: {
+            select: {
+              id: true,
+              sentenceOrder: true,
+              sentenceText: true,
+            },
+          },
+        },
+      });
+      if (!result) {
+        throw new ContextualTermEnrichmentStateConflictError();
+      }
+
+      const neighboringSentences = await transaction.articleSentence.findMany({
+        where: {
+          articleId: article.id,
+          contentVersion: article.contentVersion,
+          isActive: true,
+          sentenceOrder: {
+            gte: Math.max(1, result.sentence.sentenceOrder - 2),
+            lte: result.sentence.sentenceOrder + 2,
+          },
+        },
+        orderBy: [{ sentenceOrder: 'asc' }, { id: 'asc' }],
+        take: 5,
+        select: {
+          id: true,
+          sentenceOrder: true,
+          sentenceText: true,
+        },
+      });
+      const { sentence, ...term } = result;
+
+      return {
+        article,
+        term,
+        parentSentence: sentence,
+        neighboringSentences,
+      };
+    });
+  }
+
+  async completeContextualTermEnrichment(
+    input: CompleteContextualTermEnrichmentInput,
+  ): Promise<void> {
+    try {
+      await this.prisma.$transaction(
+        async (transaction) => {
+          const current = await transaction.articleSentenceTerm.findFirst({
+            where: {
+              id: input.termId,
+              reviewStatus: TermReviewStatus.APPROVED,
+              explanationStatus: AiGenerationStatus.PROCESSING,
+              isActive: true,
+              isLookupEnabled: true,
+              sentence: {
+                is: {
+                  id: input.parentSentenceId,
+                  articleId: input.articleId,
+                  contentVersion: input.contentVersion,
+                  isActive: true,
+                  article: {
+                    is: {
+                      status: ArticleStatus.PUBLISHED,
+                      contentVersion: input.contentVersion,
+                    },
+                  },
+                },
+              },
+            },
+            select: {
+              contextualMeaningVi: true,
+              definitionEn: true,
+              contextualExplanation: true,
+              ipa: true,
+              synonyms: true,
+              antonyms: true,
+              collocations: true,
+              relatedTerms: true,
+              vocabularyTopic: true,
+              examples: true,
+              sentence: {
+                select: {
+                  translationVi: true,
+                },
+              },
+            },
+          });
+          if (!current) {
+            throw new ContextualTermEnrichmentStateConflictError();
+          }
+
+          if (!hasNonEmptyText(current.sentence.translationVi)) {
+            await transaction.articleSentence.updateMany({
+              where: {
+                id: input.parentSentenceId,
+                articleId: input.articleId,
+                contentVersion: input.contentVersion,
+                isActive: true,
+                translationVi: current.sentence.translationVi,
+              },
+              data: {
+                translationVi: input.enrichment.sentenceTranslationVi,
+                updatedAt: input.generatedAt,
+              },
+            });
+          }
+
+          const updated = await transaction.articleSentenceTerm.updateMany({
+            where: {
+              id: input.termId,
+              reviewStatus: TermReviewStatus.APPROVED,
+              explanationStatus: AiGenerationStatus.PROCESSING,
+              isActive: true,
+              isLookupEnabled: true,
+              sentence: {
+                is: {
+                  id: input.parentSentenceId,
+                  articleId: input.articleId,
+                  contentVersion: input.contentVersion,
+                  isActive: true,
+                  article: {
+                    is: {
+                      status: ArticleStatus.PUBLISHED,
+                      contentVersion: input.contentVersion,
+                    },
+                  },
+                },
+              },
+            },
+            data: {
+              ...(hasNonEmptyText(current.contextualMeaningVi)
+                ? {}
+                : {
+                    contextualMeaningVi: input.enrichment.contextualMeaningVi,
+                  }),
+              ...(hasNonEmptyText(current.definitionEn)
+                ? {}
+                : { definitionEn: input.enrichment.definitionEn }),
+              ...(hasNonEmptyText(current.contextualExplanation)
+                ? {}
+                : {
+                    contextualExplanation:
+                      input.enrichment.contextualExplanation,
+                  }),
+              ...(hasNonEmptyText(current.ipa) || !input.enrichment.ipa
+                ? {}
+                : { ipa: input.enrichment.ipa }),
+              ...(current.synonyms.length > 0
+                ? {}
+                : { synonyms: input.enrichment.synonyms }),
+              ...(current.antonyms.length > 0
+                ? {}
+                : { antonyms: input.enrichment.antonyms }),
+              ...(current.collocations.length > 0
+                ? {}
+                : { collocations: input.enrichment.collocations }),
+              ...(current.relatedTerms.length > 0
+                ? {}
+                : { relatedTerms: input.enrichment.relatedTerms }),
+              ...(hasNonEmptyText(current.vocabularyTopic) ||
+              !input.enrichment.vocabularyTopic
+                ? {}
+                : { vocabularyTopic: input.enrichment.vocabularyTopic }),
+              ...(hasStoredExamples(current.examples)
+                ? {}
+                : { examples: input.enrichment.examples }),
+              explanationStatus: AiGenerationStatus.READY,
+              explanationError: null,
+              explanationGeneratedAt: input.generatedAt,
+              updatedAt: input.generatedAt,
+            },
+          });
+          if (updated.count !== 1) {
+            throw new ContextualTermEnrichmentStateConflictError();
+          }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error: unknown) {
+      if (isTransactionConflictError(error)) {
+        throw new ContextualTermEnrichmentStateConflictError();
+      }
+      throw error;
+    }
+  }
+
+  async failContextualTermEnrichment(
+    articleId: string,
+    contentVersion: number,
+    termId: string,
+    explanationError: string,
+  ): Promise<boolean> {
+    const failed = await this.prisma.articleSentenceTerm.updateMany({
+      where: {
+        id: termId,
+        reviewStatus: TermReviewStatus.APPROVED,
+        explanationStatus: AiGenerationStatus.PROCESSING,
+        isActive: true,
+        isLookupEnabled: true,
+        sentence: {
+          is: {
+            articleId,
+            contentVersion,
+          },
+        },
+      },
+      data: {
+        explanationStatus: AiGenerationStatus.FAILED,
+        explanationError: explanationError.slice(0, 500),
+        updatedAt: new Date(),
+      },
+    });
+    return failed.count === 1;
   }
 
   async listUserHistory(

@@ -13,6 +13,9 @@ type CountMock = jest.MockedFunction<
 type FindFirstMock = jest.MockedFunction<
   (args: Prisma.ArticleFindFirstArgs) => Promise<unknown>
 >;
+type CreateMock = jest.MockedFunction<
+  (args: Prisma.ArticleCreateArgs) => Promise<unknown>
+>;
 type TransactionMock = jest.MockedFunction<
   (operations: Array<Promise<unknown>>) => Promise<unknown[]>
 >;
@@ -22,6 +25,7 @@ describe('ArticlesRepository', () => {
   let findMany: FindManyMock;
   let count: CountMock;
   let findFirst: FindFirstMock;
+  let create: CreateMock;
   let transaction: TransactionMock;
 
   beforeEach(async () => {
@@ -34,6 +38,9 @@ describe('ArticlesRepository', () => {
     findFirst = jest
       .fn<(args: Prisma.ArticleFindFirstArgs) => Promise<unknown>>()
       .mockResolvedValue(null);
+    create = jest
+      .fn<(args: Prisma.ArticleCreateArgs) => Promise<unknown>>()
+      .mockResolvedValue({ id: 'article-id' });
     transaction = jest.fn((operations: Array<Promise<unknown>>) =>
       Promise.all(operations),
     );
@@ -44,7 +51,7 @@ describe('ArticlesRepository', () => {
         {
           provide: PrismaService,
           useValue: {
-            article: { findMany, count, findFirst },
+            article: { findMany, count, findFirst, create },
             $transaction: transaction,
           },
         },
@@ -97,6 +104,73 @@ describe('ArticlesRepository', () => {
       });
     },
   );
+
+  it('looks up imported duplicates by external identity, canonical URL, or content hash', async () => {
+    await repository.findImportedDuplicate({
+      importSource: 'guardian',
+      externalId: 'external-id',
+    });
+    await repository.findImportedDuplicate({
+      canonicalUrl: 'https://example.com/story',
+    });
+    await repository.findImportedDuplicate({ contentHash: 'a'.repeat(64) });
+
+    expect(findFirst.mock.calls.map(([query]) => query.where)).toEqual([
+      { importSource: 'guardian', externalId: 'external-id' },
+      { canonicalUrl: 'https://example.com/story' },
+      { contentHash: 'a'.repeat(64) },
+    ]);
+  });
+
+  it('forces imported articles to version-one draft state', async () => {
+    await repository.createImported({
+      categoryId: 'category-id',
+      title: 'Imported report',
+      slug: 'imported-report-abc123',
+      summary: 'Summary',
+      contentHtml: '<p>Article.</p>',
+      cefrLevel: 'B1',
+      sourceName: 'Example News',
+      importSource: 'guardian',
+      externalId: 'external-id',
+      canonicalUrl: 'https://example.com/story',
+      contentHash: 'a'.repeat(64),
+      sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
+      aiAnalysisStatus: 'PENDING',
+      createdByUserId: 'admin-id',
+      updatedByUserId: 'admin-id',
+    });
+
+    const createCall = create.mock.calls.at(0);
+    expect(createCall).toBeDefined();
+    if (!createCall) throw new Error('Expected article creation');
+    expect(createCall[0].data).toMatchObject({
+      status: ArticleStatus.DRAFT,
+      contentVersion: 1,
+      publishedAt: null,
+      archivedAt: null,
+    });
+  });
+
+  it('makes manually created drafts eligible for analysis', async () => {
+    await repository.create({
+      categoryId: 'category-id',
+      title: 'Manual report',
+      slug: 'manual-report',
+      summary: 'Summary',
+      contentHtml: '<p>Article.</p>',
+      cefrLevel: 'B1',
+      createdByUserId: 'admin-id',
+      updatedByUserId: 'admin-id',
+    });
+
+    expect(create.mock.calls[0][0].data).toMatchObject({
+      status: ArticleStatus.DRAFT,
+      aiAnalysisStatus: 'PENDING',
+      aiAnalysisError: null,
+      contentVersion: 1,
+    });
+  });
 
   it('uses an explicit public card projection without content or audit fields', async () => {
     await repository.findPublished({ page: 1, limit: 20, sort: 'newest' });

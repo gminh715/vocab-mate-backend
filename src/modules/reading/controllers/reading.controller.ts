@@ -24,6 +24,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -231,9 +232,9 @@ export class ReadingController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'getReadingArticlesByArticleIdTermsByTermId',
-    summary: 'Get an administratively prepared contextual term lookup',
+    summary: 'Get or lazily enrich an approved exact contextual term',
     description:
-      'Returns only an active term and active parent sentence from the published current content version. No AI call is made. saveState is scoped to the authenticated user and exact contextual term.',
+      'Returns only an approved active lookup-enabled term and active parent sentence from the published current content version. PENDING or FAILED enrichment is atomically claimed, generated outside a transaction, validated, and cached by the exact article_sentence_terms.id without exposing provider details. saveState is scoped to the authenticated user and exact contextual term.',
   })
   @ApiOkResponse({
     type: ContextualTermLookupSuccessResponseDto,
@@ -249,6 +250,11 @@ export class ReadingController {
     type: ApiErrorResponseDto,
     description:
       'Published article or active current-version contextual term was not found.',
+  })
+  @ApiServiceUnavailableResponse({
+    type: ApiErrorResponseDto,
+    description:
+      'Enrichment is already processing or the provider could not produce a safe result. The request may be retried later.',
   })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   getContextualTerm(

@@ -4,19 +4,21 @@ import { SuccessResponseInterceptor } from '../../common/interceptors/success-re
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CategoriesModule } from '../categories/categories.module';
+import { AiModule } from '../ai/ai.module';
 import { AdminArticleSentencesController } from './controllers/admin-article-sentences.controller';
 import { AdminArticleTermsController } from './controllers/admin-article-terms.controller';
 import { AdminArticlesController } from './controllers/admin-articles.controller';
 import { ArticlesController } from './controllers/articles.controller';
 import { ArticlesRepository } from './repositories/articles.repository';
 import { ArticleContentService } from './services/article-content.service';
+import { ArticleAnalysisService } from './services/article-analysis.service';
 import { ArticlePublicationService } from './services/article-publication.service';
 import { ArticleSentencesService } from './services/article-sentences.service';
 import { ArticleTermsService } from './services/article-terms.service';
 import { ArticlesService } from './services/articles.service';
 
 @Module({
-  imports: [CategoriesModule],
+  imports: [AiModule, CategoriesModule],
   controllers: [
     ArticlesController,
     AdminArticlesController,
@@ -26,6 +28,7 @@ import { ArticlesService } from './services/articles.service';
   providers: [
     ArticlesRepository,
     ArticlesService,
+    ArticleAnalysisService,
     ArticleContentService,
     ArticleSentencesService,
     ArticleTermsService,
@@ -35,6 +38,6 @@ import { ArticlesService } from './services/articles.service';
     JwtAuthGuard,
     RolesGuard,
   ],
-  exports: [ArticleContentService],
+  exports: [ArticleContentService, ArticlesService, ArticleSentencesService],
 })
 export class ArticlesModule {}

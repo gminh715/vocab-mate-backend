@@ -12,10 +12,35 @@ Stack:
 * PostgreSQL
 * REST API
 
-The current MVP stores content prepared manually by administrators.
+The MVP remains administrator-controlled. The narrowly authorized content
+ingestion and enrichment scope is:
 
-Do not introduce AI generation, AI agents, embeddings, vector databases,
-queues, event-driven processing or other unrequested infrastructure.
+* Guardian Content API-based admin news discovery and draft import.
+* Guardian article-body validation and sanitization.
+* Gemini-based article analysis with Groq fallback.
+* Admin moderation of AI vocabulary candidates before they become active
+  article vocabulary.
+* Lazy contextual-term enrichment cached by `article_sentence_terms.id`.
+
+This authorization is limited to those workflows. It does not authorize
+AI-generated content outside them or weaken existing admin review,
+authorization, validation, publication or API-contract requirements.
+
+Even within this scope, do not introduce:
+
+* A separate Python or FastAPI service.
+* LangChain or LangGraph.
+* Autonomous agents.
+* Queues or event buses.
+* Vector databases or embeddings.
+* Automatic publication.
+
+External provider calls:
+
+* Must have explicit timeouts.
+* Must not run inside long database transactions.
+* Must be mocked in tests.
+* Must never log API keys or full raw provider responses.
 
 ## Repository Structure
 

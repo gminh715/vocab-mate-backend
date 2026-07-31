@@ -116,7 +116,7 @@ CREATE TABLE user_profiles (
     avatar_url              TEXT,                                                           -- Đường dẫn ảnh đại diện của người dùng.
     current_cefr_level      cefr_level NOT NULL,                                            -- Trình độ tiếng Anh CEFR hiện tại của người dùng.
     learning_goal           TEXT,                                                           -- Mục tiêu học tập do người dùng tự thiết lập.
-    preferred_language      VARCHAR(20) NOT NULL DEFAULT 'vi',                              -- Ngôn ngữ ưu tiên cho giao diện hoặc phần giải thích.
+    preferred_language      VARCHAR(20) NOT NULL DEFAULT 'vi',                              -- Chỉ là ngôn ngữ hiển thị giao diện người dùng.
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),                             -- Thời điểm hồ sơ người dùng được tạo.
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),                             -- Thời điểm hồ sơ được cập nhật gần nhất.
 

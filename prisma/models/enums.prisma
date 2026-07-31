@@ -32,6 +32,30 @@ enum ArticleStatus {
   @@map("article_status")
 }
 
+enum AiGenerationStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+
+  @@map("ai_generation_status")
+}
+
+enum TermOrigin {
+  MANUAL
+  AI
+
+  @@map("term_origin")
+}
+
+enum TermReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("term_review_status")
+}
+
 enum LearningStatus {
   NEW
   LEARNING

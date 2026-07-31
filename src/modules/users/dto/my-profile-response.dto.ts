@@ -16,10 +16,17 @@ export class MyProfileDto {
   @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1 })
   currentCefrLevel!: CefrLevel;
 
-  @ApiProperty({ enum: CefrLevel, example: CefrLevel.B2, nullable: true })
-  learningGoal!: CefrLevel | null;
+  @ApiProperty({
+    example: 'Learn 10 useful words each day',
+    nullable: true,
+  })
+  learningGoal!: string | null;
 
-  @ApiProperty({ example: 'vi' })
+  @ApiProperty({
+    example: 'vi',
+    description:
+      'UI display-language preference only; does not control articles, translations, explanations, or AI output.',
+  })
   preferredLanguage!: string;
 }
 

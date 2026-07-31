@@ -95,6 +95,37 @@ describe('UsersService', () => {
     expect(repository.updateMyProfile).toHaveBeenCalledWith(account.id, dto);
   });
 
+  it('preserves an existing free-text learning goal during other profile updates', async () => {
+    const freeTextAccount = {
+      ...account,
+      profile: {
+        ...account.profile,
+        learningGoal: 'Learn 10 useful words each day',
+      },
+    };
+    const updated: UpdatedMyProfileRecord = {
+      user: {
+        id: account.id,
+        email: account.email,
+        role: account.role,
+        status: account.status,
+      },
+      profile: {
+        ...freeTextAccount.profile,
+        displayName: 'Updated Name',
+      },
+    };
+    repository.findMyAccount.mockResolvedValue(freeTextAccount);
+    repository.updateMyProfile.mockResolvedValue(updated);
+
+    await expect(
+      service.updateMe(account.id, { displayName: 'Updated Name' }),
+    ).resolves.toEqual(updated);
+    expect(repository.updateMyProfile).toHaveBeenCalledWith(account.id, {
+      displayName: 'Updated Name',
+    });
+  });
+
   it('rejects a learning goal that is equal to or lower than current CEFR level', async () => {
     repository.findMyAccount.mockResolvedValue(account);
     const dto = {

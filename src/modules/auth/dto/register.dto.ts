@@ -51,8 +51,15 @@ export class RegisterDto {
   @IsEnum(CefrLevel)
   learningGoal?: CefrLevel;
 
-  @ApiPropertyOptional({ enum: ['vi', 'en'], example: 'vi', default: 'vi' })
+  @ApiPropertyOptional({
+    enum: ['vi', 'en'],
+    example: 'vi',
+    default: 'vi',
+    description:
+      'UI display-language preference only; does not control articles, translations, explanations, or AI output.',
+  })
   @IsOptional()
+  @Transform(trimString)
   @IsIn(['vi', 'en'])
   preferredLanguage?: string;
 }

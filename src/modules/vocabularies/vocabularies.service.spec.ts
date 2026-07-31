@@ -36,6 +36,8 @@ const sourceRecord = () => ({
     contextualMeaningVi: 'có hại',
     definitionEn: 'causing damage',
     contextualExplanation: 'A negative effect in this context.',
+    explanationStatus: 'READY',
+    explanationGeneratedAt: new Date('2026-07-23T00:00:00Z'),
     synonyms: ['damaging'],
     antonyms: ['beneficial'],
     collocations: ['harmful effect'],
@@ -213,7 +215,7 @@ describe('VocabulariesService', () => {
     );
   });
 
-  it('creates the immutable snapshot as NEW with null initial scheduling', async () => {
+  it('creates the immutable snapshot from a READY enriched source', async () => {
     readingService.getContextualTermForSave.mockResolvedValue(sourceRecord());
     repository.createWithCollections.mockResolvedValue(savedRecord());
 
@@ -238,6 +240,7 @@ describe('VocabulariesService', () => {
         savedContextTranslationVi: 'Rác thải nhựa có hại.',
         savedMeaningVi: 'có hại',
         savedExplanation: 'A negative effect in this context.',
+        savedExamples: sourceRecord().term.examples,
         lastReviewedAt: null,
         nextReviewAt: null,
         reviewIntervalDays: null,
@@ -264,6 +267,55 @@ describe('VocabulariesService', () => {
       expect.any(Object),
       [COLLECTION_ID],
     );
+  });
+
+  it('keeps an existing vocabulary snapshot unchanged after later source edits', async () => {
+    const originalSource = sourceRecord();
+    let storedSnapshot: ReturnType<typeof savedRecord> | null = null;
+    readingService.getContextualTermForSave.mockResolvedValue(originalSource);
+    repository.createWithCollections.mockImplementation(
+      (_userId: string, input: Record<string, unknown>) => {
+        storedSnapshot = {
+          ...savedRecord(),
+          savedMeaningVi: String(input.savedMeaningVi),
+          savedContextTranslationVi: String(input.savedContextTranslationVi),
+          savedExamples: input.savedExamples,
+        };
+        return Promise.resolve(storedSnapshot);
+      },
+    );
+
+    await service.save('owner-id', {
+      articleSentenceTermId: TERM_ID,
+      collectionIds: [COLLECTION_ID],
+    });
+    originalSource.term.contextualMeaningVi = 'nghĩa nguồn đã sửa';
+    originalSource.parentSentence.translationVi = 'Bản dịch nguồn đã sửa.';
+    originalSource.term.examples = [
+      {
+        sentence: 'A later source example.',
+        translationVi: 'Ví dụ nguồn mới.',
+      },
+    ];
+    repository.findOwnedById.mockImplementation(() =>
+      Promise.resolve(storedSnapshot),
+    );
+
+    await expect(
+      service.findOne('owner-id', VOCABULARY_ID),
+    ).resolves.toMatchObject({
+      vocabulary: {
+        savedMeaningVi: 'có hại',
+        savedContextTranslationVi: 'Rác thải nhựa có hại.',
+        savedExamples: [
+          {
+            sentence: 'Plastic is harmful.',
+            translationVi: 'Nhựa có hại.',
+          },
+        ],
+      },
+    });
+    expect(readingService.getContextualTermForSave).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes collection UUID casing and trims notes at the service boundary', async () => {
@@ -305,6 +357,24 @@ describe('VocabulariesService', () => {
       parentSentence: {
         ...sourceRecord().parentSentence,
         translationVi: null,
+      },
+    });
+
+    await expect(
+      service.save('owner-id', {
+        articleSentenceTermId: TERM_ID,
+        collectionIds: [COLLECTION_ID],
+      }),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(repository.createWithCollections).not.toHaveBeenCalled();
+  });
+
+  it('rejects a nullable contextual meaning before creating a vocabulary snapshot', async () => {
+    readingService.getContextualTermForSave.mockResolvedValue({
+      ...sourceRecord(),
+      term: {
+        ...sourceRecord().term,
+        contextualMeaningVi: null,
       },
     });
 
