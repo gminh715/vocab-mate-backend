@@ -3,9 +3,15 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { ArticleStatus } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+  TermOrigin,
+  TermReviewStatus,
+} from '../../../../generated/prisma/enums';
 import {
   ArticleTermReferencedError,
+  ArticleTermStateConflictError,
   ArticlesRepository,
   type TermMarkerWriteInput,
 } from '../repositories/articles.repository';
@@ -54,10 +60,26 @@ const termRecord = {
   vocabularyTopic: null,
   examples: [],
   skill: null,
+  origin: TermOrigin.MANUAL,
+  reviewStatus: TermReviewStatus.APPROVED,
+  selectionReason: null,
+  explanationStatus: AiGenerationStatus.READY,
+  explanationError: null,
+  explanationGeneratedAt: null,
   isLookupEnabled: true,
   isActive: true,
   createdAt: new Date('2026-07-23T00:00:00Z'),
   updatedAt: new Date('2026-07-23T00:00:00Z'),
+};
+const pendingCandidate = {
+  ...termRecord,
+  origin: TermOrigin.AI,
+  reviewStatus: TermReviewStatus.PENDING,
+  selectionReason: 'Useful phrase in the article context.',
+  explanationStatus: AiGenerationStatus.PENDING,
+  contextualMeaningVi: null,
+  isLookupEnabled: false,
+  isActive: false,
 };
 const createDto = {
   value: 'Digital tools',
@@ -79,6 +101,8 @@ describe('ArticleTermsService', () => {
     findTermMutationContext: jest.fn(),
     updateTermMetadata: jest.fn(),
     updateTermWithMarker: jest.fn(),
+    approveAiTermWithMarker: jest.fn(),
+    rejectAiTerm: jest.fn(),
     deleteTermWithMarker: jest.fn(),
   };
   const service = new ArticleTermsService(
@@ -109,6 +133,16 @@ describe('ArticleTermsService', () => {
     repository.createTermWithMarker.mockResolvedValue(termRecord);
     repository.updateTermMetadata.mockResolvedValue(termRecord);
     repository.updateTermWithMarker.mockResolvedValue(termRecord);
+    repository.approveAiTermWithMarker.mockResolvedValue({
+      ...pendingCandidate,
+      reviewStatus: TermReviewStatus.APPROVED,
+      isLookupEnabled: true,
+      isActive: true,
+    });
+    repository.rejectAiTerm.mockResolvedValue({
+      ...pendingCandidate,
+      reviewStatus: TermReviewStatus.REJECTED,
+    });
     repository.deleteTermWithMarker.mockResolvedValue(undefined);
   });
 
@@ -190,6 +224,30 @@ describe('ArticleTermsService', () => {
     expect(repository.updateTermWithMarker).not.toHaveBeenCalled();
   });
 
+  it('forwards allowlisted moderation filters to the current-version list', async () => {
+    repository.findTerms.mockResolvedValue({
+      contentVersion: 3,
+      items: [],
+      total: 0,
+    });
+
+    await service.findAll('article-id', {
+      page: 1,
+      limit: 20,
+      origin: TermOrigin.AI,
+      reviewStatus: TermReviewStatus.PENDING,
+      explanationStatus: AiGenerationStatus.FAILED,
+    });
+
+    expect(repository.findTerms).toHaveBeenCalledWith('article-id', {
+      page: 1,
+      limit: 20,
+      origin: TermOrigin.AI,
+      reviewStatus: TermReviewStatus.PENDING,
+      explanationStatus: AiGenerationStatus.FAILED,
+    });
+  });
+
   it('atomically rebuilds the marker when value changes', async () => {
     const result = await service.update('admin-id', 'article-id', termId, {
       value: 'learning',
@@ -214,6 +272,242 @@ describe('ArticleTermsService', () => {
       unitType: 'WORD',
       updatedByUserId: 'admin-id',
     });
+    expect(repository.updateTermMetadata).not.toHaveBeenCalled();
+  });
+
+  it('keeps one marker when editing an approved AI term value', async () => {
+    const singleMarkedHtml = baseHtml.replace(
+      'Digital tools',
+      `<span data-term-id="${termId}">Digital tools</span>`,
+    );
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: singleMarkedHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: {
+        ...pendingCandidate,
+        reviewStatus: TermReviewStatus.APPROVED,
+        isActive: true,
+        isLookupEnabled: true,
+      },
+    });
+
+    await service.update('admin-id', 'article-id', termId, {
+      value: 'tools',
+      unitType: 'WORD',
+    });
+
+    const updateCalls = repository.updateTermWithMarker.mock
+      .calls as unknown as Array<[TermMarkerWriteInput, unknown]>;
+    const markerInput = updateCalls[0]?.[0];
+    if (!markerInput) throw new Error('Expected AI term marker update');
+    expect(markerInput.updatedContentHtml.match(/data-term-id=/g)).toHaveLength(
+      1,
+    );
+  });
+
+  it('approves a pending AI candidate with exactly one marker', async () => {
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+
+    const result = await service.approveAiCandidate(
+      'admin-id',
+      'article-id',
+      termId,
+    );
+
+    expect(result.contentHtmlChanged).toBe(true);
+    const approvalCalls = repository.approveAiTermWithMarker.mock
+      .calls as unknown as Array<[TermMarkerWriteInput]>;
+    const markerInput = approvalCalls[0]?.[0];
+    if (!markerInput) throw new Error('Expected AI candidate approval write');
+    expect(markerInput.updatedContentHtml.match(/data-term-id=/g)).toHaveLength(
+      1,
+    );
+    expect(markerInput).toMatchObject({
+      articleId: 'article-id',
+      sentenceId,
+      termId,
+      contentVersion: 3,
+      sourceContentHtml: baseHtml,
+      actingAdminId: 'admin-id',
+    });
+  });
+
+  it('returns an already approved AI candidate without duplicating its marker', async () => {
+    const singleMarkedHtml = baseHtml.replace(
+      'Digital tools',
+      `<span data-term-id="${termId}">Digital tools</span>`,
+    );
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: singleMarkedHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: {
+        ...pendingCandidate,
+        reviewStatus: TermReviewStatus.APPROVED,
+        isActive: true,
+        isLookupEnabled: true,
+      },
+    });
+
+    await expect(
+      service.approveAiCandidate('admin-id', 'article-id', termId),
+    ).resolves.toMatchObject({ contentHtmlChanged: false });
+    expect(repository.approveAiTermWithMarker).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pending AI candidate without changing article HTML', async () => {
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+
+    await expect(
+      service.rejectAiCandidate('admin-id', 'article-id', termId),
+    ).resolves.toMatchObject({
+      term: { reviewStatus: TermReviewStatus.REJECTED },
+      contentHtmlChanged: false,
+    });
+    expect(repository.rejectAiTerm).toHaveBeenCalledWith(
+      'article-id',
+      3,
+      termId,
+      'admin-id',
+    );
+    expect(repository.approveAiTermWithMarker).not.toHaveBeenCalled();
+  });
+
+  it('returns an already rejected AI candidate idempotently', async () => {
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: {
+        ...pendingCandidate,
+        reviewStatus: TermReviewStatus.REJECTED,
+      },
+    });
+
+    await expect(
+      service.rejectAiCandidate('admin-id', 'article-id', termId),
+    ).resolves.toMatchObject({ contentHtmlChanged: false });
+    expect(repository.rejectAiTerm).not.toHaveBeenCalled();
+  });
+
+  it('rejects moderation outside DRAFT and overlapping candidate approval', async () => {
+    repository.findTermMutationContext.mockResolvedValueOnce({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.PUBLISHED,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+    await expect(
+      service.approveAiCandidate('admin-id', 'article-id', termId),
+    ).rejects.toThrow(ConflictException);
+
+    repository.findTermMutationContext.mockResolvedValueOnce({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.PUBLISHED,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+    await expect(
+      service.rejectAiCandidate('admin-id', 'article-id', termId),
+    ).rejects.toThrow(ConflictException);
+
+    repository.findTermMutationContext.mockResolvedValueOnce({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: baseHtml.replace(
+          'Digital tools',
+          '<span data-term-id="existing-term">Digital tools</span>',
+        ),
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+    await expect(
+      service.approveAiCandidate('admin-id', 'article-id', termId),
+    ).rejects.toThrow(ConflictException);
+    expect(repository.approveAiTermWithMarker).not.toHaveBeenCalled();
+  });
+
+  it('maps a stale approval write to a content conflict', async () => {
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+    repository.approveAiTermWithMarker.mockRejectedValue(
+      new ArticleTermStateConflictError(),
+    );
+
+    await expect(
+      service.approveAiCandidate('admin-id', 'article-id', termId),
+    ).rejects.toThrow(
+      new ConflictException(
+        'Article content or sentence state changed; retry the request',
+      ),
+    );
+  });
+
+  it('does not allow normal PATCH to activate a pending candidate', async () => {
+    repository.findTermMutationContext.mockResolvedValue({
+      article: {
+        id: 'article-id',
+        status: ArticleStatus.DRAFT,
+        contentHtml: baseHtml,
+        contentVersion: 3,
+      },
+      sentence: sentenceRecord,
+      term: pendingCandidate,
+    });
+
+    await expect(
+      service.update('admin-id', 'article-id', termId, { isActive: true }),
+    ).rejects.toThrow(ConflictException);
     expect(repository.updateTermMetadata).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '../../../generated/prisma/client';
-import { ArticleStatus, ReadingStatus } from '../../../generated/prisma/enums';
+import {
+  ArticleStatus,
+  ReadingStatus,
+  TermReviewStatus,
+} from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { ReadingRepository } from './reading.repository';
 
@@ -87,7 +91,7 @@ describe('ReadingRepository', () => {
     repository = module.get(ReadingRepository);
   });
 
-  it('selects a published reader snapshot and only active current-version lookup terms', async () => {
+  it('selects only approved active current-version lookup terms for readers', async () => {
     articleFindFirst.mockResolvedValue({
       id: 'article-id',
       title: 'Article',
@@ -118,6 +122,7 @@ describe('ReadingRepository', () => {
     });
     expect(termFindMany).toHaveBeenCalledWith({
       where: {
+        reviewStatus: TermReviewStatus.APPROVED,
         isActive: true,
         isLookupEnabled: true,
         sentence: {
@@ -131,6 +136,44 @@ describe('ReadingRepository', () => {
       orderBy: { id: 'asc' },
       select: { id: true, cefrLevel: true },
     });
+  });
+
+  it('serializes queries on the interactive transaction client', async () => {
+    articleFindFirst.mockResolvedValue({
+      id: 'article-id',
+      title: 'Article',
+      slug: 'article',
+      summary: 'Summary',
+      contentHtml: '<p>Safe</p>',
+      contentVersion: 7,
+      sourceName: null,
+      sourceUrl: null,
+      authorName: null,
+      thumbnailUrl: null,
+      cefrLevel: 'B1',
+      status: ArticleStatus.PUBLISHED,
+      publishedAt: new Date(),
+      category: { id: 'category-id', name: 'News', slug: 'news' },
+    });
+    let resolveProfile!: (value: { currentCefrLevel: string }) => void;
+    profileFindUnique.mockReturnValue(
+      new Promise((resolve) => {
+        resolveProfile = resolve;
+      }),
+    );
+
+    const result = repository.findReaderArticle('user-id', 'article');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(profileFindUnique).toHaveBeenCalledTimes(1);
+    expect(termFindMany).not.toHaveBeenCalled();
+    expect(progressFindUnique).not.toHaveBeenCalled();
+
+    resolveProfile({ currentCefrLevel: 'B1' });
+    await result;
+
+    expect(termFindMany).toHaveBeenCalledTimes(1);
+    expect(progressFindUnique).toHaveBeenCalledTimes(1);
   });
 
   it('reads progress by authenticated user and article without any mutation', async () => {
@@ -168,7 +211,7 @@ describe('ReadingRepository', () => {
     );
   });
 
-  it('rejects inactive and stale lookup rows in the query while preserving disabled state for 403 mapping', async () => {
+  it('rejects pending, rejected, inactive, and stale lookup rows while preserving approved disabled state for 403 mapping', async () => {
     articleFindFirst.mockResolvedValue({
       id: 'article-id',
       contentVersion: 9,
@@ -180,6 +223,7 @@ describe('ReadingRepository', () => {
     const query = termFindFirst.mock.calls[0][0];
     expect(query.where).toEqual({
       id: 'term-id',
+      reviewStatus: TermReviewStatus.APPROVED,
       isActive: true,
       sentence: {
         is: {
@@ -522,6 +566,7 @@ describe('ReadingRepository', () => {
     const query = termFindFirst.mock.calls[0][0];
     expect(query.where).toEqual({
       id: 'term-id',
+      reviewStatus: TermReviewStatus.APPROVED,
       isActive: true,
       sentence: {
         is: {

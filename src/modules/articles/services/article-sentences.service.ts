@@ -73,6 +73,7 @@ export class ArticleSentencesService {
         sourceContentHtml: state.contentHtml,
         annotatedContentHtml,
         actingAdminId,
+        resetAiAnalysis: state.status === ArticleStatus.DRAFT,
         sentences: parsed.sentences,
       });
     } catch (error: unknown) {

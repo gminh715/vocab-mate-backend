@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
   UseFilters,
   UseGuards,
@@ -64,7 +65,7 @@ export class AdminArticleTermsController {
     operationId: 'getAdminArticleTerms',
     summary: 'List current-version contextual terms',
     description:
-      'ADMIN-only database pagination with sentence, CEFR, unit type, active-state, and allowlisted text filters. Article HTML is excluded.',
+      'ADMIN-only database pagination with sentence, CEFR, unit type, origin, review status, explanation status, active-state, and allowlisted text filters. Article HTML is excluded.',
   })
   @ApiOkResponse({ type: ArticleTermListSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -123,6 +124,61 @@ export class AdminArticleTermsController {
       params.articleId,
       params.termId,
       dto,
+    );
+  }
+
+  @Post(':termId/approve')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'postAdminArticleTermApprove',
+    summary: 'Approve a pending AI term candidate',
+    description:
+      'Validates and inserts one current-sentence marker, then atomically activates the AI candidate.',
+  })
+  @ApiOkResponse({ type: ArticleTermUpdateSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiForbiddenResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
+  @ApiUnprocessableEntityResponse({ type: ApiErrorResponseDto })
+  @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
+  approve(
+    @CurrentUser() actingAdmin: AuthenticatedUser,
+    @Param() params: ArticleTermParamsDto,
+  ) {
+    return this.articleTermsService.approveAiCandidate(
+      actingAdmin.id,
+      params.articleId,
+      params.termId,
+    );
+  }
+
+  @Post(':termId/reject')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'postAdminArticleTermReject',
+    summary: 'Reject a pending AI term candidate',
+    description:
+      'Atomically records rejection while keeping the inactive candidate for audit and adding no marker.',
+  })
+  @ApiOkResponse({ type: ArticleTermUpdateSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiForbiddenResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
+  @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
+  reject(
+    @CurrentUser() actingAdmin: AuthenticatedUser,
+    @Param() params: ArticleTermParamsDto,
+  ) {
+    return this.articleTermsService.rejectAiCandidate(
+      actingAdmin.id,
+      params.articleId,
+      params.termId,
     );
   }
 

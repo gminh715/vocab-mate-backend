@@ -3,7 +3,13 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ArticleStatus, CefrLevel } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+  CefrLevel,
+  TermOrigin,
+  TermReviewStatus,
+} from '../../../../generated/prisma/enums';
 import {
   ArticleStatusTransitionConflictError,
   type ArticlePublicationSnapshot,
@@ -47,7 +53,7 @@ const createSnapshot = (): ArticlePublicationSnapshot => ({
       contentVersion: 3,
       sentenceOrder: 1,
       sentenceText: 'Digital tools improve learning.',
-      translationVi: null,
+      translationVi: 'Công cụ số cải thiện việc học.',
       explanationVi: null,
       referenceExplanation: null,
       skill: null,
@@ -76,6 +82,12 @@ const createSnapshot = (): ArticlePublicationSnapshot => ({
           vocabularyTopic: null,
           examples: [],
           skill: null,
+          origin: 'MANUAL',
+          reviewStatus: 'APPROVED',
+          selectionReason: null,
+          explanationStatus: 'READY',
+          explanationError: null,
+          explanationGeneratedAt: null,
           isLookupEnabled: true,
           isActive: true,
           createdAt: now,
@@ -236,15 +248,144 @@ describe('ArticlePublicationService', () => {
     {
       name: 'incomplete term metadata',
       mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].contextualMeaningVi = ' ';
+        snapshot.sentences[0].terms[0].normalizedLemma = ' ';
       },
       code: 'TERM_METADATA_INCOMPLETE',
+    },
+    {
+      name: 'missing contextual meaning',
+      mutate: (snapshot: ArticlePublicationSnapshot) => {
+        snapshot.sentences[0].terms[0].contextualMeaningVi = null;
+      },
+      code: 'TERM_SNAPSHOT_INCOMPLETE',
     },
   ])('reports $name through the shared checklist', ({ mutate, code }) => {
     const snapshot = createSnapshot();
     mutate(snapshot);
     expect(service.validateForPublication(snapshot)).toEqual(
       expect.arrayContaining([expect.objectContaining({ code })]),
+    );
+  });
+
+  it('ignores marker-free pending and rejected candidates during publication', async () => {
+    const snapshot = createSnapshot();
+    snapshot.sentences[0].terms.push(
+      {
+        ...snapshot.sentences[0].terms[0],
+        id: '77777777-7777-4777-8777-777777777777',
+        origin: TermOrigin.AI,
+        reviewStatus: TermReviewStatus.PENDING,
+        explanationStatus: AiGenerationStatus.PENDING,
+        contextualMeaningVi: null,
+        isActive: false,
+        isLookupEnabled: false,
+      },
+      {
+        ...snapshot.sentences[0].terms[0],
+        id: '88888888-8888-4888-8888-888888888888',
+        origin: TermOrigin.AI,
+        reviewStatus: TermReviewStatus.REJECTED,
+        explanationStatus: AiGenerationStatus.FAILED,
+        contextualMeaningVi: null,
+        isActive: false,
+        isLookupEnabled: false,
+      },
+    );
+
+    const issues = service.validateForPublication(snapshot);
+    expect(issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityId: '77777777-7777-4777-8777-777777777777',
+        }),
+        expect.objectContaining({
+          entityId: '88888888-8888-4888-8888-888888888888',
+        }),
+      ]),
+    );
+    expect(issues).toEqual([]);
+    repository.findPublicationSnapshot.mockResolvedValue(snapshot);
+    await expect(service.publish('admin-id', articleId)).resolves.toMatchObject(
+      { status: ArticleStatus.PUBLISHED },
+    );
+  });
+
+  it.each([AiGenerationStatus.PENDING, AiGenerationStatus.FAILED])(
+    'allows an approved lazy AI term with %s explanation and no meaning',
+    async (explanationStatus) => {
+      const snapshot = createSnapshot();
+      const term = snapshot.sentences[0].terms[0];
+      term.origin = TermOrigin.AI;
+      term.reviewStatus = TermReviewStatus.APPROVED;
+      term.explanationStatus = explanationStatus;
+      term.contextualMeaningVi = null;
+      snapshot.sentences[0].translationVi = null;
+
+      expect(service.validateForPublication(snapshot)).toEqual([]);
+      repository.findPublicationSnapshot.mockResolvedValue(snapshot);
+      await expect(
+        service.publish('admin-id', articleId),
+      ).resolves.toMatchObject({ status: ArticleStatus.PUBLISHED });
+    },
+  );
+
+  it.each([
+    {
+      name: 'missing meaning',
+      mutate: (snapshot: ArticlePublicationSnapshot) => {
+        snapshot.sentences[0].terms[0].contextualMeaningVi = null;
+      },
+    },
+    {
+      name: 'missing parent translation',
+      mutate: (snapshot: ArticlePublicationSnapshot) => {
+        snapshot.sentences[0].translationVi = ' ';
+      },
+    },
+    {
+      name: 'malformed examples',
+      mutate: (snapshot: ArticlePublicationSnapshot) => {
+        snapshot.sentences[0].terms[0].examples = [
+          { sentence: 'Tools help.', translationVi: '' },
+        ];
+      },
+    },
+    {
+      name: 'non-canonical examples',
+      mutate: (snapshot: ArticlePublicationSnapshot) => {
+        snapshot.sentences[0].terms[0].examples = [
+          {
+            sentence: 'Tools help.',
+            translationVi: 'Công cụ giúp ích.',
+            extra: true,
+          },
+        ];
+      },
+    },
+  ])('rejects a READY term with $name', ({ mutate }) => {
+    const snapshot = createSnapshot();
+    mutate(snapshot);
+    expect(service.validateForPublication(snapshot)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'TERM_SNAPSHOT_INCOMPLETE' }),
+      ]),
+    );
+  });
+
+  it('requires exactly one marker for an approved visible term', () => {
+    const snapshot = createSnapshot();
+    snapshot.article.contentHtml = snapshot.article.contentHtml.replace(
+      ' improve learning.',
+      ` improve learning with <span data-term-id="${termId}">tools</span>.`,
+    );
+
+    expect(service.validateForPublication(snapshot)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'DUPLICATE_TERM_MARKER',
+          entityId: termId,
+        }),
+      ]),
     );
   });
 
@@ -335,12 +476,17 @@ describe('ArticlePublicationService', () => {
     },
   );
 
-  it('returns only active current lookup terms and rejects archived preview', async () => {
+  it('returns only approved active current lookup terms and rejects archived preview', async () => {
     const snapshot = createSnapshot();
     snapshot.sentences[0].terms.push({
       ...snapshot.sentences[0].terms[0],
       id: '77777777-7777-4777-8777-777777777777',
       isLookupEnabled: false,
+    });
+    snapshot.sentences[0].terms.push({
+      ...snapshot.sentences[0].terms[0],
+      id: '88888888-8888-4888-8888-888888888888',
+      reviewStatus: TermReviewStatus.PENDING,
     });
     repository.findPublicationSnapshot.mockResolvedValueOnce(snapshot);
     await expect(service.preview(articleId)).resolves.toMatchObject({

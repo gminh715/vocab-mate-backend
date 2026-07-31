@@ -50,6 +50,13 @@ interface ArticleFixture {
   sourceUrl: string | null;
   authorName: string | null;
   thumbnailUrl: string | null;
+  importSource?: string | null;
+  externalId?: string | null;
+  canonicalUrl?: string | null;
+  contentHash?: string | null;
+  sourcePublishedAt?: Date | null;
+  aiAnalysisStatus?: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED' | null;
+  aiAnalysisError?: string | null;
   cefrLevel: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   publishedAt: Date | null;
@@ -675,6 +682,12 @@ export class InMemoryArticlesRepository {
         input.examples,
       ) as ArticleSentenceTermRecord['examples'],
       skill: input.skill ?? null,
+      origin: 'MANUAL',
+      reviewStatus: 'APPROVED',
+      selectionReason: null,
+      explanationStatus: 'READY',
+      explanationError: null,
+      explanationGeneratedAt: null,
       isLookupEnabled: input.isLookupEnabled,
       isActive: input.isActive,
       createdAt: now,
@@ -966,6 +979,13 @@ export class InMemoryArticlesRepository {
     return {
       ...this.toCard(article),
       categoryId: article.category.id,
+      importSource: article.importSource ?? null,
+      externalId: article.externalId ?? null,
+      canonicalUrl: article.canonicalUrl ?? null,
+      contentHash: article.contentHash ?? null,
+      sourcePublishedAt: article.sourcePublishedAt ?? null,
+      aiAnalysisStatus: article.aiAnalysisStatus ?? null,
+      aiAnalysisError: article.aiAnalysisError ?? null,
       status: article.status,
       contentVersion: article.contentVersion ?? 1,
       archivedAt: article.archivedAt ?? null,
@@ -987,6 +1007,13 @@ export class InMemoryArticlesRepository {
       sourceUrl: article.sourceUrl,
       authorName: article.authorName,
       thumbnailUrl: article.thumbnailUrl,
+      importSource: article.importSource ?? null,
+      externalId: article.externalId ?? null,
+      canonicalUrl: article.canonicalUrl ?? null,
+      contentHash: article.contentHash ?? null,
+      sourcePublishedAt: article.sourcePublishedAt ?? null,
+      aiAnalysisStatus: article.aiAnalysisStatus ?? null,
+      aiAnalysisError: article.aiAnalysisError ?? null,
       cefrLevel: article.cefrLevel,
       status: article.status,
       publishedAt: article.publishedAt,

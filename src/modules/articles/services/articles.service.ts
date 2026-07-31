@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ArticleStatus } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+  CefrLevel,
+} from '../../../../generated/prisma/enums';
 import { CategoriesRepository } from '../../categories/categories.repository';
 import type { GetArticlesQueryDto } from '../dto/get-articles-query.dto';
 import { normalizeCategorySlug } from '../../categories/dto/get-categories-query.dto';
@@ -18,6 +22,8 @@ import {
   type AdminArticleListRecord,
   type AdminArticleRecord,
   ArticlesRepository,
+  type CreateImportedArticleInput,
+  type ImportedArticleDuplicateLookup,
   type PublicArticleCardRecord,
   type PublicArticleDetailRecord,
   type UpdateArticleInput,
@@ -46,6 +52,23 @@ export interface PublicArticleListResponse {
 export interface AdminArticleListResponse {
   items: AdminArticleListRecord[];
   meta: PublicArticleListResponse['meta'];
+}
+
+export class ImportedArticleDuplicateError extends Error {
+  constructor() {
+    super('Imported article already exists');
+  }
+}
+
+export interface ImportedDraftInput extends Omit<
+  CreateImportedArticleInput,
+  | 'contentHtml'
+  | 'cefrLevel'
+  | 'aiAnalysisStatus'
+  | 'createdByUserId'
+  | 'updatedByUserId'
+> {
+  contentHtml: string;
 }
 
 @Injectable()
@@ -163,6 +186,38 @@ export class ArticlesService {
     }
   }
 
+  async requireActiveImportCategory(categoryId: string): Promise<void> {
+    await this.requireActiveCategory(categoryId);
+  }
+
+  findImportedDuplicate(
+    lookup: ImportedArticleDuplicateLookup,
+  ): Promise<{ id: string } | null> {
+    return this.articlesRepository.findImportedDuplicate(lookup);
+  }
+
+  async createImportedDraft(
+    actingAdminId: string,
+    input: ImportedDraftInput,
+  ): Promise<{ article: AdminArticleRecord }> {
+    try {
+      const article = await this.articlesRepository.createImported({
+        ...input,
+        contentHtml: this.articleContentService.sanitize(input.contentHtml),
+        cefrLevel: CefrLevel.B1,
+        aiAnalysisStatus: AiGenerationStatus.PENDING,
+        createdByUserId: actingAdminId,
+        updatedByUserId: actingAdminId,
+      });
+      return { article };
+    } catch (error: unknown) {
+      if (hasPrismaCode(error, 'P2002')) {
+        throw new ImportedArticleDuplicateError();
+      }
+      this.mapWriteError(error);
+    }
+  }
+
   async update(
     actingAdminId: string,
     articleId: string,
@@ -195,6 +250,7 @@ export class ArticlesService {
             articleId,
             state.contentVersion,
             { ...input, contentHtml: sanitizedContent },
+            state.status === ArticleStatus.DRAFT,
           )
         : await this.articlesRepository.update(articleId, input);
 

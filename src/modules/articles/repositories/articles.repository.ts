@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
+  AiGenerationStatus,
   ArticleStatus,
   type CefrLevel,
   type LexicalUnitType,
   QuizStatus,
+  TermOrigin,
+  TermReviewStatus,
 } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../database/prisma.service';
 
@@ -71,6 +74,13 @@ export interface AdminArticleListQuery {
 
 export interface AdminArticleListRecord extends PublicArticleCardRecord {
   categoryId: string;
+  importSource: string | null;
+  externalId: string | null;
+  canonicalUrl: string | null;
+  contentHash: string | null;
+  sourcePublishedAt: Date | null;
+  aiAnalysisStatus: AiGenerationStatus | null;
+  aiAnalysisError: string | null;
   status: ArticleStatus;
   contentVersion: number;
   archivedAt: Date | null;
@@ -95,6 +105,13 @@ export interface AdminArticleRecord {
   sourceUrl: string | null;
   authorName: string | null;
   thumbnailUrl: string | null;
+  importSource: string | null;
+  externalId: string | null;
+  canonicalUrl: string | null;
+  contentHash: string | null;
+  sourcePublishedAt: Date | null;
+  aiAnalysisStatus: AiGenerationStatus | null;
+  aiAnalysisError: string | null;
   cefrLevel: CefrLevel;
   status: ArticleStatus;
   publishedAt: Date | null;
@@ -126,6 +143,26 @@ export interface CreateArticleInput {
   updatedByUserId: string;
 }
 
+export interface CreateImportedArticleInput extends CreateArticleInput {
+  importSource: string;
+  externalId: string;
+  canonicalUrl: string;
+  contentHash: string;
+  sourcePublishedAt: Date;
+  aiAnalysisStatus: AiGenerationStatus;
+}
+
+export interface ImportedArticleDuplicateLookup {
+  importSource?: string;
+  externalId?: string;
+  canonicalUrl?: string;
+  contentHash?: string;
+}
+
+export interface ImportedArticleDuplicateRecord {
+  id: string;
+}
+
 export interface UpdateArticleInput {
   categoryId?: string;
   title?: string;
@@ -145,6 +182,69 @@ export interface ArticleMutationState {
   status: ArticleStatus;
   contentHtml: string;
   contentVersion: number;
+}
+
+export interface ArticleAnalysisTermInventoryRecord {
+  id: string;
+  sentenceId: string;
+  value: string;
+  unitType: LexicalUnitType;
+  updatedAt: Date;
+}
+
+export interface ArticleAnalysisSentenceRecord {
+  id: string;
+  sentenceOrder: number;
+  sentenceText: string;
+  terms: ArticleAnalysisTermInventoryRecord[];
+}
+
+export interface ArticleAnalysisSnapshot {
+  article: {
+    id: string;
+    title: string;
+    contentHtml: string;
+    contentVersion: number;
+    status: ArticleStatus;
+    aiAnalysisStatus: AiGenerationStatus | null;
+  };
+  sentences: ArticleAnalysisSentenceRecord[];
+}
+
+export interface PendingAiTermInput {
+  id: string;
+  sentenceId: string;
+  value: string;
+  wordDisplay: string;
+  lemma: string;
+  normalizedLemma: string;
+  unitType: LexicalUnitType;
+  partOfSpeech: string;
+  cefrLevel: CefrLevel;
+  selectionReason: string;
+  createdByUserId: string;
+  updatedByUserId: string;
+}
+
+export interface CompleteArticleAnalysisInput {
+  articleId: string;
+  contentVersion: number;
+  sourceContentHtml: string;
+  categoryId: string;
+  summary: string;
+  cefrLevel: CefrLevel;
+  actingAdminId: string;
+  expectedSentences: ArticleAnalysisSentenceRecord[];
+  terms: PendingAiTermInput[];
+}
+
+export interface ArticleAnalysisCompletionRecord {
+  articleId: string;
+  contentVersion: number;
+  aiAnalysisStatus: AiGenerationStatus;
+  category: PublicArticleCategoryRecord;
+  cefrLevel: CefrLevel;
+  candidateCount: number;
 }
 
 export interface ArticleDeleteSafetyRecord {
@@ -183,7 +283,7 @@ export interface ArticleSentenceTermRecord {
   partOfSpeech: string;
   ipa: string | null;
   cefrLevel: CefrLevel;
-  contextualMeaningVi: string;
+  contextualMeaningVi: string | null;
   definitionEn: string | null;
   contextualExplanation: string | null;
   synonyms: string[];
@@ -193,6 +293,12 @@ export interface ArticleSentenceTermRecord {
   vocabularyTopic: string | null;
   examples: Prisma.JsonValue;
   skill: string | null;
+  origin: TermOrigin;
+  reviewStatus: TermReviewStatus;
+  selectionReason: string | null;
+  explanationStatus: AiGenerationStatus;
+  explanationError: string | null;
+  explanationGeneratedAt: Date | null;
   isLookupEnabled: boolean;
   isActive: boolean;
   createdAt: Date;
@@ -320,6 +426,7 @@ export interface TermMarkerWriteInput {
 export class ArticleTermStateConflictError extends Error {}
 export class ArticleTermReferencedError extends Error {}
 export class ArticleStatusTransitionConflictError extends Error {}
+export class ArticleAnalysisStateConflictError extends Error {}
 
 export interface ArticleSentenceListResult {
   contentVersion: number;
@@ -347,6 +454,7 @@ export interface ReplaceParsedContentInput {
   sourceContentHtml: string;
   annotatedContentHtml: string;
   actingAdminId: string;
+  resetAiAnalysis: boolean;
   sentences: Array<{
     id: string;
     sentenceOrder: number;
@@ -394,6 +502,13 @@ const publicArticleMetadataSelect = {
 const adminArticleListSelect = {
   ...publicArticleCardSelect,
   categoryId: true,
+  importSource: true,
+  externalId: true,
+  canonicalUrl: true,
+  contentHash: true,
+  sourcePublishedAt: true,
+  aiAnalysisStatus: true,
+  aiAnalysisError: true,
   status: true,
   contentVersion: true,
   archivedAt: true,
@@ -413,6 +528,13 @@ const adminArticleSelect = {
   sourceUrl: true,
   authorName: true,
   thumbnailUrl: true,
+  importSource: true,
+  externalId: true,
+  canonicalUrl: true,
+  contentHash: true,
+  sourcePublishedAt: true,
+  aiAnalysisStatus: true,
+  aiAnalysisError: true,
   cefrLevel: true,
   status: true,
   publishedAt: true,
@@ -458,6 +580,12 @@ const articleSentenceTermSelect = {
   vocabularyTopic: true,
   examples: true,
   skill: true,
+  origin: true,
+  reviewStatus: true,
+  selectionReason: true,
+  explanationStatus: true,
+  explanationError: true,
+  explanationGeneratedAt: true,
   isLookupEnabled: true,
   isActive: true,
   createdAt: true,
@@ -470,6 +598,33 @@ const articleStatusTransitionSelect = {
   publishedAt: true,
   archivedAt: true,
 } as const;
+
+const isSameAnalysisInventory = (
+  current: ArticleAnalysisSentenceRecord[],
+  expected: ArticleAnalysisSentenceRecord[],
+): boolean =>
+  current.length === expected.length &&
+  current.every((sentence, sentenceIndex) => {
+    const expectedSentence = expected[sentenceIndex];
+    return (
+      expectedSentence !== undefined &&
+      sentence.id === expectedSentence.id &&
+      sentence.sentenceOrder === expectedSentence.sentenceOrder &&
+      sentence.sentenceText === expectedSentence.sentenceText &&
+      sentence.terms.length === expectedSentence.terms.length &&
+      sentence.terms.every((term, termIndex) => {
+        const expectedTerm = expectedSentence.terms[termIndex];
+        return (
+          expectedTerm !== undefined &&
+          term.id === expectedTerm.id &&
+          term.sentenceId === expectedTerm.sentenceId &&
+          term.value === expectedTerm.value &&
+          term.unitType === expectedTerm.unitType &&
+          term.updatedAt.getTime() === expectedTerm.updatedAt.getTime()
+        );
+      })
+    );
+  });
 
 @Injectable()
 export class ArticlesRepository {
@@ -581,16 +736,16 @@ export class ArticlesRepository {
         contentVersion: article.contentVersion,
         isActive: true,
       } as const;
-      const [sentenceCount, termCount, quizCount] = await Promise.all([
-        tx.articleSentence.count({ where: currentSentenceWhere }),
-        tx.articleSentenceTerm.count({
-          where: {
-            isActive: true,
-            sentence: { is: currentSentenceWhere },
-          },
-        }),
-        tx.quiz.count({ where: { articleId } }),
-      ]);
+      const sentenceCount = await tx.articleSentence.count({
+        where: currentSentenceWhere,
+      });
+      const termCount = await tx.articleSentenceTerm.count({
+        where: {
+          isActive: true,
+          sentence: { is: currentSentenceWhere },
+        },
+      });
+      const quizCount = await tx.quiz.count({ where: { articleId } });
 
       return { article, sentenceCount, termCount, quizCount };
     });
@@ -651,6 +806,41 @@ export class ArticlesRepository {
       data: {
         ...input,
         status: ArticleStatus.DRAFT,
+        aiAnalysisStatus: AiGenerationStatus.PENDING,
+        aiAnalysisError: null,
+        contentVersion: 1,
+        publishedAt: null,
+        archivedAt: null,
+      },
+      select: adminArticleSelect,
+    });
+  }
+
+  findImportedDuplicate(
+    lookup: ImportedArticleDuplicateLookup,
+  ): Promise<ImportedArticleDuplicateRecord | null> {
+    const where: Prisma.ArticleWhereInput = lookup.contentHash
+      ? { contentHash: lookup.contentHash }
+      : lookup.canonicalUrl
+        ? { canonicalUrl: lookup.canonicalUrl }
+        : {
+            importSource: lookup.importSource,
+            externalId: lookup.externalId,
+          };
+
+    return this.prisma.article.findFirst({
+      where,
+      select: { id: true },
+    });
+  }
+
+  createImported(
+    input: CreateImportedArticleInput,
+  ): Promise<AdminArticleRecord> {
+    return this.prisma.article.create({
+      data: {
+        ...input,
+        status: ArticleStatus.DRAFT,
         contentVersion: 1,
         publishedAt: null,
         archivedAt: null,
@@ -671,6 +861,210 @@ export class ArticlesRepository {
     });
   }
 
+  async findAnalysisSnapshot(
+    articleId: string,
+  ): Promise<ArticleAnalysisSnapshot | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const article = await tx.article.findUnique({
+        where: { id: articleId },
+        select: {
+          id: true,
+          title: true,
+          contentHtml: true,
+          contentVersion: true,
+          status: true,
+          aiAnalysisStatus: true,
+        },
+      });
+      if (!article) return null;
+
+      const sentences = await tx.articleSentence.findMany({
+        where: {
+          articleId,
+          contentVersion: article.contentVersion,
+          isActive: true,
+        },
+        orderBy: [{ sentenceOrder: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          sentenceOrder: true,
+          sentenceText: true,
+          terms: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              sentenceId: true,
+              value: true,
+              unitType: true,
+              updatedAt: true,
+            },
+          },
+        },
+      });
+
+      return { article, sentences };
+    });
+  }
+
+  async claimArticleAnalysis(
+    articleId: string,
+    contentVersion: number,
+  ): Promise<boolean> {
+    const claimed = await this.prisma.article.updateMany({
+      where: {
+        id: articleId,
+        status: ArticleStatus.DRAFT,
+        contentVersion,
+        aiAnalysisStatus: {
+          in: [AiGenerationStatus.PENDING, AiGenerationStatus.FAILED],
+        },
+      },
+      data: {
+        aiAnalysisStatus: AiGenerationStatus.PROCESSING,
+        aiAnalysisError: null,
+      },
+    });
+    return claimed.count === 1;
+  }
+
+  async failArticleAnalysis(
+    articleId: string,
+    contentVersion: number,
+    aiAnalysisError: string,
+    actingAdminId: string,
+  ): Promise<boolean> {
+    const failed = await this.prisma.article.updateMany({
+      where: {
+        id: articleId,
+        status: ArticleStatus.DRAFT,
+        contentVersion,
+        aiAnalysisStatus: AiGenerationStatus.PROCESSING,
+      },
+      data: {
+        aiAnalysisStatus: AiGenerationStatus.FAILED,
+        aiAnalysisError,
+        updatedByUserId: actingAdminId,
+      },
+    });
+    return failed.count === 1;
+  }
+
+  async completeArticleAnalysis(
+    input: CompleteArticleAnalysisInput,
+  ): Promise<ArticleAnalysisCompletionRecord> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const activeCategoryCount = await tx.category.count({
+          where: { id: input.categoryId, isActive: true },
+        });
+        if (activeCategoryCount !== 1) {
+          throw new ArticleAnalysisStateConflictError();
+        }
+
+        const updated = await tx.article.updateMany({
+          where: {
+            id: input.articleId,
+            status: ArticleStatus.DRAFT,
+            contentVersion: input.contentVersion,
+            contentHtml: input.sourceContentHtml,
+            aiAnalysisStatus: AiGenerationStatus.PROCESSING,
+          },
+          data: {
+            summary: input.summary,
+            cefrLevel: input.cefrLevel,
+            categoryId: input.categoryId,
+            updatedByUserId: input.actingAdminId,
+            aiAnalysisStatus: AiGenerationStatus.READY,
+            aiAnalysisError: null,
+          },
+        });
+        if (updated.count !== 1) {
+          throw new ArticleAnalysisStateConflictError();
+        }
+
+        const currentSentences = await tx.articleSentence.findMany({
+          where: {
+            articleId: input.articleId,
+            contentVersion: input.contentVersion,
+            isActive: true,
+          },
+          orderBy: [{ sentenceOrder: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            sentenceOrder: true,
+            sentenceText: true,
+            terms: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: {
+                id: true,
+                sentenceId: true,
+                value: true,
+                unitType: true,
+                updatedAt: true,
+              },
+            },
+          },
+        });
+        if (
+          !isSameAnalysisInventory(currentSentences, input.expectedSentences)
+        ) {
+          throw new ArticleAnalysisStateConflictError();
+        }
+
+        if (input.terms.length > 0) {
+          await tx.articleSentenceTerm.createMany({
+            data: input.terms.map((term) => ({
+              ...term,
+              origin: TermOrigin.AI,
+              reviewStatus: TermReviewStatus.PENDING,
+              explanationStatus: AiGenerationStatus.PENDING,
+              selectionReason: term.selectionReason,
+              contextualMeaningVi: null,
+              definitionEn: null,
+              contextualExplanation: null,
+              ipa: null,
+              synonyms: [],
+              antonyms: [],
+              collocations: [],
+              relatedTerms: [],
+              vocabularyTopic: null,
+              examples: [],
+              skill: null,
+              explanationError: null,
+              explanationGeneratedAt: null,
+              isActive: false,
+              isLookupEnabled: false,
+            })),
+          });
+        }
+
+        const article = await tx.article.findUnique({
+          where: { id: input.articleId },
+          select: {
+            id: true,
+            contentVersion: true,
+            aiAnalysisStatus: true,
+            cefrLevel: true,
+            category: { select: publicCategorySelect },
+          },
+        });
+        if (!article || article.aiAnalysisStatus !== AiGenerationStatus.READY) {
+          throw new ArticleAnalysisStateConflictError();
+        }
+
+        return {
+          articleId: article.id,
+          contentVersion: article.contentVersion,
+          aiAnalysisStatus: article.aiAnalysisStatus,
+          category: article.category,
+          cefrLevel: article.cefrLevel,
+          candidateCount: input.terms.length,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
   countSentences(articleId: string, contentVersion: number): Promise<number> {
     return this.prisma.articleSentence.count({
       where: { articleId, contentVersion },
@@ -689,6 +1083,12 @@ export class ArticlesRepository {
         data: {
           contentHtml: input.annotatedContentHtml,
           updatedByUserId: input.actingAdminId,
+          ...(input.resetAiAnalysis
+            ? {
+                aiAnalysisStatus: AiGenerationStatus.PENDING,
+                aiAnalysisError: null,
+              }
+            : {}),
         },
       });
       if (updated.count !== 1) throw new ArticleParseStateConflictError();
@@ -726,16 +1126,14 @@ export class ArticlesRepository {
         contentVersion: article.contentVersion,
         ...(query.isActive === undefined ? {} : { isActive: query.isActive }),
       };
-      const [items, total] = await Promise.all([
-        tx.articleSentence.findMany({
-          where,
-          skip: (query.page - 1) * query.limit,
-          take: query.limit,
-          orderBy: [{ sentenceOrder: 'asc' }, { id: 'asc' }],
-          select: articleSentenceSelect,
-        }),
-        tx.articleSentence.count({ where }),
-      ]);
+      const items = await tx.articleSentence.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: [{ sentenceOrder: 'asc' }, { id: 'asc' }],
+        select: articleSentenceSelect,
+      });
+      const total = await tx.articleSentence.count({ where });
       return { contentVersion: article.contentVersion, items, total };
     });
   }
@@ -856,9 +1254,120 @@ export class ArticlesRepository {
         throw new ArticleTermStateConflictError();
       }
       return tx.articleSentenceTerm.create({
-        data: input,
+        data: {
+          ...input,
+          origin: TermOrigin.MANUAL,
+          reviewStatus: TermReviewStatus.APPROVED,
+          explanationStatus: AiGenerationStatus.READY,
+        },
         select: articleSentenceTermSelect,
       });
+    });
+  }
+
+  async approveAiTermWithMarker(
+    marker: TermMarkerWriteInput,
+  ): Promise<ArticleSentenceTermRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      const currentSentenceCount = await tx.articleSentence.count({
+        where: {
+          id: marker.sentenceId,
+          articleId: marker.articleId,
+          contentVersion: marker.contentVersion,
+          isActive: true,
+        },
+      });
+      if (currentSentenceCount !== 1) {
+        throw new ArticleTermStateConflictError();
+      }
+
+      const articleUpdate = await tx.article.updateMany({
+        where: {
+          id: marker.articleId,
+          status: ArticleStatus.DRAFT,
+          contentVersion: marker.contentVersion,
+          contentHtml: marker.sourceContentHtml,
+        },
+        data: {
+          contentHtml: marker.updatedContentHtml,
+          updatedByUserId: marker.actingAdminId,
+        },
+      });
+      if (articleUpdate.count !== 1) {
+        throw new ArticleTermStateConflictError();
+      }
+
+      const termUpdate = await tx.articleSentenceTerm.updateMany({
+        where: {
+          id: marker.termId,
+          sentenceId: marker.sentenceId,
+          origin: TermOrigin.AI,
+          reviewStatus: TermReviewStatus.PENDING,
+          isActive: false,
+          isLookupEnabled: false,
+        },
+        data: {
+          reviewStatus: TermReviewStatus.APPROVED,
+          isActive: true,
+          isLookupEnabled: true,
+          updatedByUserId: marker.actingAdminId,
+        },
+      });
+      if (termUpdate.count !== 1) {
+        throw new ArticleTermStateConflictError();
+      }
+
+      const term = await tx.articleSentenceTerm.findUnique({
+        where: { id: marker.termId },
+        select: articleSentenceTermSelect,
+      });
+      if (!term) throw new ArticleTermStateConflictError();
+      return term;
+    });
+  }
+
+  async rejectAiTerm(
+    articleId: string,
+    contentVersion: number,
+    termId: string,
+    actingAdminId: string,
+  ): Promise<ArticleSentenceTermRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.articleSentenceTerm.updateMany({
+        where: {
+          id: termId,
+          origin: TermOrigin.AI,
+          reviewStatus: TermReviewStatus.PENDING,
+          sentence: {
+            is: {
+              articleId,
+              contentVersion,
+              article: {
+                is: {
+                  contentVersion,
+                  status: ArticleStatus.DRAFT,
+                },
+              },
+            },
+          },
+        },
+        data: {
+          reviewStatus: TermReviewStatus.REJECTED,
+          isActive: false,
+          isLookupEnabled: false,
+          updatedByUserId: actingAdminId,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ArticleTermStateConflictError();
+      }
+
+      const term = await tx.articleSentenceTerm.findUnique({
+        where: { id: termId },
+        select: articleSentenceTermSelect,
+      });
+      if (!term) throw new ArticleTermStateConflictError();
+      return term;
     });
   }
 
@@ -870,6 +1379,9 @@ export class ArticlesRepository {
       sentenceId?: string;
       cefrLevel?: CefrLevel;
       unitType?: LexicalUnitType;
+      origin?: TermOrigin;
+      reviewStatus?: TermReviewStatus;
+      explanationStatus?: AiGenerationStatus;
       isActive?: boolean;
       q?: string;
     },
@@ -884,6 +1396,11 @@ export class ArticlesRepository {
         ...(query.sentenceId ? { sentenceId: query.sentenceId } : {}),
         ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
         ...(query.unitType ? { unitType: query.unitType } : {}),
+        ...(query.origin ? { origin: query.origin } : {}),
+        ...(query.reviewStatus ? { reviewStatus: query.reviewStatus } : {}),
+        ...(query.explanationStatus
+          ? { explanationStatus: query.explanationStatus }
+          : {}),
         ...(query.isActive === undefined ? {} : { isActive: query.isActive }),
         ...(query.q
           ? {
@@ -913,23 +1430,21 @@ export class ArticlesRepository {
           },
         },
       };
-      const [rows, total] = await Promise.all([
-        tx.articleSentenceTerm.findMany({
-          where,
-          skip: (query.page - 1) * query.limit,
-          take: query.limit,
-          orderBy: [
-            { sentence: { sentenceOrder: 'asc' } },
-            { createdAt: 'asc' },
-            { id: 'asc' },
-          ],
-          select: {
-            ...articleSentenceTermSelect,
-            sentence: { select: { sentenceOrder: true } },
-          },
-        }),
-        tx.articleSentenceTerm.count({ where }),
-      ]);
+      const rows = await tx.articleSentenceTerm.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: [
+          { sentence: { sentenceOrder: 'asc' } },
+          { createdAt: 'asc' },
+          { id: 'asc' },
+        ],
+        select: {
+          ...articleSentenceTermSelect,
+          sentence: { select: { sentenceOrder: true } },
+        },
+      });
+      const total = await tx.articleSentenceTerm.count({ where });
       return {
         contentVersion: article.contentVersion,
         total,
@@ -1104,16 +1619,15 @@ export class ArticlesRepository {
         throw new ArticleTermStateConflictError();
       }
       const referenceWhere = { articleSentenceTermId: marker.termId } as const;
-      const [savedVocabularyCount, quizQuestionCount, reviewAnswerCount] =
-        await Promise.all([
-          tx.userVocabulary.count({ where: referenceWhere }),
-          tx.quizQuestion.count({
-            where: { articleVocabularyId: marker.termId },
-          }),
-          tx.reviewAnswer.count({
-            where: { articleVocabularyId: marker.termId },
-          }),
-        ]);
+      const savedVocabularyCount = await tx.userVocabulary.count({
+        where: referenceWhere,
+      });
+      const quizQuestionCount = await tx.quizQuestion.count({
+        where: { articleVocabularyId: marker.termId },
+      });
+      const reviewAnswerCount = await tx.reviewAnswer.count({
+        where: { articleVocabularyId: marker.termId },
+      });
       if (
         savedVocabularyCount > 0 ||
         quizQuestionCount > 0 ||
@@ -1204,11 +1718,21 @@ export class ArticlesRepository {
     articleId: string,
     previousContentVersion: number,
     input: UpdateArticleInput & { contentHtml: string },
+    resetAiAnalysis = false,
   ): Promise<AdminArticleRecord> {
     return this.prisma.$transaction(async (tx) => {
       const article = await tx.article.update({
         where: { id: articleId },
-        data: { ...input, contentVersion: { increment: 1 } },
+        data: {
+          ...input,
+          contentVersion: { increment: 1 },
+          ...(resetAiAnalysis
+            ? {
+                aiAnalysisStatus: AiGenerationStatus.PENDING,
+                aiAnalysisError: null,
+              }
+            : {}),
+        },
         select: adminArticleSelect,
       });
 
@@ -1241,25 +1765,23 @@ export class ArticlesRepository {
           is: { sentence: { is: { articleId } } },
         },
       } as const;
-      const [
-        readingProgressCount,
-        savedVocabularyCount,
-        quizCount,
-        reviewSessionCount,
-        reviewAnswerCount,
-      ] = await Promise.all([
-        tx.userArticleProgress.count({ where: { articleId } }),
-        tx.userVocabulary.count({ where: termRelation }),
-        tx.quiz.count({ where: { articleId } }),
-        tx.reviewSession.count({ where: { articleId } }),
-        tx.reviewAnswer.count({
-          where: {
-            articleVocabulary: {
-              is: { sentence: { is: { articleId } } },
-            },
+      const readingProgressCount = await tx.userArticleProgress.count({
+        where: { articleId },
+      });
+      const savedVocabularyCount = await tx.userVocabulary.count({
+        where: termRelation,
+      });
+      const quizCount = await tx.quiz.count({ where: { articleId } });
+      const reviewSessionCount = await tx.reviewSession.count({
+        where: { articleId },
+      });
+      const reviewAnswerCount = await tx.reviewAnswer.count({
+        where: {
+          articleVocabulary: {
+            is: { sentence: { is: { articleId } } },
           },
-        }),
-      ]);
+        },
+      });
 
       return {
         ...article,

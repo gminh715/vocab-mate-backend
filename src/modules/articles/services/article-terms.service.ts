@@ -6,7 +6,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ArticleStatus } from '../../../../generated/prisma/enums';
+import {
+  ArticleStatus,
+  TermOrigin,
+  TermReviewStatus,
+} from '../../../../generated/prisma/enums';
 import {
   ArticleTermListQueryDto,
   CreateArticleTermDto,
@@ -103,6 +107,11 @@ export class ArticleTermsService {
       ...(query.sentenceId ? { sentenceId: query.sentenceId } : {}),
       ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
       ...(query.unitType ? { unitType: query.unitType } : {}),
+      ...(query.origin ? { origin: query.origin } : {}),
+      ...(query.reviewStatus ? { reviewStatus: query.reviewStatus } : {}),
+      ...(query.explanationStatus
+        ? { explanationStatus: query.explanationStatus }
+        : {}),
       ...(query.isActive === undefined ? {} : { isActive: query.isActive }),
       ...(query.q ? { q: query.q.trim() } : {}),
     });
@@ -149,14 +158,35 @@ export class ArticleTermsService {
     const markerShapeRequested =
       dto.value !== undefined || dto.unitType !== undefined;
     let updatedContentHtml = context.article.contentHtml;
+    const hasApprovedMarker =
+      context.term.reviewStatus === TermReviewStatus.APPROVED;
+
+    if (
+      !hasApprovedMarker &&
+      (dto.isActive === true || dto.isLookupEnabled === true)
+    ) {
+      throw new ConflictException(
+        'Pending or rejected AI terms must be approved through the moderation endpoint',
+      );
+    }
 
     try {
-      TermMarkerHelper.assertMarker(
-        context.article.contentHtml,
-        context.sentence.id,
-        termId,
-      );
-      if (markerShapeRequested) {
+      if (hasApprovedMarker) {
+        if (context.term.origin === TermOrigin.AI) {
+          TermMarkerHelper.assertSingleMarker(
+            context.article.contentHtml,
+            context.sentence.id,
+            termId,
+          );
+        } else {
+          TermMarkerHelper.assertMarker(
+            context.article.contentHtml,
+            context.sentence.id,
+            termId,
+          );
+        }
+      }
+      if (markerShapeRequested && hasApprovedMarker) {
         if (!context.sentence.isActive) {
           throw new ConflictException(
             'Term markers cannot be changed in an inactive sentence',
@@ -167,14 +197,29 @@ export class ArticleTermsService {
           nextValue,
           nextUnitType,
         );
+        const replaceMarker =
+          context.term.origin === TermOrigin.AI
+            ? TermMarkerHelper.replaceFirst.bind(TermMarkerHelper)
+            : TermMarkerHelper.replace.bind(TermMarkerHelper);
         updatedContentHtml = HtmlSanitizerHelper.sanitize(
-          TermMarkerHelper.replace(
+          replaceMarker(
             context.article.contentHtml,
             context.sentence.id,
             termId,
             nextValue,
             nextUnitType,
           ),
+        );
+      } else if (markerShapeRequested) {
+        if (!context.sentence.isActive) {
+          throw new ConflictException(
+            'Terms cannot be changed in an inactive sentence',
+          );
+        }
+        this.requireTextMatch(
+          context.sentence.sentenceText,
+          nextValue,
+          nextUnitType,
         );
       }
     } catch (error: unknown) {
@@ -207,6 +252,127 @@ export class ArticleTermsService {
           );
       if (!term) throw new ArticleTermStateConflictError();
       return { term, contentHtmlChanged };
+    } catch (error: unknown) {
+      this.mapWriteError(error);
+    }
+  }
+
+  async approveAiCandidate(
+    actingAdminId: string,
+    articleId: string,
+    termId: string,
+  ) {
+    const context = await this.articlesRepository.findTermMutationContext(
+      articleId,
+      termId,
+    );
+    if (!context) throw new NotFoundException('Term not found');
+    this.requireDraftModeration(context.article.status);
+    if (context.term.origin !== TermOrigin.AI) {
+      throw new ConflictException('Only AI term candidates can be approved');
+    }
+    if (!context.sentence.isActive) {
+      throw new ConflictException(
+        'Terms cannot be approved in an inactive sentence',
+      );
+    }
+
+    if (context.term.reviewStatus === TermReviewStatus.APPROVED) {
+      if (!context.term.isActive || !context.term.isLookupEnabled) {
+        throw new ConflictException(
+          'Approved AI term state is inconsistent; retry after correction',
+        );
+      }
+      try {
+        TermMarkerHelper.assertSingleMarker(
+          context.article.contentHtml,
+          context.sentence.id,
+          termId,
+        );
+      } catch (error: unknown) {
+        this.mapMarkerError(error);
+      }
+      return { term: context.term, contentHtmlChanged: false };
+    }
+    if (context.term.reviewStatus !== TermReviewStatus.PENDING) {
+      throw new ConflictException(
+        'Rejected AI term candidates cannot be approved',
+      );
+    }
+    this.requireTextMatch(
+      context.sentence.sentenceText,
+      context.term.value,
+      context.term.unitType,
+    );
+
+    let updatedContentHtml: string;
+    try {
+      updatedContentHtml = HtmlSanitizerHelper.sanitize(
+        TermMarkerHelper.insertFirst(
+          context.article.contentHtml,
+          context.sentence.id,
+          termId,
+          context.term.value,
+          context.term.unitType,
+        ),
+      );
+    } catch (error: unknown) {
+      this.mapMarkerError(error);
+    }
+
+    try {
+      const term = await this.articlesRepository.approveAiTermWithMarker({
+        articleId,
+        sentenceId: context.sentence.id,
+        termId,
+        contentVersion: context.article.contentVersion,
+        sourceContentHtml: context.article.contentHtml,
+        updatedContentHtml,
+        actingAdminId,
+      });
+      return { term, contentHtmlChanged: true };
+    } catch (error: unknown) {
+      this.mapWriteError(error);
+    }
+  }
+
+  async rejectAiCandidate(
+    actingAdminId: string,
+    articleId: string,
+    termId: string,
+  ) {
+    const context = await this.articlesRepository.findTermMutationContext(
+      articleId,
+      termId,
+    );
+    if (!context) throw new NotFoundException('Term not found');
+    this.requireDraftModeration(context.article.status);
+    if (context.term.origin !== TermOrigin.AI) {
+      throw new ConflictException('Only AI term candidates can be rejected');
+    }
+
+    if (context.term.reviewStatus === TermReviewStatus.REJECTED) {
+      if (context.term.isActive || context.term.isLookupEnabled) {
+        throw new ConflictException(
+          'Rejected AI term state is inconsistent; retry after correction',
+        );
+      }
+      return { term: context.term, contentHtmlChanged: false };
+    }
+    if (context.term.reviewStatus !== TermReviewStatus.PENDING) {
+      throw new ConflictException(
+        'Approved AI term candidates cannot be rejected',
+      );
+    }
+
+    try {
+      const term = await this.articlesRepository.rejectAiTerm(
+        articleId,
+        context.article.contentVersion,
+        termId,
+        actingAdminId,
+      );
+      return { term, contentHtmlChanged: false };
     } catch (error: unknown) {
       this.mapWriteError(error);
     }
@@ -263,6 +429,14 @@ export class ArticleTermsService {
   private requireMutableArticle(status: ArticleStatus): void {
     if (status === ArticleStatus.ARCHIVED) {
       throw new ConflictException('Archived article terms cannot be changed');
+    }
+  }
+
+  private requireDraftModeration(status: ArticleStatus): void {
+    if (status !== ArticleStatus.DRAFT) {
+      throw new ConflictException(
+        'AI term candidates can only be moderated on draft articles',
+      );
     }
   }
 

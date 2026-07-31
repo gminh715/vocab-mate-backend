@@ -50,7 +50,7 @@ const registration = {
   password: 'StrongPass@123',
   displayName: 'Nguyen Van A',
   currentCefrLevel: 'B1',
-  learningGoal: 'Learn 10 words per day',
+  learningGoal: 'C1',
 };
 
 interface AuthResponseBody {
@@ -583,6 +583,13 @@ describe('Auth and Users APIs (e2e)', () => {
       authorization,
       '<p>Digital tools improve learning.</p>',
     );
+    await request(app.getHttpServer())
+      .patch(
+        `/api/v1/admin/articles/${prepared.articleId}/sentences/${prepared.sentences[0].id}`,
+      )
+      .set('Authorization', authorization)
+      .send({ translationVi: 'Công cụ kỹ thuật số cải thiện việc học.' })
+      .expect(200);
     const created = await request(app.getHttpServer())
       .post(
         `/api/v1/admin/articles/${prepared.articleId}/sentences/${prepared.sentences[0].id}/terms`,
@@ -1127,6 +1134,17 @@ describe('Auth and Users APIs (e2e)', () => {
           }
         >
       >;
+      components: {
+        schemas: Record<
+          string,
+          {
+            properties?: Record<
+              string,
+              { nullable?: boolean; enum?: string[] }
+            >;
+          }
+        >;
+      };
     }>(response);
     const collection = swagger.paths['/api/v1/admin/articles'];
     const member = swagger.paths['/api/v1/admin/articles/{articleId}'];
@@ -1147,6 +1165,15 @@ describe('Auth and Users APIs (e2e)', () => {
     expect(member.patch.operationId).toBe('patchAdminArticlesByArticleId');
     expect(member.delete.operationId).toBe('deleteAdminArticlesByArticleId');
     expect(Object.keys(member.delete.responses)).toContain('204');
+    const adminArticleProperties =
+      swagger.components.schemas['AdminArticleDto'].properties ?? {};
+    expect(adminArticleProperties.importSource?.nullable).toBe(true);
+    expect(adminArticleProperties.externalId?.nullable).toBe(true);
+    expect(adminArticleProperties.canonicalUrl?.nullable).toBe(true);
+    expect(adminArticleProperties.contentHash?.nullable).toBe(true);
+    expect(adminArticleProperties.sourcePublishedAt?.nullable).toBe(true);
+    expect(adminArticleProperties.aiAnalysisStatus?.nullable).toBe(true);
+    expect(adminArticleProperties.aiAnalysisError?.nullable).toBe(true);
     for (const operation of [
       collection.get,
       collection.post,
@@ -1269,6 +1296,13 @@ describe('Auth and Users APIs (e2e)', () => {
       status: 'DRAFT',
       contentVersion: 1,
       contentHtml: '<p>Safe reader content</p>',
+      importSource: null,
+      externalId: null,
+      canonicalUrl: null,
+      contentHash: null,
+      sourcePublishedAt: null,
+      aiAnalysisStatus: null,
+      aiAnalysisError: null,
       publishedAt: null,
       archivedAt: null,
     });
@@ -1701,6 +1735,17 @@ describe('Auth and Users APIs (e2e)', () => {
           }
         >
       >;
+      components: {
+        schemas: Record<
+          string,
+          {
+            properties?: Record<
+              string,
+              { nullable?: boolean; enum?: string[] }
+            >;
+          }
+        >;
+      };
     }>(response);
     const create =
       swagger.paths[
@@ -1716,6 +1761,21 @@ describe('Auth and Users APIs (e2e)', () => {
     expect(member.get.operationId).toBe('getAdminArticleTermById');
     expect(member.patch.operationId).toBe('patchAdminArticleTermById');
     expect(member.delete.operationId).toBe('deleteAdminArticleTermById');
+    const termProperties =
+      swagger.components.schemas['ArticleSentenceTermDto'].properties ?? {};
+    expect(termProperties.contextualMeaningVi?.nullable).toBe(true);
+    expect(termProperties.origin?.enum).toEqual(['MANUAL', 'AI']);
+    expect(termProperties.reviewStatus?.enum).toEqual([
+      'PENDING',
+      'APPROVED',
+      'REJECTED',
+    ]);
+    expect(termProperties.explanationStatus?.enum).toEqual([
+      'PENDING',
+      'PROCESSING',
+      'READY',
+      'FAILED',
+    ]);
     for (const operation of [
       create,
       collection,
@@ -1752,11 +1812,22 @@ describe('Auth and Users APIs (e2e)', () => {
       .expect(201);
     const createdData = responseBody<{
       data: {
-        term: { id: string; sentenceId: string };
+        term: {
+          id: string;
+          sentenceId: string;
+          origin: string;
+          reviewStatus: string;
+          explanationStatus: string;
+        };
         updatedContentHtml: string;
       };
     }>(created).data;
-    expect(createdData.term.sentenceId).toBe(sentenceId);
+    expect(createdData.term).toMatchObject({
+      sentenceId,
+      origin: 'MANUAL',
+      reviewStatus: 'APPROVED',
+      explanationStatus: 'READY',
+    });
     expect(
       createdData.updatedContentHtml.match(
         new RegExp(`data-term-id="${createdData.term.id}"`, 'g'),
@@ -2277,6 +2348,13 @@ describe('Auth and Users APIs (e2e)', () => {
       authorization,
       '<p>Alpha helps. Beta works.</p>',
     );
+    for (const sentence of prepared.sentences) {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/articles/${articleId}/sentences/${sentence.id}`)
+        .set('Authorization', authorization)
+        .send({ translationVi: `Bản dịch cho câu ${sentence.sentenceOrder}.` })
+        .expect(200);
+    }
     const alpha = await request(app.getHttpServer())
       .post(
         `/api/v1/admin/articles/${articleId}/sentences/${prepared.sentences[0].id}/terms`,

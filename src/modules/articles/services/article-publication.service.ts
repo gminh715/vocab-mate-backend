@@ -6,7 +6,12 @@ import {
 } from '@nestjs/common';
 import { DomUtils, parseDocument } from 'htmlparser2';
 import { type ChildNode, Element, isTag } from 'domhandler';
-import { ArticleStatus, CefrLevel } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+  CefrLevel,
+  TermReviewStatus,
+} from '../../../../generated/prisma/enums';
 import { isCefrAtOrAbove } from '../../../common/utils/cefr-level.util';
 import type { PublicationValidationIssueDto } from '../dto/article-publication.dto';
 import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
@@ -163,6 +168,7 @@ export class ArticlePublicationService {
       sentence.isActive
         ? sentence.terms
             .filter((term) => term.isActive && term.isLookupEnabled)
+            .filter((term) => term.reviewStatus === TermReviewStatus.APPROVED)
             .map((term) => ({
               ...term,
               isHighlighted: isCefrAtOrAbove(term.cefrLevel, previewLevel),
@@ -319,12 +325,34 @@ export class ArticlePublicationService {
     for (const sentence of snapshot.sentences) {
       for (const term of sentence.terms) {
         allTerms.set(term.id, term);
-        if (sentence.isActive && term.isActive && term.isLookupEnabled) {
+        if (
+          sentence.isActive &&
+          term.reviewStatus === TermReviewStatus.APPROVED &&
+          term.isActive &&
+          term.isLookupEnabled
+        ) {
           activeLookupTerms.set(term.id, term);
-          if (!this.hasRequiredTermMetadata(term)) {
+          if (!this.hasRequiredLexicalMetadata(term)) {
             addIssue(
               'TERM_METADATA_INCOMPLETE',
               'An active lookup term is missing required vocabulary metadata.',
+              term.id,
+            );
+          }
+          if (
+            term.explanationStatus === AiGenerationStatus.READY &&
+            !this.hasRequiredSnapshotMetadata(term, sentence.translationVi)
+          ) {
+            addIssue(
+              'TERM_SNAPSHOT_INCOMPLETE',
+              'A ready active lookup term is missing required vocabulary snapshot metadata.',
+              term.id,
+            );
+          }
+          if (term.explanationStatus === AiGenerationStatus.PROCESSING) {
+            addIssue(
+              'TERM_EXPLANATION_PROCESSING',
+              'An active lookup term cannot be published while explanation generation is processing.',
               term.id,
             );
           }
@@ -358,7 +386,12 @@ export class ArticlePublicationService {
           term.id,
         );
       }
-      if (!sentence?.isActive || !term.isActive || !term.isLookupEnabled) {
+      if (
+        !sentence?.isActive ||
+        term.reviewStatus !== TermReviewStatus.APPROVED ||
+        !term.isActive ||
+        !term.isLookupEnabled
+      ) {
         addIssue(
           'INACTIVE_TERM_MARKER',
           'A publication marker maps to an inactive or disabled term.',
@@ -377,10 +410,17 @@ export class ArticlePublicationService {
       }
     }
     for (const term of activeLookupTerms.values()) {
-      if (!termMarkers.has(term.id)) {
+      const markers = termMarkers.get(term.id) ?? [];
+      if (markers.length === 0) {
         addIssue(
           'MISSING_TERM_MARKER',
           'An active lookup term has no HTML marker.',
+          term.id,
+        );
+      } else if (markers.length > 1) {
+        addIssue(
+          'DUPLICATE_TERM_MARKER',
+          'An active lookup term must have exactly one HTML marker.',
           term.id,
         );
       }
@@ -480,15 +520,50 @@ export class ArticlePublicationService {
     return value.replace(/\s+/gu, ' ').trim();
   }
 
-  private hasRequiredTermMetadata(term: ArticleSentenceTermRecord): boolean {
-    return [
-      term.value,
-      term.wordDisplay,
-      term.lemma,
-      term.normalizedLemma,
-      term.partOfSpeech,
-      term.contextualMeaningVi,
-    ].every((value) => value.trim().length > 0);
+  private hasRequiredLexicalMetadata(term: ArticleSentenceTermRecord): boolean {
+    return (
+      [
+        term.value,
+        term.wordDisplay,
+        term.lemma,
+        term.normalizedLemma,
+        term.partOfSpeech,
+      ].every(
+        (value) => typeof value === 'string' && value.trim().length > 0,
+      ) && Object.values(CefrLevel).includes(term.cefrLevel)
+    );
+  }
+
+  private hasRequiredSnapshotMetadata(
+    term: ArticleSentenceTermRecord,
+    translationVi: string | null,
+  ): boolean {
+    return (
+      this.isNonBlankText(term.contextualMeaningVi) &&
+      this.isNonBlankText(translationVi) &&
+      this.hasCanonicalExamples(term.examples)
+    );
+  }
+
+  private hasCanonicalExamples(value: unknown): boolean {
+    return (
+      Array.isArray(value) &&
+      value.every((item) => {
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+          return false;
+        }
+        const record = item as Record<string, unknown>;
+        return (
+          Object.keys(record).length === 2 &&
+          this.isNonBlankText(record.sentence) &&
+          this.isNonBlankText(record.translationVi)
+        );
+      })
+    );
+  }
+
+  private isNonBlankText(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
   }
 
   private deduplicateIssues(

@@ -31,7 +31,7 @@ export interface UserProfileRecord {
   displayName: string;
   avatarUrl: string | null;
   currentCefrLevel: CefrLevel;
-  learningGoal: CefrLevel | null;
+  learningGoal: string | null;
   preferredLanguage: string;
 }
 

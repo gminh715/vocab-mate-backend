@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { HealthModule } from './modules/health/health.module';
+import { NewsIngestionModule } from './modules/news-ingestion/news-ingestion.module';
 import { QuizzesModule } from './modules/quizzes/quizzes.module';
 import { ReadingModule } from './modules/reading/reading.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
@@ -20,6 +21,7 @@ import { VocabulariesModule } from './modules/vocabularies/vocabularies.module';
     ConfigModule,
     PrismaModule,
     HealthModule,
+    NewsIngestionModule,
     UsersModule,
     AuthModule,
     CategoriesModule,

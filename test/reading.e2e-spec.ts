@@ -181,6 +181,8 @@ class InMemoryReadingRepository {
         contextualMeaningVi: 'có hại',
         definitionEn: 'causing damage',
         contextualExplanation: 'A negative effect in this context.',
+        explanationStatus: 'READY',
+        explanationGeneratedAt: null,
         synonyms: ['damaging'],
         antonyms: ['beneficial'],
         collocations: ['harmful effect'],
@@ -403,6 +405,17 @@ describe('Reading APIs (e2e)', () => {
           }
         >
       >;
+      components: {
+        schemas: Record<
+          string,
+          {
+            properties?: Record<
+              string,
+              { nullable?: boolean; enum?: string[] }
+            >;
+          }
+        >;
+      };
     }>(response);
     const reader = swagger.paths['/api/v1/reading/articles/{slug}'].get;
     const lookup =
@@ -422,6 +435,18 @@ describe('Reading APIs (e2e)', () => {
       'termId',
     ]);
     expect(lookup.security).toContainEqual({ BearerAuth: [] });
+    const contextualTermProperties =
+      swagger.components.schemas['ContextualTermDto'].properties ?? {};
+    expect(contextualTermProperties.contextualMeaningVi?.nullable).toBe(true);
+    expect(contextualTermProperties.explanationStatus?.enum).toEqual([
+      'PENDING',
+      'PROCESSING',
+      'READY',
+      'FAILED',
+    ]);
+    expect(contextualTermProperties.explanationGeneratedAt?.nullable).toBe(
+      true,
+    );
     const history = swagger.paths['/api/v1/reading/history'].get;
     const progress = swagger.paths['/api/v1/reading/progress/{articleId}'];
     const complete =

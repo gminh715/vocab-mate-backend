@@ -48,8 +48,14 @@ export class UpdateMyProfileDto {
   @IsEnum(CefrLevel)
   learningGoal?: CefrLevel;
 
-  @ApiPropertyOptional({ enum: ['vi', 'en'], example: 'vi' })
+  @ApiPropertyOptional({
+    enum: ['vi', 'en'],
+    example: 'vi',
+    description:
+      'UI display-language preference only; does not control articles, translations, explanations, or AI output.',
+  })
   @ValidateIf(isSupplied)
+  @Transform(trimString)
   @IsIn(['vi', 'en'])
   preferredLanguage?: string;
 }

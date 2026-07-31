@@ -11,7 +11,13 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { CefrLevel, LexicalUnitType } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  CefrLevel,
+  LexicalUnitType,
+  TermOrigin,
+  TermReviewStatus,
+} from '../../../../generated/prisma/enums';
 import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
 
 const MAX_PAGE_SIZE = 100;
@@ -173,8 +179,8 @@ export class ArticleSentenceTermDto {
   @ApiProperty({ enum: CefrLevel })
   cefrLevel!: CefrLevel;
 
-  @ApiProperty()
-  contextualMeaningVi!: string;
+  @ApiProperty({ nullable: true })
+  contextualMeaningVi!: string | null;
 
   @ApiProperty({ nullable: true })
   definitionEn!: string | null;
@@ -202,6 +208,30 @@ export class ArticleSentenceTermDto {
 
   @ApiProperty({ nullable: true })
   skill!: string | null;
+
+  @ApiProperty({ enum: TermOrigin, example: TermOrigin.MANUAL })
+  origin!: TermOrigin;
+
+  @ApiProperty({
+    enum: TermReviewStatus,
+    example: TermReviewStatus.APPROVED,
+  })
+  reviewStatus!: TermReviewStatus;
+
+  @ApiProperty({ nullable: true })
+  selectionReason!: string | null;
+
+  @ApiProperty({
+    enum: AiGenerationStatus,
+    example: AiGenerationStatus.READY,
+  })
+  explanationStatus!: AiGenerationStatus;
+
+  @ApiProperty({ nullable: true })
+  explanationError!: string | null;
+
+  @ApiProperty({ format: 'date-time', nullable: true })
+  explanationGeneratedAt!: Date | null;
 
   @ApiProperty()
   isLookupEnabled!: boolean;

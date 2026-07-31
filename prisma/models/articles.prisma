@@ -1,23 +1,30 @@
 model Article {
-  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  categoryId      String        @map("category_id") @db.Uuid
-  title           String        @db.Text
-  slug            String        @unique(map: "uq_articles_slug") @db.Citext
-  summary         String        @db.Text
-  contentHtml     String        @map("content_html") @db.Text
-  contentVersion  Int           @default(1) @map("content_version")
-  sourceName      String?       @map("source_name") @db.Text
-  sourceUrl       String?       @map("source_url") @db.Text
-  authorName      String?       @map("author_name") @db.Text
-  thumbnailUrl    String?       @map("thumbnail_url") @db.Text
-  cefrLevel       CefrLevel     @map("cefr_level")
-  status          ArticleStatus @default(DRAFT)
-  publishedAt     DateTime?     @map("published_at") @db.Timestamptz(6)
-  archivedAt      DateTime?     @map("archived_at") @db.Timestamptz(6)
-  createdByUserId String        @map("created_by_user_id") @db.Uuid
-  updatedByUserId String        @map("updated_by_user_id") @db.Uuid
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId        String              @map("category_id") @db.Uuid
+  title             String              @db.Text
+  slug              String              @unique(map: "uq_articles_slug") @db.Citext
+  summary           String              @db.Text
+  contentHtml       String              @map("content_html") @db.Text
+  contentVersion    Int                 @default(1) @map("content_version")
+  sourceName        String?             @map("source_name") @db.Text
+  sourceUrl         String?             @map("source_url") @db.Text
+  authorName        String?             @map("author_name") @db.Text
+  thumbnailUrl      String?             @map("thumbnail_url") @db.Text
+  importSource      String?             @map("import_source") @db.Text
+  externalId        String?             @map("external_id") @db.Text
+  canonicalUrl      String?             @map("canonical_url") @db.Text
+  contentHash       String?             @map("content_hash") @db.Char(64)
+  sourcePublishedAt DateTime?           @map("source_published_at") @db.Timestamptz(6)
+  aiAnalysisStatus  AiGenerationStatus? @map("ai_analysis_status")
+  aiAnalysisError   String?             @map("ai_analysis_error") @db.Text
+  cefrLevel         CefrLevel           @map("cefr_level")
+  status            ArticleStatus       @default(DRAFT)
+  publishedAt       DateTime?           @map("published_at") @db.Timestamptz(6)
+  archivedAt        DateTime?           @map("archived_at") @db.Timestamptz(6)
+  createdByUserId   String              @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String              @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   category       Category              @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_articles_category")
   createdBy      User                  @relation("ArticleCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_articles_created_by")
@@ -27,6 +34,9 @@ model Article {
   quizzes        Quiz[]
   reviewSessions ReviewSession[]
 
+  @@unique([importSource, externalId], map: "uq_articles_import_source_external_id", where: raw("import_source IS NOT NULL AND external_id IS NOT NULL"))
+  @@unique([canonicalUrl], map: "uq_articles_canonical_url", where: raw("canonical_url IS NOT NULL"))
+  @@unique([contentHash], map: "uq_articles_content_hash", where: raw("content_hash IS NOT NULL"))
   @@index([categoryId, cefrLevel, publishedAt(sort: Desc)], map: "idx_articles_published_filters", where: raw("status = 'PUBLISHED'"))
   @@index([createdByUserId, createdAt(sort: Desc)], map: "idx_articles_created_by")
   @@map("articles")
@@ -62,32 +72,38 @@ model ArticleSentence {
 /// LOWER(BTRIM(value)) and must remain in a customized migration because
 /// expression indexes cannot be represented by Prisma Schema Language.
 model ArticleSentenceTerm {
-  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sentenceId            String          @map("sentence_id") @db.Uuid
-  value                 String          @db.Text
-  wordDisplay           String          @map("word_display") @db.Text
-  lemma                 String          @db.Text
-  normalizedLemma       String          @map("normalized_lemma") @db.Citext
-  unitType              LexicalUnitType @default(WORD) @map("unit_type")
-  partOfSpeech          String          @map("part_of_speech") @db.Text
-  ipa                   String?         @db.Text
-  cefrLevel             CefrLevel       @map("cefr_level")
-  contextualMeaningVi   String          @map("contextual_meaning_vi") @db.Text
-  definitionEn          String?         @map("definition_en") @db.Text
-  contextualExplanation String?         @map("contextual_explanation") @db.Text
-  synonyms              String[]        @default([]) @db.Text
-  antonyms              String[]        @default([]) @db.Text
-  collocations          String[]        @default([]) @db.Text
-  relatedTerms          String[]        @default([]) @map("related_terms") @db.Text
-  vocabularyTopic       String?         @map("vocabulary_topic") @db.Text
-  examples              Json            @default("[]") @db.JsonB
-  skill                 String?         @db.Text
-  isLookupEnabled       Boolean         @default(true) @map("is_lookup_enabled")
-  isActive              Boolean         @default(true) @map("is_active")
-  createdByUserId       String          @map("created_by_user_id") @db.Uuid
-  updatedByUserId       String          @map("updated_by_user_id") @db.Uuid
-  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sentenceId             String             @map("sentence_id") @db.Uuid
+  value                  String             @db.Text
+  wordDisplay            String             @map("word_display") @db.Text
+  lemma                  String             @db.Text
+  normalizedLemma        String             @map("normalized_lemma") @db.Citext
+  unitType               LexicalUnitType    @default(WORD) @map("unit_type")
+  partOfSpeech           String             @map("part_of_speech") @db.Text
+  ipa                    String?            @db.Text
+  cefrLevel              CefrLevel          @map("cefr_level")
+  contextualMeaningVi    String?            @map("contextual_meaning_vi") @db.Text
+  definitionEn           String?            @map("definition_en") @db.Text
+  contextualExplanation  String?            @map("contextual_explanation") @db.Text
+  synonyms               String[]           @default([]) @db.Text
+  antonyms               String[]           @default([]) @db.Text
+  collocations           String[]           @default([]) @db.Text
+  relatedTerms           String[]           @default([]) @map("related_terms") @db.Text
+  vocabularyTopic        String?            @map("vocabulary_topic") @db.Text
+  examples               Json               @default("[]") @db.JsonB
+  skill                  String?            @db.Text
+  origin                 TermOrigin         @default(MANUAL)
+  reviewStatus           TermReviewStatus   @default(APPROVED) @map("review_status")
+  selectionReason        String?            @map("selection_reason") @db.Text
+  explanationStatus      AiGenerationStatus @default(READY) @map("explanation_status")
+  explanationError       String?            @map("explanation_error") @db.Text
+  explanationGeneratedAt DateTime?          @map("explanation_generated_at") @db.Timestamptz(6)
+  isLookupEnabled        Boolean            @default(true) @map("is_lookup_enabled")
+  isActive               Boolean            @default(true) @map("is_active")
+  createdByUserId        String             @map("created_by_user_id") @db.Uuid
+  updatedByUserId        String             @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   sentence         ArticleSentence  @relation(fields: [sentenceId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_article_sentence_terms_sentence")
   createdBy        User             @relation("ArticleSentenceTermCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_article_sentence_terms_created_by")

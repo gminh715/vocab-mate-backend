@@ -54,14 +54,50 @@ export class TermMarkerHelper {
     value: string,
     unitType: TermMarkerUnitType,
   ): string {
+    return this.insertMatches(
+      contentHtml,
+      sentenceId,
+      termId,
+      value,
+      unitType,
+      false,
+    );
+  }
+
+  static insertFirst(
+    contentHtml: string,
+    sentenceId: string,
+    termId: string,
+    value: string,
+    unitType: TermMarkerUnitType,
+  ): string {
+    return this.insertMatches(
+      contentHtml,
+      sentenceId,
+      termId,
+      value,
+      unitType,
+      true,
+    );
+  }
+
+  private static insertMatches(
+    contentHtml: string,
+    sentenceId: string,
+    termId: string,
+    value: string,
+    unitType: TermMarkerUnitType,
+    firstOnly: boolean,
+  ): string {
     const document = parseDocument(contentHtml, { decodeEntities: true });
     const sentence = this.requireSentence(document, sentenceId);
     this.assertValidMarkerTree(document, sentence, termId, false);
     const textMap = this.buildTextMap(sentence);
     const matches = this.findMatches(textMap.text, value, unitType);
     if (matches.length === 0) throw new TermValueNotFoundError();
-    this.assertNoOverlap(sentence, textMap, matches);
-    this.annotate(sentence, textMap, matches, termId);
+    const selectedMatches = firstOnly ? matches.slice(0, 1) : matches;
+    this.assertNoOverlap(sentence, textMap, selectedMatches);
+    this.annotate(sentence, textMap, selectedMatches, termId);
     return DomUtils.getInnerHTML(document);
   }
 
@@ -74,6 +110,23 @@ export class TermMarkerHelper {
   ): string {
     const withoutOldMarker = this.unwrap(contentHtml, sentenceId, termId);
     return this.insert(withoutOldMarker, sentenceId, termId, value, unitType);
+  }
+
+  static replaceFirst(
+    contentHtml: string,
+    sentenceId: string,
+    termId: string,
+    value: string,
+    unitType: TermMarkerUnitType,
+  ): string {
+    const withoutOldMarker = this.unwrap(contentHtml, sentenceId, termId);
+    return this.insertFirst(
+      withoutOldMarker,
+      sentenceId,
+      termId,
+      value,
+      unitType,
+    );
   }
 
   static unwrap(
@@ -138,6 +191,23 @@ export class TermMarkerHelper {
       true,
     );
     if (markers.length === 0) throw new TermMarkerNotFoundError();
+  }
+
+  static assertSingleMarker(
+    contentHtml: string,
+    sentenceId: string,
+    termId: string,
+  ): void {
+    const document = parseDocument(contentHtml, { decodeEntities: true });
+    const sentence = this.requireSentence(document, sentenceId);
+    const markers = this.assertValidMarkerTree(
+      document,
+      sentence,
+      termId,
+      true,
+    );
+    if (markers.length === 0) throw new TermMarkerNotFoundError();
+    if (markers.length !== 1) throw new TermMarkerConflictError();
   }
 
   private static requireSentence(

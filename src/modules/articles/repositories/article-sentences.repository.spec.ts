@@ -1,4 +1,7 @@
-import { ArticleStatus } from '../../../../generated/prisma/enums';
+import {
+  AiGenerationStatus,
+  ArticleStatus,
+} from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../database/prisma.service';
 import { ArticlesRepository } from './articles.repository';
 
@@ -41,6 +44,7 @@ describe('ArticlesRepository sentence queries', () => {
       annotatedContentHtml:
         '<p><span data-sentence-id="sentence-1">Source.</span></p>',
       actingAdminId: 'admin-id',
+      resetAiAnalysis: true,
       sentences: [
         { id: 'sentence-1', sentenceOrder: 1, sentenceText: 'Source.' },
       ],
@@ -58,6 +62,8 @@ describe('ArticlesRepository sentence queries', () => {
         contentHtml:
           '<p><span data-sentence-id="sentence-1">Source.</span></p>',
         updatedByUserId: 'admin-id',
+        aiAnalysisStatus: AiGenerationStatus.PENDING,
+        aiAnalysisError: null,
       },
     });
     expect(articleSentence.deleteMany).toHaveBeenCalledWith({
