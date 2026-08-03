@@ -55,7 +55,10 @@ export class ReadingService {
       article: result.article,
       contentHtml: this.articleContentService.sanitize(result.contentHtml),
       highlightedTermIds: result.termCandidates
-        .filter(({ cefrLevel }) => isCefrAtOrAbove(cefrLevel, userCefrLevel))
+        .filter(
+          ({ cefrLevel }) =>
+            cefrLevel !== null && isCefrAtOrAbove(cefrLevel, userCefrLevel),
+        )
         .map(({ id }) => id),
       progress: this.mapProgress(result.article.id, result.progress),
     };
@@ -100,12 +103,8 @@ export class ReadingService {
         articleTitle: claim.article.title,
         termId: claim.term.id,
         value: claim.term.value,
-        wordDisplay: claim.term.wordDisplay,
         lemma: claim.term.lemma,
-        normalizedLemma: claim.term.normalizedLemma,
         unitType: claim.term.unitType,
-        partOfSpeech: claim.term.partOfSpeech,
-        cefrLevel: claim.term.cefrLevel,
         parentSentenceText: claim.parentSentence.sentenceText,
         surroundingSentenceContext: this.buildSurroundingContext(claim),
       });
@@ -329,11 +328,30 @@ export class ReadingService {
   }
 
   private mapContextualTerm(result: ContextualTermLookupRecord) {
+    this.requireEnrichedLexicalMetadata(result.term);
     return {
       term: result.term,
       parentSentence: result.parentSentence,
       saveState: this.mapSaveState(result),
     };
+  }
+
+  private requireEnrichedLexicalMetadata(
+    term: ContextualTermLookupRecord['term'],
+  ): asserts term is ContextualTermLookupRecord['term'] & {
+    wordDisplay: string;
+    partOfSpeech: string;
+    cefrLevel: NonNullable<ContextualTermLookupRecord['term']['cefrLevel']>;
+  } {
+    if (
+      !term.wordDisplay?.trim() ||
+      !term.partOfSpeech?.trim() ||
+      !term.cefrLevel
+    ) {
+      throw new ConflictException(
+        'Contextual term enrichment did not produce required lexical metadata; retry the lookup',
+      );
+    }
   }
 
   private requireLookupAccessible(

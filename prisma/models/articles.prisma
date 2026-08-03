@@ -75,13 +75,13 @@ model ArticleSentenceTerm {
   id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sentenceId             String             @map("sentence_id") @db.Uuid
   value                  String             @db.Text
-  wordDisplay            String             @map("word_display") @db.Text
+  wordDisplay            String?            @map("word_display") @db.Text
   lemma                  String             @db.Text
-  normalizedLemma        String             @map("normalized_lemma") @db.Citext
+  normalizedLemma        String?            @map("normalized_lemma") @db.Citext
   unitType               LexicalUnitType    @default(WORD) @map("unit_type")
-  partOfSpeech           String             @map("part_of_speech") @db.Text
+  partOfSpeech           String?            @map("part_of_speech") @db.Text
   ipa                    String?            @db.Text
-  cefrLevel              CefrLevel          @map("cefr_level")
+  cefrLevel              CefrLevel?         @map("cefr_level")
   contextualMeaningVi    String?            @map("contextual_meaning_vi") @db.Text
   definitionEn           String?            @map("definition_en") @db.Text
   contextualExplanation  String?            @map("contextual_explanation") @db.Text

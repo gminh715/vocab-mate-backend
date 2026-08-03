@@ -160,6 +160,7 @@ export class ArticleTermsService {
     let updatedContentHtml = context.article.contentHtml;
     const hasApprovedMarker =
       context.term.reviewStatus === TermReviewStatus.APPROVED;
+    const hasSingleOccurrenceMarker = context.term.origin !== TermOrigin.MANUAL;
 
     if (
       !hasApprovedMarker &&
@@ -172,7 +173,7 @@ export class ArticleTermsService {
 
     try {
       if (hasApprovedMarker) {
-        if (context.term.origin === TermOrigin.AI) {
+        if (hasSingleOccurrenceMarker) {
           TermMarkerHelper.assertSingleMarker(
             context.article.contentHtml,
             context.sentence.id,
@@ -197,10 +198,9 @@ export class ArticleTermsService {
           nextValue,
           nextUnitType,
         );
-        const replaceMarker =
-          context.term.origin === TermOrigin.AI
-            ? TermMarkerHelper.replaceFirst.bind(TermMarkerHelper)
-            : TermMarkerHelper.replace.bind(TermMarkerHelper);
+        const replaceMarker = hasSingleOccurrenceMarker
+          ? TermMarkerHelper.replaceFirst.bind(TermMarkerHelper)
+          : TermMarkerHelper.replace.bind(TermMarkerHelper);
         updatedContentHtml = HtmlSanitizerHelper.sanitize(
           replaceMarker(
             context.article.contentHtml,

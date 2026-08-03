@@ -91,19 +91,19 @@ export interface ReaderArticleRecord {
   article: ReaderArticleMetadataRecord;
   contentHtml: string;
   userCefrLevel: CefrLevel | null;
-  termCandidates: Array<{ id: string; cefrLevel: CefrLevel }>;
+  termCandidates: Array<{ id: string; cefrLevel: CefrLevel | null }>;
   progress: ReaderProgressRecord | null;
 }
 
 export interface ContextualTermRecord {
   id: string;
   value: string;
-  wordDisplay: string;
+  wordDisplay: string | null;
   lemma: string;
   unitType: LexicalUnitType;
-  partOfSpeech: string;
+  partOfSpeech: string | null;
   ipa: string | null;
-  cefrLevel: CefrLevel;
+  cefrLevel: CefrLevel | null;
   contextualMeaningVi: string | null;
   definitionEn: string | null;
   contextualExplanation: string | null;
@@ -161,12 +161,8 @@ export interface ContextualTermEnrichmentClaimRecord {
   term: {
     id: string;
     value: string;
-    wordDisplay: string;
     lemma: string;
-    normalizedLemma: string;
     unitType: LexicalUnitType;
-    partOfSpeech: string;
-    cefrLevel: CefrLevel;
   };
   parentSentence: {
     id: string;
@@ -181,6 +177,10 @@ export interface ContextualTermEnrichmentClaimRecord {
 }
 
 export interface ContextualTermEnrichmentData {
+  wordDisplay: string;
+  normalizedLemma: string;
+  partOfSpeech: string;
+  cefrLevel: CefrLevel;
   contextualMeaningVi: string;
   definitionEn: string;
   contextualExplanation: string;
@@ -559,12 +559,8 @@ export class ReadingRepository {
         select: {
           id: true,
           value: true,
-          wordDisplay: true,
           lemma: true,
-          normalizedLemma: true,
           unitType: true,
-          partOfSpeech: true,
-          cefrLevel: true,
           sentence: {
             select: {
               id: true,
@@ -636,6 +632,10 @@ export class ReadingRepository {
               },
             },
             select: {
+              wordDisplay: true,
+              normalizedLemma: true,
+              partOfSpeech: true,
+              cefrLevel: true,
               contextualMeaningVi: true,
               definitionEn: true,
               contextualExplanation: true,
@@ -696,6 +696,18 @@ export class ReadingRepository {
               },
             },
             data: {
+              ...(hasNonEmptyText(current.wordDisplay)
+                ? {}
+                : { wordDisplay: input.enrichment.wordDisplay }),
+              ...(hasNonEmptyText(current.normalizedLemma)
+                ? {}
+                : { normalizedLemma: input.enrichment.normalizedLemma }),
+              ...(hasNonEmptyText(current.partOfSpeech)
+                ? {}
+                : { partOfSpeech: input.enrichment.partOfSpeech }),
+              ...(current.cefrLevel
+                ? {}
+                : { cefrLevel: input.enrichment.cefrLevel }),
               ...(hasNonEmptyText(current.contextualMeaningVi)
                 ? {}
                 : {

@@ -40,6 +40,10 @@ type TransactionMock = jest.MockedFunction<
 >;
 
 const enrichment = {
+  wordDisplay: 'harmful',
+  normalizedLemma: 'harmful',
+  partOfSpeech: 'adjective',
+  cefrLevel: 'B1' as const,
   contextualMeaningVi: 'có hại',
   definitionEn: 'causing damage',
   contextualExplanation: 'It describes a damaging effect.',
@@ -109,7 +113,7 @@ describe('ReadingRepository contextual-term enrichment', () => {
       repository.claimContextualTermEnrichment('article-id', 'term-id'),
     ).resolves.toMatchObject({
       article: { id: 'article-id', contentVersion: 4 },
-      term: { id: 'term-id', normalizedLemma: 'harmful' },
+      term: { id: 'term-id', value: 'harmful', lemma: 'harmful' },
       parentSentence: { id: 'sentence-id' },
     });
 
@@ -192,6 +196,10 @@ describe('ReadingRepository contextual-term enrichment', () => {
           articleSentenceTerm: {
             findFirst: jest.fn().mockResolvedValue({
               contextualMeaningVi: 'nghĩa thủ công',
+              wordDisplay: null,
+              normalizedLemma: null,
+              partOfSpeech: null,
+              cefrLevel: null,
               definitionEn: null,
               contextualExplanation: null,
               ipa: '/manual/',
@@ -244,6 +252,10 @@ describe('ReadingRepository contextual-term enrichment', () => {
     expect(data).not.toHaveProperty('origin');
     expect(data).not.toHaveProperty('reviewStatus');
     expect(data).toMatchObject({
+      wordDisplay: enrichment.wordDisplay,
+      normalizedLemma: enrichment.normalizedLemma,
+      partOfSpeech: enrichment.partOfSpeech,
+      cefrLevel: enrichment.cefrLevel,
       definitionEn: enrichment.definitionEn,
       contextualExplanation: enrichment.contextualExplanation,
       antonyms: enrichment.antonyms,

@@ -95,7 +95,7 @@ export class AiService {
         userContent: JSON.stringify(input),
         maxOutputTokens: 4096,
       },
-      parseTermEnrichmentResult,
+      (raw) => parseTermEnrichmentResult(raw, input),
     );
   }
 

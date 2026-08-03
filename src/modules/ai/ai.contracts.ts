@@ -49,12 +49,8 @@ export interface TermEnrichmentInput {
   articleTitle: string;
   termId: string;
   value: string;
-  wordDisplay: string;
   lemma: string;
-  normalizedLemma: string;
   unitType: LexicalUnitType;
-  partOfSpeech: string;
-  cefrLevel: CefrLevel;
   parentSentenceText: string;
   surroundingSentenceContext: string;
 }
@@ -65,6 +61,10 @@ export interface TermExample {
 }
 
 export interface TermEnrichmentResult {
+  wordDisplay: string;
+  normalizedLemma: string;
+  partOfSpeech: string;
+  cefrLevel: CefrLevel;
   contextualMeaningVi: string;
   definitionEn: string;
   contextualExplanation: string;

@@ -4,7 +4,6 @@ import { SuccessResponseInterceptor } from '../../common/interceptors/success-re
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CategoriesModule } from '../categories/categories.module';
-import { AiModule } from '../ai/ai.module';
 import { AdminArticleSentencesController } from './controllers/admin-article-sentences.controller';
 import { AdminArticleTermsController } from './controllers/admin-article-terms.controller';
 import { AdminArticlesController } from './controllers/admin-articles.controller';
@@ -18,7 +17,7 @@ import { ArticleTermsService } from './services/article-terms.service';
 import { ArticlesService } from './services/articles.service';
 
 @Module({
-  imports: [AiModule, CategoriesModule],
+  imports: [CategoriesModule],
   controllers: [
     ArticlesController,
     AdminArticlesController,

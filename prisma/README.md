@@ -34,6 +34,11 @@ npx prisma migrate diff --from-empty --to-schema prisma --script --output prisma
 Do not regenerate the committed file without restoring its extensions, named
 check constraints, expression index and `updated_at` triggers.
 
+`20260803000000_replace_article_analysis_with_wink_nlp` adds the `NLP` term
+origin and makes lookup-generated lexical metadata nullable. It does not replace
+the `article_sentence_terms` table, sentence foreign key, audit relationships,
+or marker IDs. Apply it before running the local WinkNLP analysis flow.
+
 ### Existing database
 
 First back up the database and verify that its schema already matches this

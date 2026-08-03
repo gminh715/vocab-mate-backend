@@ -284,12 +284,8 @@ export const validateTermEnrichmentInput = (
       'articleTitle',
       'termId',
       'value',
-      'wordDisplay',
       'lemma',
-      'normalizedLemma',
       'unitType',
-      'partOfSpeech',
-      'cefrLevel',
       'parentSentenceText',
       'surroundingSentenceContext',
     ],
@@ -300,12 +296,8 @@ export const validateTermEnrichmentInput = (
   stringValue(value.articleTitle, 'articleTitle', 500, 'input');
   stringValue(value.termId, 'termId', 128, 'input');
   const surfaceValue = stringValue(value.value, 'value', 200, 'input');
-  stringValue(value.wordDisplay, 'wordDisplay', 200, 'input');
   stringValue(value.lemma, 'lemma', 200, 'input');
-  stringValue(value.normalizedLemma, 'normalizedLemma', 200, 'input');
   enumValue(value.unitType, 'unitType', LEXICAL_UNIT_TYPES, 'input');
-  stringValue(value.partOfSpeech, 'partOfSpeech', 100, 'input');
-  enumValue(value.cefrLevel, 'cefrLevel', CEFR_LEVELS, 'input');
   const sentence = stringValue(
     value.parentSentenceText,
     'parentSentenceText',
@@ -532,11 +524,16 @@ const parseExample = (value: unknown, index: number): TermExample => {
 
 export const parseTermEnrichmentResult = (
   raw: unknown,
+  input: TermEnrichmentInput,
 ): TermEnrichmentResult => {
   const result = recordValue(
     raw,
     'result',
     [
+      'wordDisplay',
+      'normalizedLemma',
+      'partOfSpeech',
+      'cefrLevel',
       'contextualMeaningVi',
       'definitionEn',
       'contextualExplanation',
@@ -565,7 +562,31 @@ export const parseTermEnrichmentResult = (
     fail('output', 'examples');
   }
 
+  const normalizedLemma = stringValue(
+    result.normalizedLemma,
+    'normalizedLemma',
+    AI_OUTPUT_LIMITS.termText,
+    'output',
+  ).toLocaleLowerCase('en-US');
+  if (normalizedLemma !== input.lemma.trim().toLocaleLowerCase('en-US')) {
+    fail('output', 'normalizedLemma');
+  }
+
   return {
+    wordDisplay: stringValue(
+      result.wordDisplay,
+      'wordDisplay',
+      AI_OUTPUT_LIMITS.termText,
+      'output',
+    ),
+    normalizedLemma,
+    partOfSpeech: stringValue(
+      result.partOfSpeech,
+      'partOfSpeech',
+      AI_OUTPUT_LIMITS.partOfSpeech,
+      'output',
+    ).toLocaleLowerCase('en-US'),
+    cefrLevel: enumValue(result.cefrLevel, 'cefrLevel', CEFR_LEVELS, 'output'),
     contextualMeaningVi: stringValue(
       result.contextualMeaningVi,
       'contextualMeaningVi',

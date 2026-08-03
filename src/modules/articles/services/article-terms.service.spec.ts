@@ -275,40 +275,44 @@ describe('ArticleTermsService', () => {
     expect(repository.updateTermMetadata).not.toHaveBeenCalled();
   });
 
-  it('keeps one marker when editing an approved AI term value', async () => {
-    const singleMarkedHtml = baseHtml.replace(
-      'Digital tools',
-      `<span data-term-id="${termId}">Digital tools</span>`,
-    );
-    repository.findTermMutationContext.mockResolvedValue({
-      article: {
-        id: 'article-id',
-        status: ArticleStatus.DRAFT,
-        contentHtml: singleMarkedHtml,
-        contentVersion: 3,
-      },
-      sentence: sentenceRecord,
-      term: {
-        ...pendingCandidate,
-        reviewStatus: TermReviewStatus.APPROVED,
-        isActive: true,
-        isLookupEnabled: true,
-      },
-    });
+  it.each([TermOrigin.AI, TermOrigin.NLP])(
+    'keeps one marker when editing an approved %s term value',
+    async (origin) => {
+      const singleMarkedHtml = baseHtml.replace(
+        'Digital tools',
+        `<span data-term-id="${termId}">Digital tools</span>`,
+      );
+      repository.findTermMutationContext.mockResolvedValue({
+        article: {
+          id: 'article-id',
+          status: ArticleStatus.DRAFT,
+          contentHtml: singleMarkedHtml,
+          contentVersion: 3,
+        },
+        sentence: sentenceRecord,
+        term: {
+          ...pendingCandidate,
+          origin,
+          reviewStatus: TermReviewStatus.APPROVED,
+          isActive: true,
+          isLookupEnabled: true,
+        },
+      });
 
-    await service.update('admin-id', 'article-id', termId, {
-      value: 'tools',
-      unitType: 'WORD',
-    });
+      await service.update('admin-id', 'article-id', termId, {
+        value: 'tools',
+        unitType: 'WORD',
+      });
 
-    const updateCalls = repository.updateTermWithMarker.mock
-      .calls as unknown as Array<[TermMarkerWriteInput, unknown]>;
-    const markerInput = updateCalls[0]?.[0];
-    if (!markerInput) throw new Error('Expected AI term marker update');
-    expect(markerInput.updatedContentHtml.match(/data-term-id=/g)).toHaveLength(
-      1,
-    );
-  });
+      const updateCalls = repository.updateTermWithMarker.mock
+        .calls as unknown as Array<[TermMarkerWriteInput, unknown]>;
+      const markerInput = updateCalls[0]?.[0];
+      if (!markerInput) throw new Error('Expected term marker update');
+      expect(
+        markerInput.updatedContentHtml.match(/data-term-id=/g),
+      ).toHaveLength(1);
+    },
+  );
 
   it('approves a pending AI candidate with exactly one marker', async () => {
     repository.findTermMutationContext.mockResolvedValue({

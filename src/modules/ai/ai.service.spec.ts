@@ -72,18 +72,18 @@ const enrichmentInput: TermEnrichmentInput = {
   articleTitle: articleInput.title,
   termId: 'term-1',
   value: 'ambitious',
-  wordDisplay: 'ambitious',
   lemma: 'ambitious',
-  normalizedLemma: 'ambitious',
   unitType: 'WORD',
-  partOfSpeech: 'adjective',
-  cefrLevel: 'B1',
   parentSentenceText: 'Commuters welcomed the ambitious plan.',
   surroundingSentenceContext:
     'The city expanded the network. Commuters welcomed the ambitious plan.',
 };
 
 const enrichmentResult: TermEnrichmentResult = {
+  wordDisplay: 'ambitious',
+  normalizedLemma: 'ambitious',
+  partOfSpeech: 'adjective',
+  cefrLevel: 'B1',
   contextualMeaningVi: 'đầy tham vọng',
   definitionEn: 'Intended to achieve something difficult or significant.',
   contextualExplanation:
