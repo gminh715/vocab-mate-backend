@@ -72,6 +72,7 @@ describe('AnswerGradingService', () => {
       isCorrect: true,
       normalizedUserAnswerText: 'hello world',
       earnedPoints: 2,
+      explanation: 'The correct word completes the saved context sentence.',
     });
   });
 

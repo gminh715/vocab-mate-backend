@@ -1611,10 +1611,16 @@ export class ArticlesRepository {
         where: referenceWhere,
       });
       const quizQuestionCount = await tx.quizQuestion.count({
-        where: { articleVocabularyId: marker.termId },
+        where: { articleSentenceTermId: marker.termId },
       });
       const reviewAnswerCount = await tx.reviewAnswer.count({
-        where: { articleVocabularyId: marker.termId },
+        where: {
+          reviewSessionItem: {
+            is: {
+              quizQuestion: { is: { articleSentenceTermId: marker.termId } },
+            },
+          },
+        },
       });
       if (
         savedVocabularyCount > 0 ||
@@ -1765,8 +1771,16 @@ export class ArticlesRepository {
       });
       const reviewAnswerCount = await tx.reviewAnswer.count({
         where: {
-          articleVocabulary: {
-            is: { sentence: { is: { articleId } } },
+          reviewSessionItem: {
+            is: {
+              quizQuestion: {
+                is: {
+                  articleSentenceTerm: {
+                    is: { sentence: { is: { articleId } } },
+                  },
+                },
+              },
+            },
           },
         },
       });

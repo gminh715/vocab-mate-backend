@@ -2,12 +2,16 @@ import type { AiConfig } from '../../config/ai.config';
 import {
   CEFR_LEVELS,
   LEXICAL_UNIT_TYPES,
+  REVIEW_QUESTION_TYPES,
   type ArticleAnalysisInput,
   type ArticleAnalysisResult,
   type ArticleAnalysisTerm,
   type TermEnrichmentInput,
   type TermEnrichmentResult,
   type TermExample,
+  type ReviewQuestionGenerationInput,
+  type ReviewQuestionGenerationOption,
+  type ReviewQuestionGenerationResult,
 } from './ai.contracts';
 import { AiError, ProviderCallError } from './ai.errors';
 
@@ -25,6 +29,11 @@ export const AI_OUTPUT_LIMITS = {
   exampleSentence: 500,
   exampleTranslation: 1000,
   sentenceTranslation: 5000,
+  reviewPrompt: 500,
+  reviewAnswer: 1000,
+  reviewExplanation: 600,
+  reviewExplanationSentence: 220,
+  reviewOptions: 4,
 } as const;
 
 type ValidationBoundary = 'input' | 'output';
@@ -314,6 +323,48 @@ export const validateTermEnrichmentInput = (
   if (!sentence.includes(surfaceValue)) {
     fail('input', 'value');
   }
+};
+
+export const validateReviewQuestionGenerationInput = (
+  input: ReviewQuestionGenerationInput,
+): void => {
+  if (!isRecord(input)) {
+    fail('input', 'reviewQuestion');
+  }
+  const allowedKeys = [
+    'wordOrPhrase',
+    'lemma',
+    'partOfSpeech',
+    'contextualMeaningVi',
+    'originalSentence',
+    'articleTopic',
+    'targetCefr',
+    'requestedQuestionType',
+  ];
+  const requiredKeys = allowedKeys.filter((key) => key !== 'articleTopic');
+  const actualKeys = Object.keys(input);
+  if (
+    actualKeys.some((key) => !allowedKeys.includes(key)) ||
+    requiredKeys.some((key) => !actualKeys.includes(key))
+  ) {
+    fail('input', 'reviewQuestion');
+  }
+
+  stringValue(input.wordOrPhrase, 'wordOrPhrase', 200, 'input');
+  stringValue(input.lemma, 'lemma', 200, 'input');
+  stringValue(input.partOfSpeech, 'partOfSpeech', 100, 'input');
+  stringValue(input.contextualMeaningVi, 'contextualMeaningVi', 2000, 'input');
+  stringValue(input.originalSentence, 'originalSentence', 10000, 'input');
+  if (input.articleTopic !== undefined) {
+    stringValue(input.articleTopic, 'articleTopic', 200, 'input');
+  }
+  enumValue(input.targetCefr, 'targetCefr', CEFR_LEVELS, 'input');
+  enumValue(
+    input.requestedQuestionType,
+    'requestedQuestionType',
+    REVIEW_QUESTION_TYPES,
+    'input',
+  );
 };
 
 const parseArticleTerm = (
@@ -623,6 +674,155 @@ export const parseTermEnrichmentResult = (
       AI_OUTPUT_LIMITS.sentenceTranslation,
       'output',
     ),
+  };
+};
+
+const normalizeAnswer = (value: string): string =>
+  value
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase('en-US');
+
+const validateShortExplanation = (value: unknown): string => {
+  const explanation = stringValue(
+    value,
+    'answerExplanation',
+    AI_OUTPUT_LIMITS.reviewExplanation,
+    'output',
+  );
+  const sentences = explanation.trim().split(/(?<=[.!?])\s+/u);
+  if (
+    sentences.length < 2 ||
+    sentences.length > 3 ||
+    sentences.some(
+      (sentence) =>
+        sentence.length > AI_OUTPUT_LIMITS.reviewExplanationSentence ||
+        !/[.!?]$/u.test(sentence),
+    )
+  ) {
+    fail('output', 'answerExplanation');
+  }
+  return explanation;
+};
+
+const parseReviewOption = (
+  value: unknown,
+  index: number,
+): ReviewQuestionGenerationOption => {
+  const option = recordValue(
+    value,
+    `options[${index}]`,
+    ['optionText', 'isCorrect'],
+    'output',
+  );
+  const isCorrect = option.isCorrect;
+  if (typeof isCorrect === 'boolean') {
+    return {
+      optionText: stringValue(
+        option.optionText,
+        `options[${index}].optionText`,
+        AI_OUTPUT_LIMITS.reviewAnswer,
+        'output',
+      ),
+      isCorrect,
+    };
+  }
+  return fail('output', `options[${index}].isCorrect`);
+};
+
+export const parseReviewQuestionGenerationResult = (
+  raw: unknown,
+  input: ReviewQuestionGenerationInput,
+): ReviewQuestionGenerationResult => {
+  const result = recordValue(
+    raw,
+    'result',
+    [
+      'prompt',
+      'blankSentence',
+      'correctAnswerText',
+      'answerExplanation',
+      'options',
+    ],
+    'output',
+  );
+  const prompt = stringValue(
+    result.prompt,
+    'prompt',
+    AI_OUTPUT_LIMITS.reviewPrompt,
+    'output',
+  );
+  const answerExplanation = validateShortExplanation(result.answerExplanation);
+  const rawOptions = arrayValue(
+    result.options,
+    'options',
+    AI_OUTPUT_LIMITS.reviewOptions,
+    'output',
+  );
+  const options = rawOptions.map(parseReviewOption);
+
+  if (input.requestedQuestionType === 'FILL_BLANK') {
+    const blankSentence = stringValue(
+      result.blankSentence,
+      'blankSentence',
+      AI_OUTPUT_LIMITS.reviewAnswer,
+      'output',
+    );
+    stringValue(
+      result.correctAnswerText,
+      'correctAnswerText',
+      AI_OUTPUT_LIMITS.reviewAnswer,
+      'output',
+    );
+    if (
+      (blankSentence.match(/___/gu) ?? []).length !== 1 ||
+      options.length !== 0
+    ) {
+      fail('output', 'fillBlank');
+    }
+    return {
+      prompt,
+      blankSentence,
+      correctAnswerText: input.wordOrPhrase,
+      answerExplanation,
+      options,
+    };
+  }
+
+  if (
+    result.blankSentence !== null ||
+    result.correctAnswerText !== null ||
+    options.length < 3
+  ) {
+    fail('output', 'options');
+  }
+  const correct = options.filter(({ isCorrect }) => isCorrect);
+  if (correct.length !== 1) {
+    fail('output', 'options.isCorrect');
+  }
+  const expectedAnswer =
+    input.requestedQuestionType === 'SELECT_MEANING'
+      ? input.contextualMeaningVi
+      : input.requestedQuestionType === 'SELECT_WORD'
+        ? input.wordOrPhrase
+        : input.originalSentence;
+  const canonicalOptions = options.map((option) =>
+    option.isCorrect ? { ...option, optionText: expectedAnswer } : option,
+  );
+  const normalizedOptions = canonicalOptions.map(({ optionText }) =>
+    normalizeAnswer(optionText),
+  );
+  if (new Set(normalizedOptions).size !== canonicalOptions.length) {
+    fail('output', 'options');
+  }
+
+  return {
+    prompt,
+    blankSentence: null,
+    correctAnswerText: null,
+    answerExplanation,
+    options: canonicalOptions,
   };
 };
 

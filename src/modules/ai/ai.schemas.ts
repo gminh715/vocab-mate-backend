@@ -2,6 +2,7 @@ import {
   CEFR_LEVELS,
   LEXICAL_UNIT_TYPES,
   type ArticleAnalysisInput,
+  type ReviewQuestionGenerationInput,
 } from './ai.contracts';
 
 type JsonSchema = Record<string, unknown>;
@@ -118,3 +119,56 @@ export const termEnrichmentSchema: JsonSchema = strictObject({
     'Vietnamese translation of the supplied parent sentence.',
   ),
 });
+
+export const reviewQuestionGenerationSchema = (
+  input: ReviewQuestionGenerationInput,
+): JsonSchema => {
+  const optionInstruction =
+    input.requestedQuestionType === 'SELECT_MEANING'
+      ? 'The one correct option must exactly copy contextualMeaningVi from the supplied input.'
+      : input.requestedQuestionType === 'SELECT_WORD'
+        ? 'The one correct option must exactly copy wordOrPhrase from the supplied input.'
+        : input.requestedQuestionType === 'SELECT_CORRECT_CONTEXT'
+          ? 'The one correct option must exactly copy originalSentence from the supplied input.'
+          : 'Must be empty.';
+
+  return strictObject({
+    prompt: requiredString(
+      `A concise learner-facing prompt no harder than ${input.targetCefr}.`,
+    ),
+    blankSentence: {
+      type: input.requestedQuestionType === 'FILL_BLANK' ? 'string' : 'null',
+      description:
+        input.requestedQuestionType === 'FILL_BLANK'
+          ? 'One natural target-level example sentence with exactly one ___ blank.'
+          : 'Must be null for an option-based question.',
+    },
+    correctAnswerText: {
+      type: input.requestedQuestionType === 'FILL_BLANK' ? 'string' : 'null',
+      description:
+        input.requestedQuestionType === 'FILL_BLANK'
+          ? 'The one unambiguous text answer.'
+          : 'Must be null for an option-based question.',
+    },
+    answerExplanation: requiredString(
+      'Exactly two or three short sentences explaining the correct answer.',
+    ),
+    options: {
+      type: 'array',
+      maxItems: 4,
+      description:
+        input.requestedQuestionType === 'FILL_BLANK'
+          ? 'Must be empty.'
+          : `Three or four distinct options with exactly one correct answer. ${optionInstruction}`,
+      items: strictObject({
+        optionText: requiredString(
+          `One distinct answer option. ${optionInstruction}`,
+        ),
+        isCorrect: {
+          type: 'boolean',
+          description: 'True for exactly one option.',
+        },
+      }),
+    },
+  });
+};

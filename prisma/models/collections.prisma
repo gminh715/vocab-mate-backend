@@ -6,8 +6,9 @@ model VocabularyCollection {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  user  User                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vocabulary_collections_user")
-  items VocabularyCollectionItem[]
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vocabulary_collections_user")
+  items          VocabularyCollectionItem[]
+  reviewSessions ReviewSession[]
 
   @@unique([userId, name], map: "uq_vocabulary_collections_user_name")
   @@index([userId, createdAt(sort: Desc)], map: "idx_vocabulary_collections_user")

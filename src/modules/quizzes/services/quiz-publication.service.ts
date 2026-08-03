@@ -177,7 +177,7 @@ export class QuizPublicationService {
       }
       questionOrders.add(question.displayOrder);
 
-      const term = question.articleVocabulary;
+      const term = question.articleSentenceTerm;
       if (term.sentence.articleId !== snapshot.quiz.articleId) {
         addIssue(
           'QUESTION_TERM_WRONG_ARTICLE',

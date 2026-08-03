@@ -39,6 +39,13 @@ origin and makes lookup-generated lexical metadata nullable. It does not replace
 the `article_sentence_terms` table, sentence foreign key, audit relationships,
 or marker IDs. Apply it before running the local WinkNLP analysis flow.
 
+The `20260803149000` through `20260803151000` migrations expand and then clean
+up the invisible spaced-review schema. `20260803152000_ai_assisted_review_questions`
+adds option-level generation provenance and the partial unique key used to
+deduplicate active AI question caches by term context, CEFR and question type.
+`20260803153000_review_answer_attempt_uniqueness` prevents duplicate attempt
+numbers for the same review-session item.
+
 ### Existing database
 
 First back up the database and verify that its schema already matches this
@@ -68,3 +75,27 @@ npx prisma migrate status
 ```
 
 Never use `prisma db push` to initialize either an existing or a new database.
+
+## Review migration verification and rollback
+
+With `DIRECT_URL` pointing to a non-production PostgreSQL instance that already
+has `citext` and `pgcrypto`, run:
+
+```bash
+npm run prisma:verify-review-migrations
+```
+
+The verifier creates an isolated generated schema, replays every committed
+migration, checks the final invisible-review tables, source enum, unique active
+session indexes, AI cache key, answer-attempt key, and removal of obsolete
+columns/types. Its rollback check drops only that disposable schema and verifies
+that it no longer exists.
+
+Prisma migrations do not provide automatic production down migrations. Before
+deploying `20260803149000` through `20260803153000`, take and test a database
+backup. If deployment must be reversed after writes begin, restore that backup
+to a replacement database and switch traffic, or ship a separately reviewed
+forward corrective migration. Do not run the disposable verifier as a
+production rollback and do not manually drop review columns from a live
+database; the cleanup migration intentionally removes legacy relations after
+backfill.

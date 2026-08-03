@@ -21,44 +21,50 @@ model Quiz {
 }
 
 model QuizQuestion {
-  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  quizId              String       @map("quiz_id") @db.Uuid
-  articleVocabularyId String       @map("article_vocabulary_id") @db.Uuid
-  questionType        QuestionType @map("question_type")
-  prompt              String       @db.Text
-  blankSentence       String?      @map("blank_sentence") @db.Text
-  correctAnswerText   String?      @map("correct_answer_text") @db.Text
-  answerExplanation   String?      @map("answer_explanation") @db.Text
-  isCaseSensitive     Boolean      @default(false) @map("is_case_sensitive")
-  points              Int          @default(1)
-  displayOrder        Int          @default(1) @map("display_order")
-  isActive            Boolean      @default(true) @map("is_active")
-  createdByUserId     String       @map("created_by_user_id") @db.Uuid
-  updatedByUserId     String       @map("updated_by_user_id") @db.Uuid
-  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id                    String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quizId                String?                  @map("quiz_id") @db.Uuid
+  articleSentenceTermId String                   @map("article_sentence_term_id") @db.Uuid
+  questionType          QuestionType             @map("question_type")
+  generationSource      QuestionGenerationSource @default(ADMIN) @map("generation_source")
+  difficultyCefr        CefrLevel                @map("difficulty_cefr")
+  prompt                String                   @db.Text
+  blankSentence         String?                  @map("blank_sentence") @db.Text
+  correctAnswerText     String?                  @map("correct_answer_text") @db.Text
+  answerExplanation     String?                  @map("answer_explanation") @db.Text
+  isCaseSensitive       Boolean                  @default(false) @map("is_case_sensitive")
+  points                Int                      @default(1)
+  displayOrder          Int                      @default(1) @map("display_order")
+  isActive              Boolean                  @default(true) @map("is_active")
+  createdByUserId       String?                  @map("created_by_user_id") @db.Uuid
+  updatedByUserId       String?                  @map("updated_by_user_id") @db.Uuid
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  quiz              Quiz                @relation(fields: [quizId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_questions_quiz")
-  articleVocabulary ArticleSentenceTerm @relation(fields: [articleVocabularyId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_questions_article_vocabulary")
-  createdBy         User                @relation("QuizQuestionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_questions_created_by")
-  updatedBy         User                @relation("QuizQuestionUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_questions_updated_by")
-  options           QuestionOption[]
-  reviewAnswers     ReviewAnswer[]
+  quiz                Quiz?               @relation(fields: [quizId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_questions_quiz")
+  articleSentenceTerm ArticleSentenceTerm @relation(fields: [articleSentenceTermId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_questions_article_sentence_term")
+  createdBy           User?               @relation("QuizQuestionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_questions_created_by")
+  updatedBy           User?               @relation("QuizQuestionUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_questions_updated_by")
+  options             QuestionOption[]
+  reviewSessionItems  ReviewSessionItem[]
+  reviewAnswers       ReviewAnswer[]
 
   @@unique([quizId, displayOrder], map: "uq_quiz_questions_display_order")
-  @@index([articleVocabularyId], map: "idx_quiz_questions_vocabulary")
+  @@unique([articleSentenceTermId, difficultyCefr, questionType], map: "uq_quiz_questions_ai_cache", where: raw("quiz_id IS NULL AND is_active = true AND generation_source = 'AI'"))
+  @@index([articleSentenceTermId], map: "idx_quiz_questions_sentence_term")
+  @@index([articleSentenceTermId, generationSource, difficultyCefr, questionType], map: "idx_quiz_questions_cached", where: raw("quiz_id IS NULL AND is_active = true"))
   @@map("quiz_questions")
 }
 
 model QuestionOption {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  quizQuestionId String   @map("quiz_question_id") @db.Uuid
-  optionText     String   @map("option_text") @db.Text
-  isCorrect      Boolean  @default(false) @map("is_correct")
-  explanation    String?  @db.Text
-  displayOrder   Int      @default(1) @map("display_order")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quizQuestionId   String                   @map("quiz_question_id") @db.Uuid
+  optionText       String                   @map("option_text") @db.Text
+  isCorrect        Boolean                  @default(false) @map("is_correct")
+  generationSource QuestionGenerationSource @default(ADMIN) @map("generation_source")
+  explanation      String?                  @db.Text
+  displayOrder     Int                      @default(1) @map("display_order")
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   quizQuestion  QuizQuestion   @relation(fields: [quizQuestionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_question_options_question")
   reviewAnswers ReviewAnswer[]

@@ -5,7 +5,12 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { QuestionType, QuizStatus } from '../../../../generated/prisma/enums';
+import {
+  CefrLevel,
+  QuestionGenerationSource,
+  QuestionType,
+  QuizStatus,
+} from '../../../../generated/prisma/enums';
 import {
   type QuestionMutationState,
   QuizzesRepository,
@@ -37,10 +42,12 @@ const editableQuiz = {
 const currentTerm = {
   id: 'term-id',
   isActive: true,
+  cefrLevel: CefrLevel.B1,
   sentence: {
     articleId: 'article-id',
     contentVersion: 3,
     isActive: true,
+    article: { cefrLevel: CefrLevel.B1 },
   },
 };
 
@@ -50,8 +57,10 @@ const question = (
 ) => ({
   id: 'question-id',
   quizId: 'quiz-id',
-  articleVocabularyId: 'term-id',
+  articleSentenceTermId: 'term-id',
   questionType,
+  generationSource: QuestionGenerationSource.ADMIN,
+  difficultyCefr: CefrLevel.B1,
   prompt: 'Prompt',
   blankSentence:
     questionType === QuestionType.FILL_BLANK ? 'A ___ sentence.' : null,
@@ -109,14 +118,16 @@ describe('QuizQuestionsService', () => {
       );
 
       await service.createQuestion('admin-id', 'quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: type,
         prompt: '  Prompt  ',
       });
 
       expect(repository.createQuestion).toHaveBeenCalledWith('quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: type,
+        generationSource: QuestionGenerationSource.ADMIN,
+        difficultyCefr: CefrLevel.B1,
         prompt: 'Prompt',
         blankSentence: null,
         correctAnswerText: null,
@@ -137,7 +148,7 @@ describe('QuizQuestionsService', () => {
     );
 
     await service.createQuestion('admin-id', 'quiz-id', {
-      articleVocabularyId: 'term-id',
+      articleSentenceTermId: 'term-id',
       questionType: QuestionType.FILL_BLANK,
       prompt: '  Fill it  ',
       blankSentence: '  A ___ sentence.  ',
@@ -163,7 +174,7 @@ describe('QuizQuestionsService', () => {
   ])('rejects FILL_BLANK missing $1', async (fields, expected) => {
     await expect(
       service.createQuestion('admin-id', 'quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: QuestionType.FILL_BLANK,
         prompt: 'Fill it',
         blankSentence: 'A ___ sentence.',
@@ -177,7 +188,7 @@ describe('QuizQuestionsService', () => {
   it('rejects fill-blank fields on option-based questions', async () => {
     await expect(
       service.createQuestion('admin-id', 'quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: QuestionType.SELECT_WORD,
         prompt: 'Choose',
         correctAnswerText: 'word',
@@ -192,7 +203,7 @@ describe('QuizQuestionsService', () => {
     });
     await expect(
       service.createQuestion('admin-id', 'quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: QuestionType.SELECT_MEANING,
         prompt: 'Prompt',
       }),
@@ -204,7 +215,7 @@ describe('QuizQuestionsService', () => {
     });
     await expect(
       service.createQuestion('admin-id', 'quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: QuestionType.SELECT_MEANING,
         prompt: 'Prompt',
       }),
@@ -220,7 +231,7 @@ describe('QuizQuestionsService', () => {
 
     await expect(
       service.createQuestion('admin-id', 'quiz-id', {
-        articleVocabularyId: 'term-id',
+        articleSentenceTermId: 'term-id',
         questionType: QuestionType.SELECT_MEANING,
         prompt: 'Prompt',
       }),

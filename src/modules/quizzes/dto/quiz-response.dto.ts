@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   ArticleStatus,
   CefrLevel,
+  QuestionGenerationSource,
   QuestionType,
   QuizStatus,
 } from '../../../../generated/prisma/enums';
@@ -82,6 +83,9 @@ export class AdminQuestionOptionDto {
   @ApiProperty()
   isCorrect!: boolean;
 
+  @ApiProperty({ enum: QuestionGenerationSource })
+  generationSource!: QuestionGenerationSource;
+
   @ApiProperty({ nullable: true })
   explanation!: string | null;
 
@@ -99,11 +103,17 @@ export class AdminQuizQuestionDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ format: 'uuid' })
-  quizId!: string;
+  @ApiProperty({ format: 'uuid', nullable: true })
+  quizId!: string | null;
 
   @ApiProperty({ format: 'uuid' })
-  articleVocabularyId!: string;
+  articleSentenceTermId!: string;
+
+  @ApiProperty({ enum: QuestionGenerationSource })
+  generationSource!: QuestionGenerationSource;
+
+  @ApiProperty({ enum: CefrLevel })
+  difficultyCefr!: CefrLevel;
 
   @ApiProperty({ enum: QuestionType })
   questionType!: QuestionType;

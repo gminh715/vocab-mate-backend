@@ -4,6 +4,8 @@ import { AI_CONFIG } from '../../config/config.module';
 import type {
   ArticleAnalysisInput,
   ArticleAnalysisResult,
+  ReviewQuestionGenerationInput,
+  ReviewQuestionGenerationResult,
   TermEnrichmentInput,
   TermEnrichmentResult,
 } from './ai.contracts';
@@ -104,6 +106,30 @@ const enrichmentResult: TermEnrichmentResult = {
     'Những người đi làm hoan nghênh kế hoạch đầy tham vọng.',
 };
 
+const reviewQuestionInput: ReviewQuestionGenerationInput = {
+  wordOrPhrase: 'engaging',
+  lemma: 'engage',
+  partOfSpeech: 'adjective',
+  contextualMeaningVi: 'hap dan',
+  originalSentence: 'The lesson was engaging for everyone.',
+  articleTopic: 'Education',
+  targetCefr: 'B1',
+  requestedQuestionType: 'SELECT_MEANING',
+};
+
+const reviewQuestionResult: ReviewQuestionGenerationResult = {
+  prompt: 'What does "engaging" mean in this sentence?',
+  blankSentence: null,
+  correctAnswerText: null,
+  answerExplanation:
+    'The word describes something that keeps your interest. It is positive in this lesson context.',
+  options: [
+    { optionText: 'hap dan', isCorrect: true },
+    { optionText: 'kho hieu', isCorrect: false },
+    { optionText: 'ngan gon', isCorrect: false },
+  ],
+};
+
 describe('AiService', () => {
   let service: AiService;
   let gemini: jest.Mocked<AiProvider>;
@@ -155,6 +181,80 @@ describe('AiService', () => {
     expect(request.systemInstruction).toContain('character-for-character');
     expect(JSON.stringify(request.schema)).not.toContain('definitionEn');
     expect(request.maxOutputTokens).toBe(3072);
+  });
+
+  it('generates a validated review question from only the allowed context fields', async () => {
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(reviewQuestionResult),
+    );
+
+    await expect(
+      service.generateReviewQuestion(reviewQuestionInput),
+    ).resolves.toEqual(reviewQuestionResult);
+    expect(groq.generateStructured.mock.calls).toHaveLength(0);
+
+    const request = gemini.generateStructured.mock.calls[0][0];
+    expect(request.userContent).toBe(JSON.stringify(reviewQuestionInput));
+    expect(request.userContent).not.toContain('userId');
+    expect(request.userContent).not.toContain('learningHistory');
+    expect(request.systemInstruction).toContain('two or three short sentences');
+    expect(request.systemInstruction).toContain('target CEFR');
+    expect(request.systemInstruction).toContain(
+      'copy contextualMeaningVi character-for-character',
+    );
+    expect(JSON.stringify(request.schema)).toContain(
+      'exactly copy contextualMeaningVi',
+    );
+  });
+
+  it('rejects ambiguous or malformed review output from both providers', async () => {
+    const invalid = {
+      ...reviewQuestionResult,
+      options: reviewQuestionResult.options.map((option) => ({
+        ...option,
+        isCorrect: true,
+      })),
+    };
+    gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+    groq.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+
+    await expect(
+      service.generateReviewQuestion(reviewQuestionInput),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
+  });
+
+  it('restores the authoritative answer when a provider paraphrases or mangles it', async () => {
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify({
+        ...reviewQuestionResult,
+        options: reviewQuestionResult.options.map((option) =>
+          option.isCorrect
+            ? { ...option, optionText: 'interesting and engaging' }
+            : option,
+        ),
+      }),
+    );
+
+    await expect(
+      service.generateReviewQuestion(reviewQuestionInput),
+    ).resolves.toEqual(reviewQuestionResult);
+    expect(groq.generateStructured).not.toHaveBeenCalled();
+  });
+
+  it('uses the limited provider fallback when review generation times out', async () => {
+    gemini.generateStructured.mockRejectedValue(
+      new ProviderCallError('timeout'),
+    );
+    groq.generateStructured.mockResolvedValue(
+      JSON.stringify(reviewQuestionResult),
+    );
+
+    await expect(
+      service.generateReviewQuestion(reviewQuestionInput),
+    ).resolves.toEqual(reviewQuestionResult);
+    expect(gemini.generateStructured.mock.calls).toHaveLength(1);
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
   });
 
   it('uses Groq once after a retryable Gemini failure', async () => {

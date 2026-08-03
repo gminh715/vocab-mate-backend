@@ -5,7 +5,12 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { QuestionType, QuizStatus } from '../../../../generated/prisma/enums';
+import {
+  QuestionGenerationSource,
+  QuestionType,
+  QuizStatus,
+  type CefrLevel,
+} from '../../../../generated/prisma/enums';
 import type {
   CreateQuestionOptionDto,
   CreateQuizQuestionDto,
@@ -16,6 +21,7 @@ import {
   type AdminQuestionOptionRecord,
   type AdminQuizQuestionRecord,
   type QuestionMutationState,
+  type QuestionSourceTermState,
   type QuizContentState,
   QuizContentMutationConflictError,
   QuizHistoryReferenceError,
@@ -41,8 +47,10 @@ const hasPrismaCode = (
   error.code === code;
 
 interface QuestionShape {
-  articleVocabularyId: string;
+  articleSentenceTermId: string;
   questionType: QuestionType;
+  generationSource: QuestionGenerationSource;
+  difficultyCefr: CefrLevel;
   prompt: string;
   blankSentence: string | null;
   correctAnswerText: string | null;
@@ -63,10 +71,16 @@ export class QuizQuestionsService {
     dto: CreateQuizQuestionDto,
   ): Promise<{ question: AdminQuizQuestionRecord }> {
     const quiz = await this.requireEditableQuiz(quizId);
-    await this.requireOwnedCurrentTerm(quiz, dto.articleVocabularyId);
+    const sourceTerm = await this.requireOwnedCurrentTerm(
+      quiz,
+      dto.articleSentenceTermId,
+    );
     const shape: QuestionShape = {
-      articleVocabularyId: dto.articleVocabularyId,
+      articleSentenceTermId: dto.articleSentenceTermId,
       questionType: dto.questionType,
+      generationSource: QuestionGenerationSource.ADMIN,
+      difficultyCefr:
+        sourceTerm.cefrLevel ?? sourceTerm.sentence.article.cefrLevel,
       prompt: dto.prompt.trim(),
       blankSentence: dto.blankSentence?.trim() ?? null,
       correctAnswerText: dto.correctAnswerText?.trim() ?? null,
@@ -110,12 +124,11 @@ export class QuizQuestionsService {
     }
     const quiz = await this.requireEditableQuiz(quizId);
     const current = await this.requireOwnedQuestion(quizId, questionId);
-    if (
-      dto.articleVocabularyId !== undefined &&
-      dto.articleVocabularyId !== current.articleVocabularyId
-    ) {
-      await this.requireOwnedCurrentTerm(quiz, dto.articleVocabularyId);
-    }
+    const replacementTerm =
+      dto.articleSentenceTermId !== undefined &&
+      dto.articleSentenceTermId !== current.articleSentenceTermId
+        ? await this.requireOwnedCurrentTerm(quiz, dto.articleSentenceTermId)
+        : null;
 
     const shape = this.mergeQuestion(current, dto);
     this.validateQuestionShape(shape, current.options.length);
@@ -128,9 +141,18 @@ export class QuizQuestionsService {
         quizId,
         questionId,
         {
-          ...(dto.articleVocabularyId === undefined
+          ...(dto.articleSentenceTermId === undefined
             ? {}
-            : { articleVocabularyId: shape.articleVocabularyId }),
+            : {
+                articleSentenceTermId: shape.articleSentenceTermId,
+                ...(replacementTerm
+                  ? {
+                      difficultyCefr:
+                        replacementTerm.cefrLevel ??
+                        replacementTerm.sentence.article.cefrLevel,
+                    }
+                  : {}),
+              }),
           ...(dto.questionType === undefined
             ? {}
             : { questionType: shape.questionType }),
@@ -295,10 +317,11 @@ export class QuizQuestionsService {
 
   private async requireOwnedCurrentTerm(
     quiz: QuizContentState,
-    articleVocabularyId: string,
-  ): Promise<void> {
-    const term =
-      await this.quizzesRepository.findQuestionSourceTerm(articleVocabularyId);
+    articleSentenceTermId: string,
+  ): Promise<QuestionSourceTermState> {
+    const term = await this.quizzesRepository.findQuestionSourceTerm(
+      articleSentenceTermId,
+    );
     if (!term) {
       throw new NotFoundException('Article vocabulary term not found');
     }
@@ -316,6 +339,7 @@ export class QuizQuestionsService {
         'Article vocabulary term is not active in the current article version',
       );
     }
+    return term;
   }
 
   private async requireOwnedQuestion(
@@ -339,9 +363,11 @@ export class QuizQuestionsService {
       current.questionType === QuestionType.FILL_BLANK &&
       questionType !== QuestionType.FILL_BLANK;
     return {
-      articleVocabularyId:
-        dto.articleVocabularyId ?? current.articleVocabularyId,
+      articleSentenceTermId:
+        dto.articleSentenceTermId ?? current.articleSentenceTermId,
       questionType,
+      generationSource: current.generationSource,
+      difficultyCefr: current.difficultyCefr,
       prompt: dto.prompt?.trim() ?? current.prompt,
       blankSentence:
         dto.blankSentence !== undefined
