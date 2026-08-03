@@ -158,26 +158,26 @@ export class ArticleSentenceTermDto {
   @ApiProperty()
   value!: string;
 
-  @ApiProperty()
-  wordDisplay!: string;
+  @ApiProperty({ nullable: true })
+  wordDisplay!: string | null;
 
   @ApiProperty()
   lemma!: string;
 
-  @ApiProperty()
-  normalizedLemma!: string;
+  @ApiProperty({ nullable: true })
+  normalizedLemma!: string | null;
 
   @ApiProperty({ enum: LexicalUnitType })
   unitType!: LexicalUnitType;
 
-  @ApiProperty()
-  partOfSpeech!: string;
+  @ApiProperty({ nullable: true })
+  partOfSpeech!: string | null;
 
   @ApiProperty({ nullable: true })
   ipa!: string | null;
 
-  @ApiProperty({ enum: CefrLevel })
-  cefrLevel!: CefrLevel;
+  @ApiProperty({ enum: CefrLevel, nullable: true })
+  cefrLevel!: CefrLevel | null;
 
   @ApiProperty({ nullable: true })
   contextualMeaningVi!: string | null;

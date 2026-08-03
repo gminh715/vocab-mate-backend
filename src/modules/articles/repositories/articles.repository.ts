@@ -4,7 +4,7 @@ import {
   AiGenerationStatus,
   ArticleStatus,
   type CefrLevel,
-  type LexicalUnitType,
+  LexicalUnitType,
   QuizStatus,
   TermOrigin,
   TermReviewStatus,
@@ -211,17 +211,11 @@ export interface ArticleAnalysisSnapshot {
   sentences: ArticleAnalysisSentenceRecord[];
 }
 
-export interface PendingAiTermInput {
+export interface AnalyzedTermInput {
   id: string;
   sentenceId: string;
   value: string;
-  wordDisplay: string;
   lemma: string;
-  normalizedLemma: string;
-  unitType: LexicalUnitType;
-  partOfSpeech: string;
-  cefrLevel: CefrLevel;
-  selectionReason: string;
   createdByUserId: string;
   updatedByUserId: string;
 }
@@ -230,12 +224,10 @@ export interface CompleteArticleAnalysisInput {
   articleId: string;
   contentVersion: number;
   sourceContentHtml: string;
-  categoryId: string;
-  summary: string;
-  cefrLevel: CefrLevel;
+  annotatedContentHtml: string;
   actingAdminId: string;
   expectedSentences: ArticleAnalysisSentenceRecord[];
-  terms: PendingAiTermInput[];
+  terms: AnalyzedTermInput[];
 }
 
 export interface ArticleAnalysisCompletionRecord {
@@ -276,13 +268,13 @@ export interface ArticleSentenceTermRecord {
   id: string;
   sentenceId: string;
   value: string;
-  wordDisplay: string;
+  wordDisplay: string | null;
   lemma: string;
-  normalizedLemma: string;
+  normalizedLemma: string | null;
   unitType: LexicalUnitType;
-  partOfSpeech: string;
+  partOfSpeech: string | null;
   ipa: string | null;
-  cefrLevel: CefrLevel;
+  cefrLevel: CefrLevel | null;
   contextualMeaningVi: string | null;
   definitionEn: string | null;
   contextualExplanation: string | null;
@@ -954,13 +946,6 @@ export class ArticlesRepository {
   ): Promise<ArticleAnalysisCompletionRecord> {
     return this.prisma.$transaction(
       async (tx) => {
-        const activeCategoryCount = await tx.category.count({
-          where: { id: input.categoryId, isActive: true },
-        });
-        if (activeCategoryCount !== 1) {
-          throw new ArticleAnalysisStateConflictError();
-        }
-
         const updated = await tx.article.updateMany({
           where: {
             id: input.articleId,
@@ -970,9 +955,7 @@ export class ArticlesRepository {
             aiAnalysisStatus: AiGenerationStatus.PROCESSING,
           },
           data: {
-            summary: input.summary,
-            cefrLevel: input.cefrLevel,
-            categoryId: input.categoryId,
+            contentHtml: input.annotatedContentHtml,
             updatedByUserId: input.actingAdminId,
             aiAnalysisStatus: AiGenerationStatus.READY,
             aiAnalysisError: null,
@@ -1015,10 +998,15 @@ export class ArticlesRepository {
           await tx.articleSentenceTerm.createMany({
             data: input.terms.map((term) => ({
               ...term,
-              origin: TermOrigin.AI,
-              reviewStatus: TermReviewStatus.PENDING,
+              wordDisplay: null,
+              normalizedLemma: null,
+              unitType: LexicalUnitType.WORD,
+              partOfSpeech: null,
+              cefrLevel: null,
+              origin: TermOrigin.NLP,
+              reviewStatus: TermReviewStatus.APPROVED,
               explanationStatus: AiGenerationStatus.PENDING,
-              selectionReason: term.selectionReason,
+              selectionReason: null,
               contextualMeaningVi: null,
               definitionEn: null,
               contextualExplanation: null,
@@ -1032,8 +1020,8 @@ export class ArticlesRepository {
               skill: null,
               explanationError: null,
               explanationGeneratedAt: null,
-              isActive: false,
-              isLookupEnabled: false,
+              isActive: true,
+              isLookupEnabled: true,
             })),
           });
         }

@@ -99,9 +99,10 @@ active GNews runtime integration. The supported synchronous flow is:
 1. An authenticated ADMIN searches Guardian metadata and syncs one bounded
    result into a sanitized, parsed `DRAFT`.
 2. An authenticated ADMIN explicitly analyzes the unchanged parsed draft.
-   Gemini is attempted first and Groq is used only for eligible failures.
-3. AI candidates remain inactive and unmarked until an authenticated ADMIN
-   explicitly approves or rejects each candidate.
+   WinkNLP tokenizes each stored sentence locally; this step makes no Gemini or
+   Groq request and does not change the article summary, category, or CEFR.
+3. The analysis transaction creates approved active lookup terms and inserts
+   exactly one `data-term-id` marker for each accepted sentence surface.
 4. An authenticated ADMIN explicitly publishes the validated draft.
 5. An authenticated user opens the reader and looks up an approved exact term
    occurrence. Missing enrichment is generated outside a transaction and
@@ -118,8 +119,8 @@ active GNews runtime integration. The supported synchronous flow is:
   request URL.
 - Sync one result and confirm a parsed `DRAFT` is created from sanitized
   `fields.body`; confirm no request is made to `webUrl`.
-- Analyze the draft, approve one candidate, reject another, and confirm only the
-  approved occurrence receives exactly one `data-term-id` marker.
+- Analyze the draft and confirm each accepted unique sentence surface receives
+  exactly one `data-term-id` marker without an article-analysis provider call.
 - Publish explicitly, open the reader as a USER, and confirm the rejected term
   is inaccessible.
 - Look up the approved term twice; confirm only the first request invokes AI and
@@ -127,9 +128,56 @@ active GNews runtime integration. The supported synchronous flow is:
 - Save the term, then edit the source enrichment and confirm the saved context,
   translation, and canonical examples remain unchanged.
 - Exercise Guardian 401/403, 429, timeout, invalid/oversized response, unusable
-  body, AI fallback/failure, duplicate import, and concurrent lookup cases with
+  body, lazy-enrichment fallback/failure, duplicate import, and concurrent lookup cases with
   mocks only. Confirm errors contain no keys, prompts, provider output, article
   body, model/provider details, or stack traces.
+
+### Manage Article Content vocabulary analysis
+
+`POST /api/v1/admin/articles/:articleId/analyze` retains its existing URL and
+response shape for frontend compatibility. The legacy response fields
+`aiAnalysisStatus` and `candidateCount` now report local vocabulary-analysis
+completion and the number of created WinkNLP terms. The operation still claims
+only a parsed `DRAFT` in `PENDING` or `FAILED` state and completes only when the
+content version, source HTML, sentence inventory, and existing term inventory
+remain unchanged.
+
+For every active current-version sentence, the backend runs `wink-nlp` with
+`wink-eng-lite-web-model` and reads the token's exact surface, normalized
+surface, token type, and lemma. A token is accepted when:
+
+- WinkNLP classifies it as `word`;
+- its exact surface, normalized surface, and lemma contain English letters,
+  with only optional internal straight or curly apostrophes;
+- its exact surface can be matched as a whole word in the stored sentence.
+
+This excludes punctuation, numbers, currencies, URLs, emails, hashtags, emoji,
+symbols, non-Latin tokens, and contraction fragments that cannot receive a
+stable whole-word marker. Stop words, single-letter English words, and proper
+nouns are retained because they are valid word tokens.
+
+Duplicate handling is contextual. Within one sentence, normalized surfaces are
+case-insensitively deduplicated and the first occurrence wins. Words already
+covered by an existing sentence term are skipped so markers cannot overlap.
+The same surface in a different sentence creates a separate term because
+`article_sentence_terms` is sentence-contextual. Each created term receives one
+marker at its first accepted occurrence.
+
+New rows initially persist the sentence relationship, exact `value`, Wink lemma,
+UUID/audit fields, and the lifecycle fields required for approved lookup access.
+`word_display`, `normalized_lemma`, `part_of_speech`, `cefr_level`, pronunciation,
+meanings, definitions, explanations, and other learning metadata remain null or
+empty with `explanation_status = PENDING`. The first explicit learner lookup
+uses the existing contextual-enrichment flow to fill those deferred fields and
+cache them by `article_sentence_terms.id`. Pending or failed enrichment does not
+block publication; `PROCESSING` still does, and `READY` rows must pass the full
+metadata checklist.
+
+Implementation surfaces changed for this flow are the article analysis service,
+repository transaction and controller documentation; contextual enrichment and
+publication validation; the Prisma term model, enum, and migration; focused
+tests; dependency manifests; and the Manage Article Content frontend wording,
+filters, nullable term rendering, tests, and documentation.
 
 ## Compile and run the project
 

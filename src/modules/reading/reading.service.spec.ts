@@ -105,12 +105,8 @@ const enrichmentClaim = (): ContextualTermEnrichmentClaimRecord => ({
   term: {
     id: termId,
     value: 'harmful',
-    wordDisplay: 'harmful',
     lemma: 'harmful',
-    normalizedLemma: 'harmful',
     unitType: LexicalUnitType.WORD,
-    partOfSpeech: 'adjective',
-    cefrLevel: CefrLevel.B1,
   },
   parentSentence: {
     id: '550e8400-e29b-41d4-a716-446655440001',
@@ -137,6 +133,10 @@ const enrichmentClaim = (): ContextualTermEnrichmentClaimRecord => ({
 });
 
 const enrichmentResult = {
+  wordDisplay: 'harmful',
+  normalizedLemma: 'harmful',
+  partOfSpeech: 'adjective',
+  cefrLevel: CefrLevel.B1,
   contextualMeaningVi: 'có hại',
   definitionEn: 'causing damage',
   contextualExplanation: 'It describes a damaging effect.',
@@ -334,12 +334,8 @@ describe('ReadingService', () => {
         articleTitle: 'Plastic Waste',
         termId,
         value: 'harmful',
-        wordDisplay: 'harmful',
         lemma: 'harmful',
-        normalizedLemma: 'harmful',
         unitType: LexicalUnitType.WORD,
-        partOfSpeech: 'adjective',
-        cefrLevel: CefrLevel.B1,
         parentSentenceText: 'Plastic waste is harmful.',
         surroundingSentenceContext:
           '[1] Plastic remains in the environment.\n[3] Communities are reducing waste.',

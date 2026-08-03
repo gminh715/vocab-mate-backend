@@ -171,7 +171,9 @@ export class ArticlePublicationService {
             .filter((term) => term.reviewStatus === TermReviewStatus.APPROVED)
             .map((term) => ({
               ...term,
-              isHighlighted: isCefrAtOrAbove(term.cefrLevel, previewLevel),
+              isHighlighted:
+                term.cefrLevel !== null &&
+                isCefrAtOrAbove(term.cefrLevel, previewLevel),
             }))
         : [],
     );
@@ -332,7 +334,10 @@ export class ArticlePublicationService {
           term.isLookupEnabled
         ) {
           activeLookupTerms.set(term.id, term);
-          if (!this.hasRequiredLexicalMetadata(term)) {
+          if (
+            term.explanationStatus === AiGenerationStatus.READY &&
+            !this.hasRequiredLexicalMetadata(term)
+          ) {
             addIssue(
               'TERM_METADATA_INCOMPLETE',
               'An active lookup term is missing required vocabulary metadata.',
@@ -530,7 +535,9 @@ export class ArticlePublicationService {
         term.partOfSpeech,
       ].every(
         (value) => typeof value === 'string' && value.trim().length > 0,
-      ) && Object.values(CefrLevel).includes(term.cefrLevel)
+      ) &&
+      term.cefrLevel !== null &&
+      Object.values(CefrLevel).includes(term.cefrLevel)
     );
   }
 

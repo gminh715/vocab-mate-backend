@@ -25,7 +25,6 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
-  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
@@ -177,9 +176,9 @@ export class AdminArticlesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'postAdminArticleAnalyze',
-    summary: 'Analyze a parsed draft and create pending AI term candidates',
+    summary: 'Analyze a parsed draft and create local vocabulary terms',
     description:
-      'Atomically claims one parsed DRAFT, runs bounded provider-neutral AI analysis outside a transaction, validates the remote result, then stores metadata and inactive pending term candidates only if the content version is unchanged.',
+      'Atomically claims one parsed DRAFT, tokenizes each sentence locally with WinkNLP, stores approved lookup terms with deferred metadata, and inserts one exact data-term-id marker per unique sentence surface only if the content version is unchanged.',
   })
   @ApiOkResponse({ type: ArticleAnalysisSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -188,7 +187,6 @@ export class AdminArticlesController {
   @ApiNotFoundResponse({ type: ApiErrorResponseDto })
   @ApiConflictResponse({ type: ApiErrorResponseDto })
   @ApiUnprocessableEntityResponse({ type: ApiErrorResponseDto })
-  @ApiServiceUnavailableResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   analyze(
     @CurrentUser() actingAdmin: AuthenticatedUser,

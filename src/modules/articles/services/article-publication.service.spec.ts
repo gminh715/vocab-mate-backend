@@ -311,13 +311,17 @@ describe('ArticlePublicationService', () => {
   });
 
   it.each([AiGenerationStatus.PENDING, AiGenerationStatus.FAILED])(
-    'allows an approved lazy AI term with %s explanation and no meaning',
+    'allows an approved lazy NLP term with %s enrichment and deferred metadata',
     async (explanationStatus) => {
       const snapshot = createSnapshot();
       const term = snapshot.sentences[0].terms[0];
-      term.origin = TermOrigin.AI;
+      term.origin = TermOrigin.NLP;
       term.reviewStatus = TermReviewStatus.APPROVED;
       term.explanationStatus = explanationStatus;
+      term.wordDisplay = null;
+      term.normalizedLemma = null;
+      term.partOfSpeech = null;
+      term.cefrLevel = null;
       term.contextualMeaningVi = null;
       snapshot.sentences[0].translationVi = null;
 

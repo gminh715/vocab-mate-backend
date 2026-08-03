@@ -75,6 +75,16 @@ const boundedStringArray = (description: string): JsonSchema => ({
 });
 
 export const termEnrichmentSchema: JsonSchema = strictObject({
+  wordDisplay: requiredString('Learner-facing display form.'),
+  normalizedLemma: requiredString(
+    'Trimmed lowercase lemma used for normalization.',
+  ),
+  partOfSpeech: requiredString('Part of speech in this sentence context.'),
+  cefrLevel: {
+    type: 'string',
+    enum: CEFR_LEVELS,
+    description: 'CEFR difficulty of this contextual term.',
+  },
   contextualMeaningVi: requiredString(
     'The Vietnamese meaning in this exact sentence context.',
   ),

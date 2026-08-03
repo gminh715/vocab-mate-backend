@@ -9,13 +9,17 @@ import {
 } from './articles.repository';
 
 interface StoredState {
-  summary: string;
+  contentHtml: string;
   status: ArticleStatus;
   aiAnalysisStatus: AiGenerationStatus;
-  candidateCount: number;
+  termCount: number;
 }
 
 describe('ArticlesRepository article analysis persistence', () => {
+  const sourceContentHtml =
+    '<p><span data-sentence-id="sentence-id">An ambitious plan.</span></p>';
+  const annotatedContentHtml =
+    '<p><span data-sentence-id="sentence-id">An <span data-term-id="term-id">ambitious</span> plan.</span></p>';
   const expectedSentences = [
     {
       id: 'sentence-id',
@@ -27,11 +31,8 @@ describe('ArticlesRepository article analysis persistence', () => {
   const input: CompleteArticleAnalysisInput = {
     articleId: 'article-id',
     contentVersion: 2,
-    sourceContentHtml:
-      '<p><span data-sentence-id="sentence-id">An ambitious plan.</span></p>',
-    categoryId: 'category-id',
-    summary: 'A concise summary.',
-    cefrLevel: 'B1',
+    sourceContentHtml,
+    annotatedContentHtml,
     actingAdminId: 'admin-id',
     expectedSentences,
     terms: [
@@ -39,36 +40,33 @@ describe('ArticlesRepository article analysis persistence', () => {
         id: 'term-id',
         sentenceId: 'sentence-id',
         value: 'ambitious',
-        wordDisplay: 'ambitious',
         lemma: 'ambitious',
-        normalizedLemma: 'ambitious',
-        unitType: 'WORD',
-        partOfSpeech: 'adjective',
-        cefrLevel: 'B1',
-        selectionReason: 'Useful learner vocabulary.',
         createdByUserId: 'admin-id',
         updatedByUserId: 'admin-id',
       },
     ],
   };
 
-  const createRepository = (failCandidateWrite = false) => {
+  const createRepository = (failTermWrite = false) => {
     let committed: StoredState = {
-      summary: 'Old summary',
+      contentHtml: sourceContentHtml,
       status: ArticleStatus.DRAFT,
       aiAnalysisStatus: AiGenerationStatus.PROCESSING,
-      candidateCount: 0,
+      termCount: 0,
     };
     const createMany = jest.fn<
       Promise<{ count: number }>,
       [{ data: Array<Record<string, unknown>> }]
     >();
+    const updateMany = jest.fn<
+      Promise<{ count: number }>,
+      [Record<string, unknown>]
+    >();
     const transaction = jest.fn(
       async (
         callback: (tx: {
-          category: { count: () => Promise<number> };
           article: {
-            updateMany: () => Promise<{ count: number }>;
+            updateMany: typeof updateMany;
             findUnique: () => Promise<{
               id: string;
               contentVersion: number;
@@ -89,13 +87,12 @@ describe('ArticlesRepository article analysis persistence', () => {
       ) => {
         const working = structuredClone(committed);
         const tx = {
-          category: { count: () => Promise.resolve(1) },
           article: {
-            updateMany: () => {
-              working.summary = input.summary;
+            updateMany: updateMany.mockImplementation(() => {
+              working.contentHtml = input.annotatedContentHtml;
               working.aiAnalysisStatus = AiGenerationStatus.READY;
               return Promise.resolve({ count: 1 });
-            },
+            }),
             findUnique: () =>
               Promise.resolve({
                 id: input.articleId,
@@ -103,7 +100,7 @@ describe('ArticlesRepository article analysis persistence', () => {
                 aiAnalysisStatus: working.aiAnalysisStatus,
                 cefrLevel: 'B1' as const,
                 category: {
-                  id: input.categoryId,
+                  id: 'category-id',
                   slug: 'society',
                   name: 'Society',
                 },
@@ -115,8 +112,8 @@ describe('ArticlesRepository article analysis persistence', () => {
           articleSentenceTerm: {
             createMany: createMany.mockImplementation(
               (args: { data: Array<Record<string, unknown>> }) => {
-                working.candidateCount += args.data.length;
-                if (failCandidateWrite) {
+                working.termCount += args.data.length;
+                if (failTermWrite) {
                   return Promise.reject(new Error('simulated insert failure'));
                 }
                 return Promise.resolve({ count: args.data.length });
@@ -137,12 +134,13 @@ describe('ArticlesRepository article analysis persistence', () => {
     return {
       repository,
       createMany,
+      updateMany,
       transaction,
       state: () => committed,
     };
   };
 
-  it('writes READY metadata and hidden pending AI candidates in one short transaction', async () => {
+  it('atomically stores marked HTML and active NLP terms with deferred metadata', async () => {
     const context = createRepository();
 
     await expect(
@@ -155,13 +153,27 @@ describe('ArticlesRepository article analysis persistence', () => {
     });
 
     expect(context.transaction).toHaveBeenCalledTimes(1);
-    expect(context.createMany).toHaveBeenCalledTimes(1);
+    const articleUpdate = context.updateMany.mock.calls[0][0];
+    expect(articleUpdate.where).toMatchObject({
+      contentHtml: sourceContentHtml,
+    });
+    expect(articleUpdate.data).toMatchObject({
+      contentHtml: annotatedContentHtml,
+    });
     expect(context.createMany.mock.calls[0][0].data[0]).toMatchObject({
       id: 'term-id',
-      origin: 'AI',
-      reviewStatus: 'PENDING',
+      sentenceId: 'sentence-id',
+      value: 'ambitious',
+      lemma: 'ambitious',
+      wordDisplay: null,
+      normalizedLemma: null,
+      unitType: 'WORD',
+      partOfSpeech: null,
+      cefrLevel: null,
+      origin: 'NLP',
+      reviewStatus: 'APPROVED',
       explanationStatus: 'PENDING',
-      selectionReason: 'Useful learner vocabulary.',
+      selectionReason: null,
       contextualMeaningVi: null,
       definitionEn: null,
       contextualExplanation: null,
@@ -171,30 +183,30 @@ describe('ArticlesRepository article analysis persistence', () => {
       collocations: [],
       relatedTerms: [],
       examples: [],
-      isActive: false,
-      isLookupEnabled: false,
+      isActive: true,
+      isLookupEnabled: true,
       createdByUserId: 'admin-id',
       updatedByUserId: 'admin-id',
     });
     expect(context.state()).toEqual({
-      summary: 'A concise summary.',
+      contentHtml: annotatedContentHtml,
       status: ArticleStatus.DRAFT,
       aiAnalysisStatus: AiGenerationStatus.READY,
-      candidateCount: 1,
+      termCount: 1,
     });
   });
 
-  it('rolls back article metadata when candidate insertion fails', async () => {
+  it('rolls back marked HTML when term insertion fails', async () => {
     const context = createRepository(true);
 
     await expect(
       context.repository.completeArticleAnalysis(input),
     ).rejects.toThrow('simulated insert failure');
     expect(context.state()).toEqual({
-      summary: 'Old summary',
+      contentHtml: sourceContentHtml,
       status: ArticleStatus.DRAFT,
       aiAnalysisStatus: AiGenerationStatus.PROCESSING,
-      candidateCount: 0,
+      termCount: 0,
     });
   });
 });

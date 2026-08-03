@@ -1,58 +1,35 @@
 import {
   ConflictException,
-  Inject,
   Injectable,
   NotFoundException,
-  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import winkNLP, { type ItemToken } from 'wink-nlp';
+import winkEnglishModel from 'wink-eng-lite-web-model';
 import {
   AiGenerationStatus,
   ArticleStatus,
-  CefrLevel,
-  LexicalUnitType,
 } from '../../../../generated/prisma/enums';
-import type { AiConfig } from '../../../config/ai.config';
-import { AI_CONFIG } from '../../../config/config.module';
-import type {
-  ArticleAnalysisResult,
-  ArticleAnalysisTerm,
-} from '../../ai/ai.contracts';
-import { AiService } from '../../ai/ai.service';
-import { AI_OUTPUT_LIMITS } from '../../ai/ai.validation';
-import { CategoriesRepository } from '../../categories/categories.repository';
+import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import { TermMarkerHelper } from '../helpers/term-marker.helper';
 import {
   ArticleAnalysisStateConflictError,
   type ArticleAnalysisCompletionRecord,
   type ArticleAnalysisSentenceRecord,
   type ArticleAnalysisSnapshot,
+  type AnalyzedTermInput,
   ArticlesRepository,
-  type PendingAiTermInput,
 } from '../repositories/articles.repository';
 
 const MAX_STORED_ANALYSIS_ERROR_LENGTH = 500;
-
-class ArticleAnalysisOutputError extends Error {}
-
-interface TextRange {
-  start: number;
-  end: number;
-}
-
-interface ValidatedCandidate extends PendingAiTermInput {
-  ranges: TextRange[];
-}
+const ENGLISH_VOCABULARY_TOKEN = /^[A-Za-z]+(?:['’][A-Za-z]+)*$/u;
+const nlp = winkNLP(winkEnglishModel);
+const { its } = nlp;
 
 @Injectable()
 export class ArticleAnalysisService {
-  constructor(
-    private readonly articlesRepository: ArticlesRepository,
-    private readonly categoriesRepository: CategoriesRepository,
-    private readonly aiService: AiService,
-    @Inject(AI_CONFIG) private readonly aiConfig: AiConfig,
-  ) {}
+  constructor(private readonly articlesRepository: ArticlesRepository) {}
 
   async analyze(
     actingAdminId: string,
@@ -62,22 +39,6 @@ export class ArticleAnalysisService {
       await this.articlesRepository.findAnalysisSnapshot(articleId);
     if (!snapshot) throw new NotFoundException('Article not found');
     this.requireEligibleSnapshot(snapshot);
-
-    const categories = await this.categoriesRepository.findActive({});
-    if (categories.length === 0) {
-      throw new UnprocessableEntityException(
-        'At least one active category is required for article analysis',
-      );
-    }
-
-    const articleText = snapshot.sentences
-      .map(({ sentenceText }) => sentenceText)
-      .join(' ');
-    if (articleText.length > this.aiConfig.maxArticleCharacters) {
-      throw new UnprocessableEntityException(
-        'Parsed article text exceeds the configured AI analysis limit',
-      );
-    }
 
     const claimed = await this.articlesRepository.claimArticleAnalysis(
       articleId,
@@ -89,61 +50,30 @@ export class ArticleAnalysisService {
       );
     }
 
-    let result: ArticleAnalysisResult;
-    let candidates: PendingAiTermInput[];
+    let terms: AnalyzedTermInput[];
+    let annotatedContentHtml: string;
     try {
-      result = await this.aiService.analyzeArticle({
-        articleId,
-        title: snapshot.article.title,
-        articleText,
-        contentVersion: snapshot.article.contentVersion,
-        sentences: snapshot.sentences.map(({ id, sentenceText }) => ({
-          sentenceId: id,
-          sentenceText,
-        })),
-        allowedCategories: categories,
-        maxTermCount: this.aiConfig.maxTermsPerArticle,
-      });
-      this.validateResultMetadata(
-        result,
-        categories.map(({ slug }) => slug),
-      );
-      candidates = this.validateCandidates(
-        result,
-        snapshot.sentences,
-        actingAdminId,
+      terms = this.extractTerms(snapshot.sentences, actingAdminId);
+      annotatedContentHtml = HtmlSanitizerHelper.sanitize(
+        terms.reduce(
+          (contentHtml, term) =>
+            TermMarkerHelper.insertFirst(
+              contentHtml,
+              term.sentenceId,
+              term.id,
+              term.value,
+              'WORD',
+            ),
+          snapshot.article.contentHtml,
+        ),
       );
     } catch (error: unknown) {
-      const invalidOutput = error instanceof ArticleAnalysisOutputError;
       await this.failClaimedAnalysis(
         actingAdminId,
         snapshot,
-        invalidOutput
-          ? 'AI analysis output failed validation'
-          : 'AI service is temporarily unavailable',
+        'Vocabulary analysis could not be completed',
       );
-      if (invalidOutput) {
-        throw new UnprocessableEntityException(
-          'AI analysis output failed validation',
-        );
-      }
-      throw new ServiceUnavailableException(
-        'AI service is temporarily unavailable',
-      );
-    }
-
-    const category = categories.find(
-      ({ slug }) => slug === result.categorySlug,
-    );
-    if (!category) {
-      await this.failClaimedAnalysis(
-        actingAdminId,
-        snapshot,
-        'AI analysis output failed validation',
-      );
-      throw new UnprocessableEntityException(
-        'AI analysis output failed validation',
-      );
+      throw error;
     }
 
     try {
@@ -151,46 +81,33 @@ export class ArticleAnalysisService {
         articleId,
         contentVersion: snapshot.article.contentVersion,
         sourceContentHtml: snapshot.article.contentHtml,
-        categoryId: category.id,
-        summary: this.normalizeWhitespace(result.summaryEn),
-        cefrLevel: result.cefrLevel,
+        annotatedContentHtml,
         actingAdminId,
         expectedSentences: snapshot.sentences,
-        terms: candidates,
+        terms,
       });
     } catch (error: unknown) {
       if (error instanceof ArticleAnalysisStateConflictError) {
         await this.articlesRepository.failArticleAnalysis(
           articleId,
           snapshot.article.contentVersion,
-          this.sanitizeError('Article changed during AI analysis; retry'),
+          this.sanitizeError(
+            'Article changed during vocabulary analysis; retry',
+          ),
           actingAdminId,
         );
         throw new ConflictException(
-          'Article changed during AI analysis; stale result was not applied',
+          'Article changed during vocabulary analysis; stale result was not applied',
         );
       }
 
       await this.articlesRepository.failArticleAnalysis(
         articleId,
         snapshot.article.contentVersion,
-        this.sanitizeError('AI analysis could not be saved'),
+        this.sanitizeError('Vocabulary analysis could not be saved'),
         actingAdminId,
       );
       throw error;
-    }
-  }
-
-  private validateResultMetadata(
-    result: ArticleAnalysisResult,
-    categorySlugs: string[],
-  ): void {
-    this.requiredNormalizedString(result.summaryEn, AI_OUTPUT_LIMITS.summary);
-    if (
-      !Object.values(CefrLevel).includes(result.cefrLevel) ||
-      !categorySlugs.includes(result.categorySlug)
-    ) {
-      throw new ArticleAnalysisOutputError();
     }
   }
 
@@ -213,179 +130,78 @@ export class ArticleAnalysisService {
       snapshot.article.aiAnalysisStatus !== AiGenerationStatus.PENDING &&
       snapshot.article.aiAnalysisStatus !== AiGenerationStatus.FAILED
     ) {
-      throw new ConflictException('Article is not eligible for AI analysis');
+      throw new ConflictException('Article is not eligible for analysis');
     }
   }
 
-  private validateCandidates(
-    result: ArticleAnalysisResult,
+  private extractTerms(
     sentences: ArticleAnalysisSentenceRecord[],
     actingAdminId: string,
-  ): PendingAiTermInput[] {
-    if (
-      !Array.isArray(result.terms) ||
-      result.terms.length > this.aiConfig.maxTermsPerArticle
-    ) {
-      throw new ArticleAnalysisOutputError();
-    }
+  ): AnalyzedTermInput[] {
+    const terms: AnalyzedTermInput[] = [];
 
-    const sentenceMap = new Map(
-      sentences.map((sentence) => [sentence.id, sentence]),
-    );
-    const candidatesBySentence = new Map<string, ValidatedCandidate[]>();
-
-    for (const term of result.terms) {
-      const sentence = sentenceMap.get(term.sentenceId);
-      if (!sentence) throw new ArticleAnalysisOutputError();
-      const candidate = this.validateCandidate(term, sentence, actingAdminId);
-      const sentenceCandidates = candidatesBySentence.get(sentence.id) ?? [];
-
-      const duplicateKey = this.duplicateKey(candidate.value);
-      if (
-        sentenceCandidates.some(
-          (existing) => this.duplicateKey(existing.value) === duplicateKey,
-        )
-      ) {
-        throw new ArticleAnalysisOutputError();
-      }
-
+    for (const sentence of sentences) {
+      const duplicateKeys = new Set<string>();
       for (const existingTerm of sentence.terms) {
-        if (this.duplicateKey(existingTerm.value) === duplicateKey) {
-          throw new ArticleAnalysisOutputError();
-        }
-        const existingRanges = this.findRanges(
-          sentence.sentenceText,
-          existingTerm.value,
-          false,
-        );
-        if (this.hasAnyOverlap(candidate.ranges, existingRanges)) {
-          throw new ArticleAnalysisOutputError();
-        }
+        duplicateKeys.add(this.duplicateKey(existingTerm.value));
+        nlp
+          .readDoc(existingTerm.value)
+          .tokens()
+          .each((token: ItemToken) => {
+            // WinkNLP identifies property helpers by their original function identity.
+            // eslint-disable-next-line @typescript-eslint/unbound-method
+            if (token.out(its.type) === 'word') {
+              duplicateKeys.add(
+                this.duplicateKey(
+                  // eslint-disable-next-line @typescript-eslint/unbound-method
+                  String(token.out(its.normal)),
+                ),
+              );
+            }
+          });
       }
-      if (
-        sentenceCandidates.some((existing) =>
-          this.hasAnyOverlap(candidate.ranges, existing.ranges),
-        )
-      ) {
-        throw new ArticleAnalysisOutputError();
-      }
+      const tokens = nlp.readDoc(sentence.sentenceText).tokens();
 
-      sentenceCandidates.push(candidate);
-      candidatesBySentence.set(sentence.id, sentenceCandidates);
+      tokens.each((token: ItemToken) => {
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        if (token.out(its.type) !== 'word') return;
+
+        const surface = token.out().trim();
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        const normalizedSurface = String(token.out(its.normal)).trim();
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        const lemma = String(token.out(its.lemma))
+          .trim()
+          .toLocaleLowerCase('en-US');
+        if (
+          !ENGLISH_VOCABULARY_TOKEN.test(surface) ||
+          !ENGLISH_VOCABULARY_TOKEN.test(normalizedSurface) ||
+          !ENGLISH_VOCABULARY_TOKEN.test(lemma) ||
+          !TermMarkerHelper.matchesText(sentence.sentenceText, surface, 'WORD')
+        ) {
+          return;
+        }
+
+        const duplicateKey = this.duplicateKey(normalizedSurface);
+        if (duplicateKeys.has(duplicateKey)) return;
+        duplicateKeys.add(duplicateKey);
+
+        terms.push({
+          id: randomUUID(),
+          sentenceId: sentence.id,
+          value: surface,
+          lemma,
+          createdByUserId: actingAdminId,
+          updatedByUserId: actingAdminId,
+        });
+      });
     }
 
-    return [...candidatesBySentence.values()].flat().map((validated) => {
-      const { ranges, ...candidate } = validated;
-      void ranges;
-      return candidate;
-    });
-  }
-
-  private validateCandidate(
-    term: ArticleAnalysisTerm,
-    sentence: ArticleAnalysisSentenceRecord,
-    actingAdminId: string,
-  ): ValidatedCandidate {
-    const value = this.requiredNormalizedString(
-      term.value,
-      AI_OUTPUT_LIMITS.termText,
-    );
-    const wordDisplay = this.requiredNormalizedString(
-      term.wordDisplay,
-      AI_OUTPUT_LIMITS.termText,
-    );
-    const lemma = this.requiredNormalizedString(
-      term.lemma,
-      AI_OUTPUT_LIMITS.termText,
-    );
-    const normalizedLemma = lemma.toLocaleLowerCase('en-US');
-    const suppliedNormalizedLemma = this.requiredNormalizedString(
-      term.normalizedLemma,
-      AI_OUTPUT_LIMITS.termText,
-    ).toLocaleLowerCase('en-US');
-    const partOfSpeech = this.requiredNormalizedString(
-      term.partOfSpeech,
-      AI_OUTPUT_LIMITS.partOfSpeech,
-    ).toLocaleLowerCase('en-US');
-    const selectionReason = this.requiredNormalizedString(
-      term.selectionReason,
-      AI_OUTPUT_LIMITS.selectionReason,
-    );
-
-    if (
-      suppliedNormalizedLemma !== normalizedLemma ||
-      !Object.values(LexicalUnitType).includes(term.unitType) ||
-      !Object.values(CefrLevel).includes(term.cefrLevel) ||
-      !sentence.sentenceText.includes(value) ||
-      !TermMarkerHelper.matchesText(sentence.sentenceText, value, term.unitType)
-    ) {
-      throw new ArticleAnalysisOutputError();
-    }
-
-    const ranges = this.findRanges(sentence.sentenceText, value, true);
-    if (ranges.length === 0) throw new ArticleAnalysisOutputError();
-
-    return {
-      id: randomUUID(),
-      sentenceId: sentence.id,
-      value,
-      wordDisplay,
-      lemma,
-      normalizedLemma,
-      unitType: term.unitType,
-      partOfSpeech,
-      cefrLevel: term.cefrLevel,
-      selectionReason,
-      createdByUserId: actingAdminId,
-      updatedByUserId: actingAdminId,
-      ranges,
-    };
-  }
-
-  private requiredNormalizedString(value: unknown, maximum: number): string {
-    if (typeof value !== 'string') throw new ArticleAnalysisOutputError();
-    const normalized = this.normalizeWhitespace(value);
-    if (!normalized || normalized.length > maximum) {
-      throw new ArticleAnalysisOutputError();
-    }
-    return normalized;
-  }
-
-  private normalizeWhitespace(value: string): string {
-    return value.replace(/\s+/gu, ' ').trim();
+    return terms;
   }
 
   private duplicateKey(value: string): string {
     return value.trim().toLocaleLowerCase('en-US');
-  }
-
-  private findRanges(
-    text: string,
-    value: string,
-    caseSensitive: boolean,
-  ): TextRange[] {
-    const haystack = caseSensitive ? text : text.toLocaleLowerCase('en-US');
-    const needle = caseSensitive ? value : value.toLocaleLowerCase('en-US');
-    if (!needle) return [];
-
-    const ranges: TextRange[] = [];
-    let cursor = 0;
-    while (cursor <= haystack.length - needle.length) {
-      const start = haystack.indexOf(needle, cursor);
-      if (start < 0) break;
-      ranges.push({ start, end: start + needle.length });
-      cursor = start + 1;
-    }
-    return ranges;
-  }
-
-  private hasAnyOverlap(left: TextRange[], right: TextRange[]): boolean {
-    return left.some((leftRange) =>
-      right.some(
-        (rightRange) =>
-          leftRange.start < rightRange.end && rightRange.start < leftRange.end,
-      ),
-    );
   }
 
   private async failClaimedAnalysis(
@@ -401,13 +217,15 @@ export class ArticleAnalysisService {
     );
     if (!failed) {
       throw new ConflictException(
-        'Article changed during AI analysis; stale result was not applied',
+        'Article changed during vocabulary analysis; stale result was not applied',
       );
     }
   }
 
   private sanitizeError(message: string): string {
-    return this.normalizeWhitespace(message)
+    return message
+      .replace(/\s+/gu, ' ')
+      .trim()
       .replace(/[^\p{L}\p{N}\p{P}\p{Zs}]/gu, '')
       .slice(0, MAX_STORED_ANALYSIS_ERROR_LENGTH);
   }

@@ -5,7 +5,10 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { LearningStatus } from '../../../generated/prisma/enums';
+import {
+  type CefrLevel,
+  LearningStatus,
+} from '../../../generated/prisma/enums';
 import { ReadingService } from '../reading/reading.service';
 import type {
   GetVocabulariesQueryDto,
@@ -161,7 +164,7 @@ export class VocabulariesService {
             source.term.partOfSpeech,
           ),
           savedIpa: source.term.ipa,
-          savedCefrLevel: source.term.cefrLevel,
+          savedCefrLevel: this.requireSnapshotCefr(source.term.cefrLevel),
           savedContextSentence: this.requireSnapshotText(
             'contextSentence',
             source.parentSentence.sentenceText,
@@ -263,6 +266,15 @@ export class VocabulariesService {
       this.throwMissingSnapshotField(field);
     }
     return value.trim();
+  }
+
+  private requireSnapshotCefr(value: CefrLevel | null): CefrLevel {
+    if (!value) {
+      throw new UnprocessableEntityException(
+        'Contextual term is not ready to be saved',
+      );
+    }
+    return value;
   }
 
   private throwMissingSnapshotField(field: string): never {

@@ -1764,7 +1764,11 @@ describe('Auth and Users APIs (e2e)', () => {
     const termProperties =
       swagger.components.schemas['ArticleSentenceTermDto'].properties ?? {};
     expect(termProperties.contextualMeaningVi?.nullable).toBe(true);
-    expect(termProperties.origin?.enum).toEqual(['MANUAL', 'AI']);
+    expect(termProperties.origin?.enum).toEqual(['MANUAL', 'AI', 'NLP']);
+    expect(termProperties.wordDisplay?.nullable).toBe(true);
+    expect(termProperties.normalizedLemma?.nullable).toBe(true);
+    expect(termProperties.partOfSpeech?.nullable).toBe(true);
+    expect(termProperties.cefrLevel?.nullable).toBe(true);
     expect(termProperties.reviewStatus?.enum).toEqual([
       'PENDING',
       'APPROVED',

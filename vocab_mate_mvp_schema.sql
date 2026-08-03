@@ -323,14 +323,14 @@ CREATE TABLE article_sentence_terms (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),                     -- Khóa chính UUID; chính giá trị này được gắn vào HTML dưới dạng data-term-id cho vùng từ có thể click.
     sentence_id             UUID NOT NULL,                                                  -- Câu cha chứa từ; dùng để dựng đối tượng parent trong response tra cứu.
     value                   TEXT NOT NULL,                                                  -- Dạng chữ xuất hiện trong sentence_text, ví dụ harmful hoặc crop yields.
-    word_display            TEXT NOT NULL,                                                  -- Dạng chữ hiển thị trong popup tra cứu.
+    word_display            TEXT,                                                           -- Dạng chữ hiển thị được bổ sung khi tra cứu lần đầu.
     lemma                   TEXT NOT NULL,                                                  -- Dạng từ điển được cache cho từ trong câu, ví dụ harmful hoặc take into account.
-    normalized_lemma        CITEXT NOT NULL,                                                -- Lemma đã chuẩn hóa để tìm kiếm và so sánh không phân biệt hoa thường.
+    normalized_lemma        CITEXT,                                                         -- Lemma chuẩn hóa được bổ sung khi tra cứu lần đầu.
     unit_type               lexical_unit_type NOT NULL DEFAULT 'WORD',                      -- Phân loại đơn vị được cache là WORD hoặc PHRASE.
-    part_of_speech          TEXT NOT NULL,                                                  -- Từ loại của từ trong chính ngữ cảnh câu hiện tại, ví dụ noun hoặc adjective.
+    part_of_speech          TEXT,                                                           -- Từ loại được bổ sung khi tra cứu lần đầu.
     ipa                     TEXT,                                                           -- Phiên âm IPA của từ hoặc cụm từ trong cache của câu này.
-    cefr_level              cefr_level NOT NULL,                                            -- CEFR dùng để backend tính từ nào cần có style highlight theo trình độ user.
-    contextual_meaning_vi   TEXT NOT NULL,                                                  -- Nghĩa tiếng Việt đúng trong câu hiện tại.
+    cefr_level              cefr_level,                                                     -- CEFR được bổ sung khi tra cứu lần đầu.
+    contextual_meaning_vi   TEXT,                                                           -- Nghĩa tiếng Việt được bổ sung khi tra cứu lần đầu.
     definition_en           TEXT,                                                           -- Định nghĩa tiếng Anh của từ theo ngữ cảnh hiện tại.
     contextual_explanation  TEXT,                                                           -- Giải thích cách dùng và lý do từ mang nghĩa này trong câu.
     synonyms                TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],                        -- Danh sách từ đồng nghĩa đã cache cho từ trong câu.
@@ -366,19 +366,19 @@ CREATE TABLE article_sentence_terms (
         CHECK (btrim(value) <> ''),
 
     CONSTRAINT ck_article_sentence_terms_word_display_not_blank
-        CHECK (btrim(word_display) <> ''),
+        CHECK (word_display IS NULL OR btrim(word_display) <> ''),
 
     CONSTRAINT ck_article_sentence_terms_lemma_not_blank
         CHECK (btrim(lemma) <> ''),
 
     CONSTRAINT ck_article_sentence_terms_normalized_lemma_not_blank
-        CHECK (btrim(normalized_lemma::TEXT) <> ''),
+        CHECK (normalized_lemma IS NULL OR btrim(normalized_lemma::TEXT) <> ''),
 
     CONSTRAINT ck_article_sentence_terms_part_of_speech_not_blank
-        CHECK (btrim(part_of_speech) <> ''),
+        CHECK (part_of_speech IS NULL OR btrim(part_of_speech) <> ''),
 
     CONSTRAINT ck_article_sentence_terms_meaning_not_blank
-        CHECK (btrim(contextual_meaning_vi) <> ''),
+        CHECK (contextual_meaning_vi IS NULL OR btrim(contextual_meaning_vi) <> ''),
 
     CONSTRAINT ck_article_sentence_terms_examples_array
         CHECK (jsonb_typeof(examples) = 'array')

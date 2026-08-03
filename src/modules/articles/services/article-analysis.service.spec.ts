@@ -1,15 +1,12 @@
 import {
   ConflictException,
-  ServiceUnavailableException,
+  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
   AiGenerationStatus,
   ArticleStatus,
 } from '../../../../generated/prisma/enums';
-import type { AiConfig } from '../../../config/ai.config';
-import type { AiService } from '../../ai/ai.service';
-import type { CategoriesRepository } from '../../categories/categories.repository';
 import {
   ArticleAnalysisStateConflictError,
   type ArticleAnalysisCompletionRecord,
@@ -18,16 +15,6 @@ import {
   type CompleteArticleAnalysisInput,
 } from '../repositories/articles.repository';
 import { ArticleAnalysisService } from './article-analysis.service';
-
-const aiConfig: AiConfig = {
-  geminiApiKey: 'test',
-  geminiModel: 'test',
-  groqApiKey: 'test',
-  groqModel: 'test',
-  requestTimeoutMs: 5000,
-  maxArticleCharacters: 50000,
-  maxTermsPerArticle: 5,
-};
 
 const snapshot = (
   overrides: Partial<ArticleAnalysisSnapshot['article']> = {},
@@ -52,25 +39,6 @@ const snapshot = (
   ],
 });
 
-const validResult = {
-  summaryEn: 'The city has an ambitious transport plan.',
-  cefrLevel: 'B1' as const,
-  categorySlug: 'society',
-  terms: [
-    {
-      sentenceId: 'sentence-1',
-      value: 'ambitious',
-      wordDisplay: 'ambitious',
-      lemma: 'ambitious',
-      normalizedLemma: 'ambitious',
-      unitType: 'WORD' as const,
-      partOfSpeech: 'Adjective',
-      cefrLevel: 'B1' as const,
-      selectionReason: 'Useful for describing challenging goals.',
-    },
-  ],
-};
-
 describe('ArticleAnalysisService', () => {
   const repository = {
     findAnalysisSnapshot: jest.fn<
@@ -87,17 +55,8 @@ describe('ArticleAnalysisService', () => {
       [CompleteArticleAnalysisInput]
     >(),
   };
-  const categoriesRepository = {
-    findActive: jest.fn(),
-  };
-  const aiService = {
-    analyzeArticle: jest.fn(),
-  };
   const service = new ArticleAnalysisService(
     repository as unknown as ArticlesRepository,
-    categoriesRepository as unknown as CategoriesRepository,
-    aiService as unknown as AiService,
-    aiConfig,
   );
 
   beforeEach(() => {
@@ -112,21 +71,17 @@ describe('ArticleAnalysisService', () => {
           contentVersion: input.contentVersion,
           aiAnalysisStatus: AiGenerationStatus.READY,
           category: {
-            id: input.categoryId,
+            id: 'category-id',
             slug: 'society',
             name: 'Society',
           },
-          cefrLevel: input.cefrLevel,
+          cefrLevel: 'B1',
           candidateCount: input.terms.length,
         }),
     );
-    categoriesRepository.findActive.mockResolvedValue([
-      { id: 'category-id', slug: 'society', name: 'Society' },
-    ]);
-    aiService.analyzeArticle.mockResolvedValue(validResult);
   });
 
-  it('claims, analyzes, validates, and persists pending candidates without markers', async () => {
+  it('tokenizes locally, stores only surface and lemma inputs, and prepares one marker per term', async () => {
     await expect(service.analyze('admin-id', 'article-id')).resolves.toEqual({
       articleId: 'article-id',
       contentVersion: 3,
@@ -137,51 +92,108 @@ describe('ArticleAnalysisService', () => {
         name: 'Society',
       },
       cefrLevel: 'B1',
-      candidateCount: 1,
+      candidateCount: 5,
     });
 
     expect(repository.claimArticleAnalysis).toHaveBeenCalledWith(
       'article-id',
       3,
     );
-    expect(aiService.analyzeArticle).toHaveBeenCalledWith({
-      articleId: 'article-id',
-      title: 'City expands transport',
-      articleText: 'The ambitious plan helps commuters.',
-      contentVersion: 3,
-      sentences: [
-        {
-          sentenceId: 'sentence-1',
-          sentenceText: 'The ambitious plan helps commuters.',
-        },
-      ],
-      allowedCategories: [
-        { id: 'category-id', slug: 'society', name: 'Society' },
-      ],
-      maxTermCount: 5,
-    });
     const completion = repository.completeArticleAnalysis.mock.calls[0][0];
-    expect(completion.terms).toHaveLength(1);
+    expect(
+      completion.terms.map(({ value, lemma }) => ({ value, lemma })),
+    ).toEqual([
+      { value: 'The', lemma: 'the' },
+      { value: 'ambitious', lemma: 'ambitious' },
+      { value: 'plan', lemma: 'plan' },
+      { value: 'helps', lemma: 'help' },
+      { value: 'commuters', lemma: 'commuter' },
+    ]);
     expect(completion.terms[0]).toMatchObject({
       sentenceId: 'sentence-1',
-      value: 'ambitious',
-      normalizedLemma: 'ambitious',
-      partOfSpeech: 'adjective',
-      selectionReason: 'Useful for describing challenging goals.',
+      value: 'The',
+      lemma: 'the',
       createdByUserId: 'admin-id',
       updatedByUserId: 'admin-id',
     });
-    expect(completion.terms[0].id).toMatch(
+    expect(completion.terms[0]?.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
-    expect(completion).not.toHaveProperty('contentHtml');
-    expect(repository.failArticleAnalysis).not.toHaveBeenCalled();
     expect(
-      repository.claimArticleAnalysis.mock.invocationCallOrder[0],
-    ).toBeLessThan(aiService.analyzeArticle.mock.invocationCallOrder[0]);
-    expect(aiService.analyzeArticle.mock.invocationCallOrder[0]).toBeLessThan(
-      repository.completeArticleAnalysis.mock.invocationCallOrder[0],
+      completion.annotatedContentHtml.match(/data-term-id=/gu),
+    ).toHaveLength(5);
+    expect(completion.sourceContentHtml).not.toContain('data-term-id');
+    expect(repository.failArticleAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('filters non-English token types, contraction fragments, and duplicate sentence surfaces', async () => {
+    const state = snapshot();
+    state.article.contentHtml =
+      '<p><span data-sentence-id="sentence-1">Plan plan PLAN costs $20 at test@example.com and can\'t wait.</span></p>';
+    state.sentences[0].sentenceText =
+      "Plan plan PLAN costs $20 at test@example.com and can't wait.";
+    repository.findAnalysisSnapshot.mockResolvedValue(state);
+
+    await service.analyze('admin-id', 'article-id');
+
+    const values =
+      repository.completeArticleAnalysis.mock.calls[0][0].terms.map(
+        ({ value }) => value,
+      );
+    expect(values).toEqual(['Plan', 'costs', 'at', 'and', 'wait']);
+  });
+
+  it('keeps contextual duplicates across sentences but skips words covered by an existing sentence term', async () => {
+    const state = snapshot();
+    state.article.contentHtml = [
+      '<p><span data-sentence-id="sentence-1"><span data-term-id="existing">Digital tools</span> improve access.</span></p>',
+      '<p><span data-sentence-id="sentence-2">Digital tools help.</span></p>',
+    ].join('');
+    state.sentences = [
+      {
+        id: 'sentence-1',
+        sentenceOrder: 1,
+        sentenceText: 'Digital tools improve access.',
+        terms: [
+          {
+            id: 'existing',
+            sentenceId: 'sentence-1',
+            value: 'Digital tools',
+            unitType: 'PHRASE',
+            updatedAt: new Date('2026-08-03T00:00:00.000Z'),
+          },
+        ],
+      },
+      {
+        id: 'sentence-2',
+        sentenceOrder: 2,
+        sentenceText: 'Digital tools help.',
+        terms: [],
+      },
+    ];
+    repository.findAnalysisSnapshot.mockResolvedValue(state);
+
+    await service.analyze('admin-id', 'article-id');
+
+    expect(
+      repository.completeArticleAnalysis.mock.calls[0][0].terms.map(
+        ({ sentenceId, value }) => ({ sentenceId, value }),
+      ),
+    ).toEqual([
+      { sentenceId: 'sentence-1', value: 'improve' },
+      { sentenceId: 'sentence-1', value: 'access' },
+      { sentenceId: 'sentence-2', value: 'Digital' },
+      { sentenceId: 'sentence-2', value: 'tools' },
+      { sentenceId: 'sentence-2', value: 'help' },
+    ]);
+  });
+
+  it('returns not found before claiming an absent article', async () => {
+    repository.findAnalysisSnapshot.mockResolvedValue(null);
+    await expect(service.analyze('admin-id', 'missing')).rejects.toThrow(
+      NotFoundException,
     );
+    expect(repository.claimArticleAnalysis).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -193,119 +205,45 @@ describe('ArticleAnalysisService', () => {
     ['READY', snapshot({ aiAnalysisStatus: AiGenerationStatus.READY })],
   ])('rejects an article in %s state before claiming', async (_case, state) => {
     repository.findAnalysisSnapshot.mockResolvedValue(state);
-
     await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
       ConflictException,
     );
     expect(repository.claimArticleAnalysis).not.toHaveBeenCalled();
-    expect(aiService.analyzeArticle).not.toHaveBeenCalled();
   });
 
-  it('rejects a current version without active parsed sentences', async () => {
-    repository.findAnalysisSnapshot.mockResolvedValue({
-      ...snapshot(),
-      sentences: [],
-    });
-
+  it('rejects a parsed draft with no active sentences', async () => {
+    const state = snapshot();
+    state.sentences = [];
+    repository.findAnalysisSnapshot.mockResolvedValue(state);
     await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
       UnprocessableEntityException,
     );
-    expect(repository.claimArticleAnalysis).not.toHaveBeenCalled();
   });
 
-  it('rejects an invalid category and records a bounded provider-neutral failure', async () => {
-    aiService.analyzeArticle.mockResolvedValue({
-      ...validResult,
-      categorySlug: 'unknown',
-    });
-
+  it('rejects a lost analysis claim', async () => {
+    repository.claimArticleAnalysis.mockResolvedValue(false);
     await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
-      UnprocessableEntityException,
+      ConflictException,
     );
+    expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('marks analysis failed when sentence markers do not match the snapshot', async () => {
+    const state = snapshot();
+    state.article.contentHtml = '<p>The ambitious plan helps commuters.</p>';
+    repository.findAnalysisSnapshot.mockResolvedValue(state);
+
+    await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow();
     expect(repository.failArticleAnalysis).toHaveBeenCalledWith(
       'article-id',
       3,
-      'AI analysis output failed validation',
+      'Vocabulary analysis could not be completed',
       'admin-id',
     );
     expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [
-      'an invalid sentence ID',
-      {
-        ...validResult,
-        terms: [{ ...validResult.terms[0], sentenceId: 'other-sentence' }],
-      },
-    ],
-    [
-      'a value absent from its sentence',
-      {
-        ...validResult,
-        terms: [{ ...validResult.terms[0], value: 'missing' }],
-      },
-    ],
-    [
-      'a duplicate candidate in one sentence',
-      {
-        ...validResult,
-        terms: [validResult.terms[0], { ...validResult.terms[0] }],
-      },
-    ],
-    [
-      'overlapping values in one sentence',
-      {
-        ...validResult,
-        terms: [
-          {
-            ...validResult.terms[0],
-            value: 'ambitious plan',
-            wordDisplay: 'ambitious plan',
-            lemma: 'ambitious plan',
-            normalizedLemma: 'ambitious plan',
-            unitType: 'PHRASE' as const,
-          },
-          {
-            ...validResult.terms[0],
-            value: 'plan',
-            lemma: 'plan',
-            normalizedLemma: 'plan',
-          },
-        ],
-      },
-    ],
-  ])(
-    'rejects %s without persisting metadata or terms',
-    async (_case, result) => {
-      aiService.analyzeArticle.mockResolvedValue(result);
-
-      await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
-        UnprocessableEntityException,
-      );
-      expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
-      expect(repository.failArticleAnalysis).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it('rejects a candidate conflicting with an existing current-version term', async () => {
-    const state = snapshot();
-    state.sentences[0].terms.push({
-      id: 'existing-term',
-      sentenceId: 'sentence-1',
-      value: 'ambitious plan',
-      unitType: 'PHRASE',
-      updatedAt: new Date('2026-07-31T00:00:00Z'),
-    });
-    repository.findAnalysisSnapshot.mockResolvedValue(state);
-
-    await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
-      UnprocessableEntityException,
-    );
-    expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
-  });
-
-  it('rejects a stale result after AI returns and does not return partial success', async () => {
+  it('rejects stale persistence and records a bounded local-analysis failure', async () => {
     repository.completeArticleAnalysis.mockRejectedValue(
       new ArticleAnalysisStateConflictError(),
     );
@@ -316,51 +254,20 @@ describe('ArticleAnalysisService', () => {
     expect(repository.failArticleAnalysis).toHaveBeenCalledWith(
       'article-id',
       3,
-      'Article changed during AI analysis; retry',
+      'Article changed during vocabulary analysis; retry',
       'admin-id',
     );
   });
 
-  it('sets FAILED with a sanitized message when the provider boundary fails', async () => {
-    aiService.analyzeArticle.mockRejectedValue(
-      new Error('raw provider output and secret key'),
-    );
-
-    await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
-      ServiceUnavailableException,
-    );
-    expect(repository.failArticleAnalysis).toHaveBeenCalledWith(
-      'article-id',
-      3,
-      'AI service is temporarily unavailable',
-      'admin-id',
-    );
-    expect(repository.failArticleAnalysis.mock.calls[0][2]).not.toContain(
-      'secret',
-    );
-  });
-
-  it('successfully retries the same endpoint from FAILED', async () => {
+  it('allows retry from FAILED without calling an external provider', async () => {
     repository.findAnalysisSnapshot.mockResolvedValue(
       snapshot({ aiAnalysisStatus: AiGenerationStatus.FAILED }),
     );
-
     await expect(
       service.analyze('admin-id', 'article-id'),
     ).resolves.toMatchObject({
       aiAnalysisStatus: AiGenerationStatus.READY,
-      candidateCount: 1,
+      candidateCount: 5,
     });
-    expect(repository.claimArticleAnalysis).toHaveBeenCalledTimes(1);
-    expect(aiService.analyzeArticle).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects a lost atomic claim without calling the provider', async () => {
-    repository.claimArticleAnalysis.mockResolvedValue(false);
-
-    await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
-      ConflictException,
-    );
-    expect(aiService.analyzeArticle).not.toHaveBeenCalled();
   });
 });
