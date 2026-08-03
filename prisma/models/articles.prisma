@@ -110,7 +110,6 @@ model ArticleSentenceTerm {
   updatedBy        User             @relation("ArticleSentenceTermUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_article_sentence_terms_updated_by")
   userVocabularies UserVocabulary[]
   quizQuestions    QuizQuestion[]
-  reviewAnswers    ReviewAnswer[]
 
   @@index([cefrLevel, isActive, isLookupEnabled], map: "idx_article_sentence_terms_cefr_active")
   @@index([sentenceId, isLookupEnabled, isActive], map: "idx_article_sentence_terms_sentence_lookup")

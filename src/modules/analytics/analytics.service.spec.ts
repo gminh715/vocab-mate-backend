@@ -140,9 +140,10 @@ describe('AnalyticsService', () => {
         },
       },
     });
-    expect(answerGroupBy.mock.calls[0][0].where.reviewSession.is).toEqual(
-      sessionCount.mock.calls[0][0].where,
-    );
+    expect(
+      answerGroupBy.mock.calls[0][0].where.reviewSessionItem.is.reviewSession
+        .is,
+    ).toEqual(sessionCount.mock.calls[0][0].where);
   });
 
   it('returns all status and saved CEFR snapshot categories in stable order', async () => {

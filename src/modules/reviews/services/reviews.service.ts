@@ -7,32 +7,42 @@ import {
 import type {
   GetDueReviewsQueryDto,
   GetReviewHistoryQueryDto,
+  SkipReviewSessionItemDto,
+  StartReviewSessionDto,
   SubmitReviewAnswerDto,
 } from '../dto/review-request.dto';
 import {
-  ActiveReviewSessionConflictError,
-  DuplicateReviewAnswerConflictError,
-  IncompleteReviewSessionConflictError,
   InvalidAnswerRelationshipError,
   InvalidAnswerShapeError,
+  InvalidReviewSourceShapeError,
   ReviewConcurrencyConflictError,
   ReviewResourceNotFoundError,
   ReviewsRepository,
   ReviewSessionStateConflictError,
+  ReviewSubmissionConflictError,
 } from '../reviews.repository';
+import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly reviewsRepository: ReviewsRepository) {}
+  constructor(
+    private readonly reviewsRepository: ReviewsRepository,
+    private readonly aiQuestionGenerator: AiAssistedQuestionGeneratorService,
+  ) {}
 
-  async startQuizSession(userId: string, quizId: string) {
+  async startSession(userId: string, dto: StartReviewSessionDto) {
     try {
-      const result = await this.reviewsRepository.startQuizSession(
+      const now = new Date();
+      await this.aiQuestionGenerator.warmCache(userId, dto, now);
+      const result = await this.reviewsRepository.startSession(
         userId,
-        quizId,
+        dto,
+        now,
       );
-      if (!result) throw new NotFoundException('Quiz not found');
-      return result;
+      if (!result) {
+        throw new NotFoundException('No eligible vocabulary found');
+      }
+      return this.formatState(result);
     } catch (error: unknown) {
       this.mapError(error);
     }
@@ -44,25 +54,13 @@ export class ReviewsService {
       sessionId,
     );
     if (!state) throw new NotFoundException('Review session not found');
-    const remainingCount = Math.max(
-      state.totalQuestions - state.answeredCount,
-      0,
-    );
-    return {
-      session: state.session,
-      progress: {
-        answeredCount: state.answeredCount,
-        totalQuestions: state.totalQuestions,
-        remainingCount,
-        progressPercent:
-          state.totalQuestions === 0
-            ? 0
-            : Math.round(
-                (state.answeredCount / state.totalQuestions) * 100 * 100,
-              ) / 100,
-      },
-      ...(state.nextQuestion ? { nextQuestion: state.nextQuestion } : {}),
-    };
+    return this.formatState(state);
+  }
+
+  async getActiveSession(userId: string) {
+    const state = await this.reviewsRepository.getActiveSessionState(userId);
+    if (!state) throw new NotFoundException('Active review session not found');
+    return this.formatState(state);
   }
 
   async submitAnswer(
@@ -71,15 +69,53 @@ export class ReviewsService {
     dto: SubmitReviewAnswerDto,
   ) {
     try {
-      return await this.reviewsRepository.submitAnswer(userId, sessionId, dto);
+      const result = await this.reviewsRepository.submitAnswer(
+        userId,
+        sessionId,
+        dto,
+      );
+      const { session, answeredCount, totalQuestions, nextItem, ...feedback } =
+        result;
+      const state = this.formatState({
+        session,
+        answeredCount,
+        totalQuestions,
+        nextItem,
+      });
+      return {
+        ...feedback,
+        progress: state.progress,
+        ...(state.nextItem ? { nextQuestion: state.nextItem } : {}),
+      };
     } catch (error: unknown) {
       this.mapError(error);
     }
   }
 
-  async completeSession(userId: string, sessionId: string) {
+  async skipItem(
+    userId: string,
+    sessionId: string,
+    dto: SkipReviewSessionItemDto,
+  ) {
     try {
-      return await this.reviewsRepository.completeSession(userId, sessionId);
+      const result = await this.reviewsRepository.skipItem(
+        userId,
+        sessionId,
+        dto,
+      );
+      const { session, answeredCount, totalQuestions, nextItem, ...feedback } =
+        result;
+      const state = this.formatState({
+        session,
+        answeredCount,
+        totalQuestions,
+        nextItem,
+      });
+      return {
+        ...feedback,
+        progress: state.progress,
+        ...(state.nextItem ? { nextQuestion: state.nextItem } : {}),
+      };
     } catch (error: unknown) {
       this.mapError(error);
     }
@@ -131,7 +167,11 @@ export class ReviewsService {
     }
   }
 
-  getDue(userId: string, query: GetDueReviewsQueryDto) {
+  getSummary(userId: string, sessionId: string) {
+    return this.getResult(userId, sessionId);
+  }
+
+  getToday(userId: string, query: GetDueReviewsQueryDto) {
     return this.reviewsRepository.getDueRecommendations(
       userId,
       query,
@@ -149,15 +189,47 @@ export class ReviewsService {
     if (error instanceof InvalidAnswerShapeError) {
       throw new BadRequestException(error.message);
     }
+    if (error instanceof InvalidReviewSourceShapeError) {
+      throw new BadRequestException(
+        'Review session source does not match its type',
+      );
+    }
     if (
-      error instanceof ActiveReviewSessionConflictError ||
-      error instanceof DuplicateReviewAnswerConflictError ||
-      error instanceof IncompleteReviewSessionConflictError ||
       error instanceof ReviewSessionStateConflictError ||
+      error instanceof ReviewSubmissionConflictError ||
       error instanceof ReviewConcurrencyConflictError
     ) {
       throw new ConflictException('Review operation conflicts with its state');
     }
     throw error;
+  }
+
+  private formatState<
+    T extends {
+      session: unknown;
+      answeredCount: number;
+      totalQuestions: number;
+      nextItem?: unknown;
+    },
+  >(state: T) {
+    const remainingCount = Math.max(
+      state.totalQuestions - state.answeredCount,
+      0,
+    );
+    return {
+      session: state.session,
+      progress: {
+        answeredCount: state.answeredCount,
+        totalQuestions: state.totalQuestions,
+        remainingCount,
+        progressPercent:
+          state.totalQuestions === 0
+            ? 0
+            : Math.round(
+                (state.answeredCount / state.totalQuestions) * 100 * 100,
+              ) / 100,
+      },
+      ...(state.nextItem ? { nextItem: state.nextItem } : {}),
+    };
   }
 }

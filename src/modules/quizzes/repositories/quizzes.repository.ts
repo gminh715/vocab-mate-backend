@@ -3,6 +3,7 @@ import { Prisma } from '../../../../generated/prisma/client';
 import {
   ArticleStatus,
   QuestionType,
+  QuestionGenerationSource,
   QuizStatus,
   type CefrLevel,
 } from '../../../../generated/prisma/enums';
@@ -51,6 +52,7 @@ export interface AdminQuestionOptionRecord {
   quizQuestionId: string;
   optionText: string;
   isCorrect: boolean;
+  generationSource: QuestionGenerationSource;
   explanation: string | null;
   displayOrder: number;
   createdAt: Date;
@@ -59,9 +61,11 @@ export interface AdminQuestionOptionRecord {
 
 export interface AdminQuizQuestionBaseRecord {
   id: string;
-  quizId: string;
-  articleVocabularyId: string;
+  quizId: string | null;
+  articleSentenceTermId: string;
   questionType: QuestionType;
+  generationSource: QuestionGenerationSource;
+  difficultyCefr: CefrLevel;
   prompt: string;
   blankSentence: string | null;
   correctAnswerText: string | null;
@@ -157,7 +161,7 @@ export interface QuizPublicationQuestionRecord {
   correctAnswerText: string | null;
   points: number;
   displayOrder: number;
-  articleVocabulary: {
+  articleSentenceTerm: {
     isActive: boolean;
     sentence: {
       articleId: string;
@@ -202,10 +206,12 @@ export interface QuizStatusTransitionRecord {
 export interface QuestionSourceTermState {
   id: string;
   isActive: boolean;
+  cefrLevel: CefrLevel | null;
   sentence: {
     articleId: string;
     contentVersion: number;
     isActive: boolean;
+    article: { cefrLevel: CefrLevel };
   };
 }
 
@@ -220,8 +226,10 @@ export interface OptionMutationState {
 }
 
 export interface CreateQuizQuestionInput {
-  articleVocabularyId: string;
+  articleSentenceTermId: string;
   questionType: QuestionType;
+  generationSource: QuestionGenerationSource;
+  difficultyCefr: CefrLevel;
   prompt: string;
   blankSentence: string | null;
   correctAnswerText: string | null;
@@ -235,7 +243,7 @@ export interface CreateQuizQuestionInput {
 }
 
 export interface UpdateQuizQuestionInput {
-  articleVocabularyId?: string;
+  articleSentenceTermId?: string;
   questionType?: QuestionType;
   prompt?: string;
   blankSentence?: string | null;
@@ -308,6 +316,7 @@ const adminOptionSelect = {
   quizQuestionId: true,
   optionText: true,
   isCorrect: true,
+  generationSource: true,
   explanation: true,
   displayOrder: true,
   createdAt: true,
@@ -317,8 +326,10 @@ const adminOptionSelect = {
 const adminQuestionSelect = {
   id: true,
   quizId: true,
-  articleVocabularyId: true,
+  articleSentenceTermId: true,
   questionType: true,
+  generationSource: true,
+  difficultyCefr: true,
   prompt: true,
   blankSentence: true,
   correctAnswerText: true,
@@ -607,7 +618,7 @@ export class QuizzesRepository {
             correctAnswerText: true,
             points: true,
             displayOrder: true,
-            articleVocabulary: {
+            articleSentenceTerm: {
               select: {
                 isActive: true,
                 sentence: {
@@ -674,18 +685,20 @@ export class QuizzesRepository {
   }
 
   async findQuestionSourceTerm(
-    articleVocabularyId: string,
+    articleSentenceTermId: string,
   ): Promise<QuestionSourceTermState | null> {
     return this.prisma.articleSentenceTerm.findUnique({
-      where: { id: articleVocabularyId },
+      where: { id: articleSentenceTermId },
       select: {
         id: true,
         isActive: true,
+        cefrLevel: true,
         sentence: {
           select: {
             articleId: true,
             contentVersion: true,
             isActive: true,
+            article: { select: { cefrLevel: true } },
           },
         },
       },
@@ -717,13 +730,18 @@ export class QuizzesRepository {
       where: { id: questionId, quizId },
       select: {
         ...adminQuestionSelect,
-        _count: { select: { reviewAnswers: true } },
+        _count: {
+          select: { reviewSessionItems: true, reviewAnswers: true },
+        },
       },
     });
     if (!result) return null;
 
     const { _count, ...question } = result;
-    return { ...question, reviewAnswerCount: _count.reviewAnswers };
+    return {
+      ...question,
+      reviewAnswerCount: _count.reviewSessionItems + _count.reviewAnswers,
+    };
   }
 
   async findOptionForMutation(
@@ -743,8 +761,10 @@ export class QuizzesRepository {
           select: {
             id: true,
             quizId: true,
-            articleVocabularyId: true,
+            articleSentenceTermId: true,
             questionType: true,
+            generationSource: true,
+            difficultyCefr: true,
             prompt: true,
             blankSentence: true,
             correctAnswerText: true,
@@ -775,7 +795,7 @@ export class QuizzesRepository {
     input: CreateQuizQuestionInput,
   ): Promise<AdminQuizQuestionRecord> {
     return this.runContentMutation(quizId, async (tx, quiz) => {
-      await this.requireCurrentOwnedTerm(tx, quiz, input.articleVocabularyId);
+      await this.requireCurrentOwnedTerm(tx, quiz, input.articleSentenceTermId);
       return tx.quizQuestion.create({
         data: { quizId, ...input },
         select: adminQuestionSelect,
@@ -803,8 +823,12 @@ export class QuizzesRepository {
       ) {
         throw new QuizQuestionTypeConflictError();
       }
-      if (input.articleVocabularyId !== undefined) {
-        await this.requireCurrentOwnedTerm(tx, quiz, input.articleVocabularyId);
+      if (input.articleSentenceTermId !== undefined) {
+        await this.requireCurrentOwnedTerm(
+          tx,
+          quiz,
+          input.articleSentenceTermId,
+        );
       }
       return tx.quizQuestion.update({
         where: { id: questionId },
@@ -820,11 +844,16 @@ export class QuizzesRepository {
         where: { id: questionId, quizId },
         select: {
           id: true,
-          _count: { select: { reviewAnswers: true } },
+          _count: {
+            select: { reviewSessionItems: true, reviewAnswers: true },
+          },
         },
       });
       if (!question) throw new QuizOwnedRecordNotFoundError();
-      if (question._count.reviewAnswers > 0) {
+      if (
+        question._count.reviewSessionItems > 0 ||
+        question._count.reviewAnswers > 0
+      ) {
         throw new QuizHistoryReferenceError();
       }
       await tx.quizQuestion.delete({
@@ -949,11 +978,11 @@ export class QuizzesRepository {
   private async requireCurrentOwnedTerm(
     tx: Prisma.TransactionClient,
     quiz: EditableQuizTransactionState,
-    articleVocabularyId: string,
+    articleSentenceTermId: string,
   ): Promise<void> {
     const count = await tx.articleSentenceTerm.count({
       where: {
-        id: articleVocabularyId,
+        id: articleSentenceTermId,
         isActive: true,
         sentence: {
           is: {

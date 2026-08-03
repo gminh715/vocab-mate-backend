@@ -9,6 +9,7 @@
     "prisma:format": "prisma format",
     "prisma:validate": "prisma validate",
     "prisma:generate": "prisma generate",
+    "prisma:verify-review-migrations": "node prisma/verify-review-migrations.mjs",
     "prebuild": "prisma generate",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",

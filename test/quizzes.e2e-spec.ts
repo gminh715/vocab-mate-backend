@@ -10,6 +10,7 @@ import { App } from 'supertest/types';
 import {
   ArticleStatus,
   CefrLevel,
+  QuestionGenerationSource,
   QuestionType,
   QuizStatus,
 } from '../generated/prisma/enums';
@@ -192,28 +193,34 @@ class InMemoryQuizzesRepository {
     this.terms.set(CURRENT_TERM_ID, {
       id: CURRENT_TERM_ID,
       isActive: true,
+      cefrLevel: CefrLevel.B1,
       sentence: {
         articleId: ARTICLE_ID,
         contentVersion: 1,
         isActive: true,
+        article: { cefrLevel: CefrLevel.B1 },
       },
     });
     this.terms.set(FOREIGN_TERM_ID, {
       id: FOREIGN_TERM_ID,
       isActive: true,
+      cefrLevel: CefrLevel.B1,
       sentence: {
         articleId: DRAFT_ARTICLE_ID,
         contentVersion: 1,
         isActive: true,
+        article: { cefrLevel: CefrLevel.B1 },
       },
     });
     this.terms.set(STALE_TERM_ID, {
       id: STALE_TERM_ID,
       isActive: true,
+      cefrLevel: CefrLevel.B1,
       sentence: {
         articleId: ARTICLE_ID,
         contentVersion: 0,
         isActive: true,
+        article: { cefrLevel: CefrLevel.B1 },
       },
     });
     const now = new Date('2026-07-21T10:00:00Z');
@@ -229,7 +236,7 @@ class InMemoryQuizzesRepository {
           {
             id: '11111111-aaaa-4111-8111-111111111111',
             quizId: PUBLISHED_QUIZ_ID,
-            articleVocabularyId: '11111111-bbbb-4111-8111-111111111111',
+            articleSentenceTermId: '11111111-bbbb-4111-8111-111111111111',
             questionType: QuestionType.SELECT_MEANING,
             prompt: 'Choose the meaning',
             blankSentence: null,
@@ -257,7 +264,7 @@ class InMemoryQuizzesRepository {
           {
             id: '22222222-aaaa-4222-8222-222222222222',
             quizId: PUBLISHED_QUIZ_ID,
-            articleVocabularyId: '22222222-bbbb-4222-8222-222222222222',
+            articleSentenceTermId: '22222222-bbbb-4222-8222-222222222222',
             questionType: QuestionType.FILL_BLANK,
             prompt: 'Fill the blank',
             blankSentence: 'A ___ sentence.',
@@ -274,7 +281,7 @@ class InMemoryQuizzesRepository {
           {
             id: '33333333-aaaa-4333-8333-333333333333',
             quizId: PUBLISHED_QUIZ_ID,
-            articleVocabularyId: '33333333-bbbb-4333-8333-333333333333',
+            articleSentenceTermId: '33333333-bbbb-4333-8333-333333333333',
             questionType: QuestionType.FILL_BLANK,
             prompt: 'Inactive',
             blankSentence: null,
@@ -300,7 +307,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: DRAFT_OPTION_QUESTION_ID,
             quizId: DRAFT_QUIZ_ID,
-            articleVocabularyId: CURRENT_TERM_ID,
+            articleSentenceTermId: CURRENT_TERM_ID,
             questionType: QuestionType.SELECT_MEANING,
             prompt: 'Choose a meaning',
             displayOrder: 1,
@@ -316,7 +323,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: DRAFT_FILL_QUESTION_ID,
             quizId: DRAFT_QUIZ_ID,
-            articleVocabularyId: CURRENT_TERM_ID,
+            articleSentenceTermId: CURRENT_TERM_ID,
             questionType: QuestionType.FILL_BLANK,
             prompt: 'Complete the sentence',
             blankSentence: 'A ___ sentence.',
@@ -326,7 +333,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: REFERENCED_QUESTION_ID,
             quizId: DRAFT_QUIZ_ID,
-            articleVocabularyId: CURRENT_TERM_ID,
+            articleSentenceTermId: CURRENT_TERM_ID,
             questionType: QuestionType.SELECT_WORD,
             prompt: 'Choose a word',
             displayOrder: 3,
@@ -366,7 +373,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: 'aaaaaaaa-4444-4aaa-8aaa-444444444444',
             quizId: USED_DRAFT_QUIZ_ID,
-            articleVocabularyId: CURRENT_TERM_ID,
+            articleSentenceTermId: CURRENT_TERM_ID,
             questionType: QuestionType.SELECT_CORRECT_CONTEXT,
             prompt: 'Used content',
             displayOrder: 1,
@@ -383,7 +390,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: 'aaaaaaaa-5555-4aaa-8aaa-555555555555',
             quizId: SECOND_DRAFT_QUIZ_ID,
-            articleVocabularyId: CURRENT_TERM_ID,
+            articleSentenceTermId: CURRENT_TERM_ID,
             questionType: QuestionType.SELECT_MEANING,
             prompt: 'Choose the valid meaning',
             displayOrder: 1,
@@ -423,7 +430,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: 'aaaaaaaa-6666-4aaa-8aaa-666666666666',
             quizId: INVALID_OPTIONS_QUIZ_ID,
-            articleVocabularyId: CURRENT_TERM_ID,
+            articleSentenceTermId: CURRENT_TERM_ID,
             questionType: QuestionType.SELECT_WORD,
             prompt: 'Choose a word',
             displayOrder: 1,
@@ -456,7 +463,7 @@ class InMemoryQuizzesRepository {
           this.makeQuestion({
             id: 'aaaaaaaa-7777-4aaa-8aaa-777777777777',
             quizId: STALE_TERM_QUIZ_ID,
-            articleVocabularyId: STALE_TERM_ID,
+            articleSentenceTermId: STALE_TERM_ID,
             questionType: QuestionType.FILL_BLANK,
             prompt: 'Complete',
             blankSentence: 'A ___ term.',
@@ -716,13 +723,15 @@ class InMemoryQuizzesRepository {
             left.id.localeCompare(right.id),
         )
         .map((question) => {
-          const term = this.terms.get(question.articleVocabularyId) ?? {
-            id: question.articleVocabularyId,
+          const term = this.terms.get(question.articleSentenceTermId) ?? {
+            id: question.articleSentenceTermId,
             isActive: false,
+            cefrLevel: null,
             sentence: {
               articleId: quiz.articleId,
               contentVersion: -1,
               isActive: false,
+              article: { cefrLevel: article.cefrLevel },
             },
           };
           return {
@@ -733,7 +742,7 @@ class InMemoryQuizzesRepository {
             correctAnswerText: question.correctAnswerText,
             points: question.points,
             displayOrder: question.displayOrder,
-            articleVocabulary: {
+            articleSentenceTerm: {
               isActive: term.isActive,
               sentence: { ...term.sentence },
             },
@@ -783,9 +792,9 @@ class InMemoryQuizzesRepository {
   }
 
   findQuestionSourceTerm(
-    articleVocabularyId: string,
+    articleSentenceTermId: string,
   ): Promise<QuestionSourceTermState | null> {
-    return Promise.resolve(this.terms.get(articleVocabularyId) ?? null);
+    return Promise.resolve(this.terms.get(articleSentenceTermId) ?? null);
   }
 
   findQuestionDetail(quizId: string, questionId: string) {
@@ -827,8 +836,10 @@ class InMemoryQuizzesRepository {
     const questionData = {
       id: question.id,
       quizId: question.quizId,
-      articleVocabularyId: question.articleVocabularyId,
+      articleSentenceTermId: question.articleSentenceTermId,
       questionType: question.questionType,
+      generationSource: question.generationSource,
+      difficultyCefr: question.difficultyCefr,
       prompt: question.prompt,
       blankSentence: question.blankSentence,
       correctAnswerText: question.correctAnswerText,
@@ -852,7 +863,7 @@ class InMemoryQuizzesRepository {
     input: CreateQuizQuestionInput,
   ): Promise<AdminQuizQuestionRecord> {
     const quiz = this.requireEditableQuiz(quizId);
-    this.requireOwnedCurrentTerm(quiz, input.articleVocabularyId);
+    this.requireOwnedCurrentTerm(quiz, input.articleSentenceTermId);
     this.requireUniqueQuestionOrder(quiz, input.displayOrder);
     const question = this.makeQuestion({
       ...input,
@@ -878,8 +889,8 @@ class InMemoryQuizzesRepository {
     ) {
       throw this.prismaError('P2034');
     }
-    if (input.articleVocabularyId !== undefined) {
-      this.requireOwnedCurrentTerm(quiz, input.articleVocabularyId);
+    if (input.articleSentenceTermId !== undefined) {
+      this.requireOwnedCurrentTerm(quiz, input.articleSentenceTermId);
     }
     if (
       input.displayOrder !== undefined &&
@@ -1016,7 +1027,7 @@ class InMemoryQuizzesRepository {
         AdminQuizQuestionRecord,
         | 'id'
         | 'quizId'
-        | 'articleVocabularyId'
+        | 'articleSentenceTermId'
         | 'questionType'
         | 'prompt'
         | 'displayOrder'
@@ -1026,8 +1037,11 @@ class InMemoryQuizzesRepository {
     return {
       id: input.id,
       quizId: input.quizId,
-      articleVocabularyId: input.articleVocabularyId,
+      articleSentenceTermId: input.articleSentenceTermId,
       questionType: input.questionType,
+      generationSource:
+        input.generationSource ?? QuestionGenerationSource.ADMIN,
+      difficultyCefr: input.difficultyCefr ?? CefrLevel.B1,
       prompt: input.prompt,
       blankSentence: input.blankSentence ?? null,
       correctAnswerText: input.correctAnswerText ?? null,
@@ -1095,9 +1109,9 @@ class InMemoryQuizzesRepository {
 
   private requireOwnedCurrentTerm(
     quiz: StoredQuiz,
-    articleVocabularyId: string,
+    articleSentenceTermId: string,
   ): void {
-    const term = this.terms.get(articleVocabularyId);
+    const term = this.terms.get(articleSentenceTermId);
     const article = this.articles.get(quiz.articleId);
     if (
       !term ||
@@ -1526,7 +1540,7 @@ describe('Quiz APIs (e2e)', () => {
         .post(`/api/v1/admin/quizzes/${DRAFT_QUIZ_ID}/questions`)
         .set('Authorization', 'Bearer admin')
         .send({
-          articleVocabularyId: CURRENT_TERM_ID,
+          articleSentenceTermId: CURRENT_TERM_ID,
           questionType,
           prompt: '  New question  ',
           displayOrder,
@@ -1549,7 +1563,7 @@ describe('Quiz APIs (e2e)', () => {
   it('enforces admin role, question shape, and source-term ownership', async () => {
     const endpoint = `/api/v1/admin/quizzes/${DRAFT_QUIZ_ID}/questions`;
     const base = {
-      articleVocabularyId: CURRENT_TERM_ID,
+      articleSentenceTermId: CURRENT_TERM_ID,
       questionType: QuestionType.SELECT_MEANING,
       prompt: 'Question',
       displayOrder: 10,
@@ -1571,7 +1585,7 @@ describe('Quiz APIs (e2e)', () => {
     await request(app.getHttpServer())
       .post(endpoint)
       .set('Authorization', 'Bearer admin')
-      .send({ ...base, articleVocabularyId: FOREIGN_TERM_ID })
+      .send({ ...base, articleSentenceTermId: FOREIGN_TERM_ID })
       .expect(422);
   });
 

@@ -75,7 +75,7 @@ describe('AdminQuizzesController', () => {
       admin,
       { quizId: '550e8400-e29b-41d4-a716-446655440001' },
       {
-        articleVocabularyId: '550e8400-e29b-41d4-a716-446655440002',
+        articleSentenceTermId: '550e8400-e29b-41d4-a716-446655440002',
         questionType: 'SELECT_WORD',
         prompt: 'Prompt',
       },
@@ -84,7 +84,7 @@ describe('AdminQuizzesController', () => {
       'jwt-admin-id',
       '550e8400-e29b-41d4-a716-446655440001',
       expect.objectContaining({
-        articleVocabularyId: '550e8400-e29b-41d4-a716-446655440002',
+        articleSentenceTermId: '550e8400-e29b-41d4-a716-446655440002',
       }),
     );
 

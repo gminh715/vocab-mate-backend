@@ -33,6 +33,72 @@ npm run prisma:generate
 npm run prisma:validate
 ```
 
+## Invisible spaced review
+
+Review is server-owned from question selection through scheduling. The browser
+never submits a difficulty rating and must not display the inferred `0`–`5`
+score returned for diagnostics. The main data path is:
+
+```text
+user_vocabularies
+  -> review_sessions -> review_session_items -> quiz_questions
+                                            -> question_options
+  -> review_answers -> inferred score -> next review schedule
+```
+
+- `ReviewsController` exposes today's due count and completed history.
+- `ReviewSessionsController` creates or resumes sessions and handles answer,
+  skip, abandon, restore, and summary requests.
+- `ReviewsService` maps domain failures to stable HTTP errors and returns the
+  next safe question in the answer/skip response.
+- `ReviewsRepository` owns serializable session creation, due-word selection,
+  answer writes, retry materialization, completion, and schedule updates.
+- `InvisibleReviewScoringService` infers performance from correctness,
+  question type, retry state, hints, and response time.
+- `QuestionSelectionService` varies question type by learning state and recent
+  attempts. A failed word is requeued once near the end with its failed type
+  excluded; a second failure schedules it for the following day.
+- `AiAssistedQuestionGeneratorService` warms a context/CEFR/type cache. An AI
+  error is swallowed at this boundary and session creation continues with
+  deterministic rule-based questions.
+
+Sessions can be `DAILY_REVIEW`, `ARTICLE_REVIEW`, `COLLECTION_REVIEW`, or a
+fixed published `QUIZ`. Daily review includes due, unscheduled learning, and
+new saved vocabulary in that order. Article and collection sessions constrain
+the same eligibility query to their owned source; fixed quizzes additionally
+constrain questions to the published quiz.
+
+### Review API flow
+
+1. `GET /api/v1/reviews/today` reads the due count without starting a session.
+2. `POST /api/v1/review-sessions` creates or resumes a compatible session.
+3. `POST /api/v1/review-sessions/:sessionId/answers` grades and schedules the
+   active item transactionally. Its response already contains `nextQuestion`.
+4. `POST /skip` records no answer but schedules the word as failed. Leaving the
+   page does nothing; `GET /active` or `GET /:sessionId` restores progress.
+5. `POST /abandon` is the explicit destructive exit. Completed sessions expose
+   `GET /:sessionId/summary`.
+
+Swagger at `/api` and `/api/docs-json` documents source-specific requests,
+safe question responses, answer feedback, examples, and validation/not-found/
+conflict responses. Correct-answer fields are not present before submission.
+
+### Review verification
+
+```bash
+npm test -- --runInBand
+npm run test:e2e -- --runInBand test/reviews.e2e-spec.ts
+npm run prisma:validate
+npm run prisma:verify-review-migrations
+npm run build
+```
+
+The migration verifier requires a PostgreSQL database with `citext` and
+`pgcrypto`. It creates a uniquely named disposable schema, applies the complete
+committed migration chain, checks review columns/enums/indexes and legacy-field
+cleanup, drops only that schema, and confirms removal. It never changes the
+configured database's migration ledger.
+
 ### Guardian Open Platform setup
 
 An API key is required. Register a key for this application through the

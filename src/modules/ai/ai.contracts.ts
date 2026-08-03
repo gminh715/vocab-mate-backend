@@ -1,8 +1,15 @@
 export const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
 export const LEXICAL_UNIT_TYPES = ['WORD', 'PHRASE'] as const;
+export const REVIEW_QUESTION_TYPES = [
+  'SELECT_MEANING',
+  'SELECT_WORD',
+  'SELECT_CORRECT_CONTEXT',
+  'FILL_BLANK',
+] as const;
 
 export type CefrLevel = (typeof CEFR_LEVELS)[number];
 export type LexicalUnitType = (typeof LEXICAL_UNIT_TYPES)[number];
+export type ReviewQuestionType = (typeof REVIEW_QUESTION_TYPES)[number];
 
 export interface ArticleAnalysisSentence {
   sentenceId: string;
@@ -76,4 +83,28 @@ export interface TermEnrichmentResult {
   vocabularyTopic: string | null;
   examples: TermExample[];
   sentenceTranslationVi: string;
+}
+
+export interface ReviewQuestionGenerationInput {
+  wordOrPhrase: string;
+  lemma: string;
+  partOfSpeech: string;
+  contextualMeaningVi: string;
+  originalSentence: string;
+  articleTopic?: string;
+  targetCefr: CefrLevel;
+  requestedQuestionType: ReviewQuestionType;
+}
+
+export interface ReviewQuestionGenerationOption {
+  optionText: string;
+  isCorrect: boolean;
+}
+
+export interface ReviewQuestionGenerationResult {
+  prompt: string;
+  blankSentence: string | null;
+  correctAnswerText: string | null;
+  answerExplanation: string;
+  options: ReviewQuestionGenerationOption[];
 }

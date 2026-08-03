@@ -198,7 +198,11 @@ export class AnalyticsService {
       this.prisma.reviewSession.count({ where: completedSessionWhere }),
       this.prisma.reviewAnswer.groupBy({
         by: ['isCorrect'],
-        where: { reviewSession: { is: completedSessionWhere } },
+        where: {
+          reviewSessionItem: {
+            is: { reviewSession: { is: completedSessionWhere } },
+          },
+        },
         _count: { _all: true },
       }),
     ]);
@@ -624,8 +628,9 @@ export class AnalyticsService {
             WHERE ra.is_correct IS TRUE AND qq.is_active
           ), 0)::numeric AS earned_points
         FROM eligible_sessions es
-        LEFT JOIN review_answers ra ON ra.review_session_id = es.id
-        LEFT JOIN quiz_questions qq ON qq.id = ra.quiz_question_id
+        LEFT JOIN review_session_items rsi ON rsi.review_session_id = es.id
+        LEFT JOIN review_answers ra ON ra.review_session_item_id = rsi.id
+        LEFT JOIN quiz_questions qq ON qq.id = rsi.quiz_question_id
         GROUP BY es.id, es.quiz_id, es.article_id, es.completed_at
       )
     `;
@@ -658,8 +663,9 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE ra.is_correct IS TRUE)::bigint
           AS "correctAnswers"
       FROM eligible_sessions es
-      JOIN review_answers ra ON ra.review_session_id = es.id
-      JOIN quiz_questions qq ON qq.id = ra.quiz_question_id
+      JOIN review_session_items rsi ON rsi.review_session_id = es.id
+      JOIN review_answers ra ON ra.review_session_item_id = rsi.id
+      JOIN quiz_questions qq ON qq.id = rsi.quiz_question_id
       GROUP BY qq.question_type
     `);
   }

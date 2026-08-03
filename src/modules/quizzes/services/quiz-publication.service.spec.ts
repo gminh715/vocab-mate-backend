@@ -36,7 +36,7 @@ const optionQuestion = (
   correctAnswerText: null,
   points: 1,
   displayOrder,
-  articleVocabulary: {
+  articleSentenceTerm: {
     isActive: true,
     sentence: {
       articleId: 'article-id',
@@ -84,7 +84,7 @@ const validSnapshot = (): QuizPublicationSnapshot => ({
       correctAnswerText: 'sample',
       points: 2,
       displayOrder: 4,
-      articleVocabulary: {
+      articleSentenceTerm: {
         isActive: true,
         sentence: {
           articleId: 'article-id',
@@ -183,9 +183,9 @@ describe('QuizPublicationService', () => {
     question.prompt = ' ';
     question.points = 0;
     question.displayOrder = snapshot.questions[1].displayOrder;
-    question.articleVocabulary.isActive = false;
-    question.articleVocabulary.sentence.articleId = 'other-article';
-    question.articleVocabulary.sentence.contentVersion = 2;
+    question.articleSentenceTerm.isActive = false;
+    question.articleSentenceTerm.sentence.articleId = 'other-article';
+    question.articleSentenceTerm.sentence.contentVersion = 2;
 
     expect(service.validateForPublication(snapshot)).toEqual(
       expect.arrayContaining([

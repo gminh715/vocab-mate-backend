@@ -100,8 +100,27 @@ enum QuestionType {
 
 enum ReviewSessionType {
   QUIZ
+  DAILY_REVIEW
+  ARTICLE_REVIEW
+  COLLECTION_REVIEW
 
   @@map("review_session_type")
+}
+
+enum QuestionGenerationSource {
+  ADMIN
+  RULE_BASED
+  AI
+
+  @@map("question_generation_source")
+}
+
+enum ReviewSessionItemStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+
+  @@map("review_session_item_status")
 }
 
 enum ReviewSessionStatus {
@@ -110,10 +129,4 @@ enum ReviewSessionStatus {
   ABANDONED
 
   @@map("review_session_status")
-}
-
-enum ReviewItemType {
-  QUIZ_QUESTION
-
-  @@map("review_item_type")
 }

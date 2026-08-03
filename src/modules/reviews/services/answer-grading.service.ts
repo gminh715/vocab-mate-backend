@@ -25,7 +25,7 @@ export interface SubmittedAnswer {
 export interface GradingResult {
   isCorrect: boolean;
   correctAnswer: string;
-  explanation: string | null;
+  explanation: string;
   earnedPoints: number;
   normalizedUserAnswerText: string | null;
   selectedOptionId: string | null;
@@ -93,7 +93,10 @@ export class AnswerGradingService {
     return {
       isCorrect: selected.isCorrect,
       correctAnswer: this.correctAnswer(question),
-      explanation: question.answerExplanation ?? selected.explanation,
+      explanation:
+        question.answerExplanation ??
+        selected.explanation ??
+        "The correct option matches the word's saved contextual meaning.",
       earnedPoints: selected.isCorrect ? question.points : 0,
       normalizedUserAnswerText: null,
       selectedOptionId: selected.id,
@@ -126,7 +129,9 @@ export class AnswerGradingService {
     return {
       isCorrect,
       correctAnswer,
-      explanation: question.answerExplanation,
+      explanation:
+        question.answerExplanation ??
+        'The correct word completes the saved context sentence.',
       earnedPoints: isCorrect ? question.points : 0,
       normalizedUserAnswerText,
       selectedOptionId: null,

@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   ArticleStatus,
+  CefrLevel,
+  QuestionGenerationSource,
   QuestionType,
   QuizStatus,
 } from '../../../../generated/prisma/enums';
@@ -386,7 +388,7 @@ describe('QuizzesRepository', () => {
           where: { isActive: true },
           orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
           select: {
-            articleVocabulary: {
+            articleSentenceTerm: {
               select: {
                 isActive: true,
                 sentence: {
@@ -496,11 +498,13 @@ describe('QuizzesRepository', () => {
       select: {
         id: true,
         isActive: true,
+        cefrLevel: true,
         sentence: {
           select: {
             articleId: true,
             contentVersion: true,
             isActive: true,
+            article: { select: { cefrLevel: true } },
           },
         },
       },
@@ -538,8 +542,10 @@ describe('QuizzesRepository', () => {
     });
 
     await repository.createQuestion('quiz-id', {
-      articleVocabularyId: 'term-id',
+      articleSentenceTermId: 'term-id',
       questionType: QuestionType.SELECT_MEANING,
+      generationSource: QuestionGenerationSource.ADMIN,
+      difficultyCefr: CefrLevel.B1,
       prompt: 'Prompt',
       blankSentence: null,
       correctAnswerText: null,
@@ -587,8 +593,10 @@ describe('QuizzesRepository', () => {
 
     await expect(
       repository.createQuestion('quiz-id', {
-        articleVocabularyId: 'foreign-term',
+        articleSentenceTermId: 'foreign-term',
         questionType: QuestionType.SELECT_WORD,
+        generationSource: QuestionGenerationSource.ADMIN,
+        difficultyCefr: CefrLevel.B1,
         prompt: 'Prompt',
         blankSentence: null,
         correctAnswerText: null,
@@ -632,7 +640,7 @@ describe('QuizzesRepository', () => {
     });
     questionFindFirst.mockResolvedValueOnce({
       id: 'question-id',
-      _count: { reviewAnswers: 1 },
+      _count: { reviewSessionItems: 1, reviewAnswers: 0 },
     });
     await expect(
       repository.deleteQuestion('quiz-id', 'question-id'),

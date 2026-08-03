@@ -40,7 +40,7 @@ export class CreateQuizQuestionDto {
     description: 'ID from article_sentence_terms, not user_vocabularies.',
   })
   @IsUUID()
-  articleVocabularyId!: string;
+  articleSentenceTermId!: string;
 
   @ApiProperty({ enum: QuestionType })
   @IsEnum(QuestionType)
@@ -112,7 +112,7 @@ export class UpdateQuizQuestionDto {
   })
   @ValidateIf(isSupplied)
   @IsUUID()
-  articleVocabularyId?: string;
+  articleSentenceTermId?: string;
 
   @ApiPropertyOptional({ enum: QuestionType })
   @ValidateIf(isSupplied)

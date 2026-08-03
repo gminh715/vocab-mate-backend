@@ -1,7 +1,29 @@
 import type { AiConfig } from '../../config/ai.config';
-import { GroqAiProvider, type StructuredAiRequest } from './ai.provider';
+import { APIError } from 'groq-sdk';
+import {
+  GeminiAiProvider,
+  GroqAiProvider,
+  type StructuredAiRequest,
+} from './ai.provider';
 
 const groqCreate = jest.fn();
+const mockGroqConstructor = jest.fn();
+const mockGeminiGenerate = jest.fn();
+const mockGeminiConstructor = jest.fn();
+
+jest.mock('@google/genai', () => ({
+  ApiError: class extends Error {},
+  ThinkingLevel: { MINIMAL: 'MINIMAL' },
+  GoogleGenAI: class {
+    readonly models = {
+      generateContent: mockGeminiGenerate,
+    };
+
+    constructor(options: unknown) {
+      mockGeminiConstructor(options);
+    }
+  },
+}));
 
 jest.mock('groq-sdk', () => {
   class MockGroq {
@@ -10,6 +32,19 @@ jest.mock('groq-sdk', () => {
         create: groqCreate,
       },
     };
+
+    constructor(options: unknown) {
+      mockGroqConstructor(options);
+    }
+  }
+
+  class MockApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly error: object,
+    ) {
+      super('Groq API request failed');
+    }
   }
 
   return {
@@ -17,7 +52,7 @@ jest.mock('groq-sdk', () => {
     default: MockGroq,
     APIConnectionError: class extends Error {},
     APIConnectionTimeoutError: class extends Error {},
-    APIError: class extends Error {},
+    APIError: MockApiError,
   };
 });
 
@@ -49,6 +84,7 @@ const request: StructuredAiRequest = {
 describe('GroqAiProvider', () => {
   beforeEach(() => {
     groqCreate.mockReset();
+    mockGroqConstructor.mockReset();
   });
 
   it('uses JSON Object Mode and supplies the schema in the bounded instruction', async () => {
@@ -76,6 +112,13 @@ describe('GroqAiProvider', () => {
           },
           { role: 'user', content: request.userContent },
         ],
+      }),
+    );
+    expect(mockGroqConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeout: config.requestTimeoutMs,
+        maxRetries: 1,
+        logLevel: 'off',
       }),
     );
   });
@@ -114,7 +157,7 @@ describe('GroqAiProvider', () => {
     );
   });
 
-  it('uses best-effort schema mode for nullable output and keeps local bounds out of the provider schema', async () => {
+  it('keeps nullable fields in strict schema mode and removes unsupported local bounds', async () => {
     groqCreate.mockResolvedValue({
       choices: [{ message: { content: '{"value":null,"items":[]}' } }],
     });
@@ -147,7 +190,7 @@ describe('GroqAiProvider', () => {
           type: 'json_schema',
           json_schema: {
             name: nullableRequest.schemaName,
-            strict: false,
+            strict: true,
             schema: {
               type: 'object',
               properties: {
@@ -177,5 +220,80 @@ describe('GroqAiProvider', () => {
       required: ['value', 'items'],
       additionalProperties: false,
     });
+  });
+
+  it('retries one malformed provider JSON response before returning the strict result', async () => {
+    groqCreate
+      .mockRejectedValueOnce(
+        new APIError(
+          400,
+          { code: 'json_validate_failed' },
+          'invalid JSON',
+          new Headers(),
+        ),
+      )
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: '{"ok":true}' } }],
+      });
+    const provider = new GroqAiProvider({
+      ...config,
+      groqModel: 'openai/gpt-oss-20b',
+    });
+
+    await expect(provider.generateStructured(request)).resolves.toBe(
+      '{"ok":true}',
+    );
+    expect(groqCreate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('GeminiAiProvider', () => {
+  beforeEach(() => {
+    mockGeminiGenerate.mockReset();
+    mockGeminiConstructor.mockReset();
+  });
+
+  it('uses the stable low-latency model settings and bounded transient retries', async () => {
+    mockGeminiGenerate.mockResolvedValue({ text: '{"ok":true}' });
+    const provider = new GeminiAiProvider({
+      ...config,
+      geminiModel: 'gemini-3.5-flash-lite',
+      requestTimeoutMs: 30000,
+    });
+
+    await expect(provider.generateStructured(request)).resolves.toBe(
+      '{"ok":true}',
+    );
+
+    expect(mockGeminiConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        httpOptions: {
+          timeout: 30000,
+          retryOptions: expect.objectContaining({
+            attempts: 2,
+            httpStatusCodes: [408, 429, 500, 502, 503, 504],
+          }),
+        },
+      }),
+    );
+    expect(mockGeminiGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gemini-3.5-flash-lite',
+        config: expect.objectContaining({
+          thinkingConfig: { thinkingLevel: 'MINIMAL' },
+          responseMimeType: 'application/json',
+          responseJsonSchema: request.schema,
+        }),
+      }),
+    );
+    expect(mockGeminiGenerate.mock.calls[0][0].config).not.toHaveProperty(
+      'temperature',
+    );
+    expect(mockGeminiGenerate.mock.calls[0][0].config).not.toHaveProperty(
+      'topP',
+    );
+    expect(mockGeminiGenerate.mock.calls[0][0].config).not.toHaveProperty(
+      'topK',
+    );
   });
 });

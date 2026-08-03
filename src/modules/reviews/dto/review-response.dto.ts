@@ -16,6 +16,8 @@ export class ReviewSessionDto {
   quizId!: string | null;
   @ApiProperty({ format: 'uuid', nullable: true })
   articleId!: string | null;
+  @ApiProperty({ format: 'uuid', nullable: true })
+  collectionId!: string | null;
   @ApiProperty({ enum: ReviewSessionStatus })
   status!: ReviewSessionStatus;
   @ApiProperty({ format: 'date-time' })
@@ -25,22 +27,25 @@ export class ReviewSessionDto {
 }
 
 export class SessionQuestionOptionDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({
+    format: 'uuid',
+    example: '8cc0eb2c-f9d1-4d87-ab2f-13b381a13017',
+  })
   id!: string;
-  @ApiProperty()
+  @ApiProperty({ example: 'hấp dẫn' })
   text!: string;
-  @ApiProperty()
+  @ApiProperty({ example: 1 })
   displayOrder!: number;
 }
 
 export class SessionQuestionDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
-  @ApiProperty({ enum: QuestionType })
+  @ApiProperty({ enum: QuestionType, example: QuestionType.SELECT_MEANING })
   questionType!: QuestionType;
-  @ApiProperty()
+  @ApiProperty({ example: 'What does “engaging” mean in this sentence?' })
   prompt!: string;
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, example: null })
   blankSentence!: string | null;
   @ApiProperty()
   points!: number;
@@ -50,22 +55,35 @@ export class SessionQuestionDto {
   options!: SessionQuestionOptionDto[];
 }
 
-export class StartReviewSessionDataDto {
-  @ApiProperty({ type: ReviewSessionDto })
-  session!: ReviewSessionDto;
-  @ApiProperty({ type: [SessionQuestionDto] })
-  questions!: SessionQuestionDto[];
-}
-
 export class ReviewProgressDto {
-  @ApiProperty()
+  @ApiProperty({ example: 4 })
   answeredCount!: number;
-  @ApiProperty()
+  @ApiProperty({ example: 10 })
   totalQuestions!: number;
-  @ApiProperty()
+  @ApiProperty({ example: 6 })
   remainingCount!: number;
   @ApiProperty({ example: 66.67 })
   progressPercent!: number;
+}
+
+export class SessionReviewItemDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+  @ApiProperty({ format: 'uuid' })
+  userVocabularyId!: string;
+  @ApiProperty()
+  attemptNumber!: number;
+  @ApiProperty({ type: SessionQuestionDto })
+  question!: SessionQuestionDto;
+}
+
+export class StartReviewSessionDataDto {
+  @ApiProperty({ type: ReviewSessionDto })
+  session!: ReviewSessionDto;
+  @ApiProperty({ type: ReviewProgressDto })
+  progress!: ReviewProgressDto;
+  @ApiPropertyOptional({ type: SessionReviewItemDto })
+  nextItem?: SessionReviewItemDto;
 }
 
 export class ReviewSessionStateDataDto {
@@ -73,21 +91,8 @@ export class ReviewSessionStateDataDto {
   session!: ReviewSessionDto;
   @ApiProperty({ type: ReviewProgressDto })
   progress!: ReviewProgressDto;
-  @ApiPropertyOptional({ type: SessionQuestionDto })
-  nextQuestion?: SessionQuestionDto;
-}
-
-export class SubmittedReviewAnswerDataDto {
-  @ApiProperty({ format: 'uuid' })
-  answerId!: string;
-  @ApiProperty()
-  isCorrect!: boolean;
-  @ApiProperty()
-  correctAnswer!: string;
-  @ApiProperty({ nullable: true })
-  explanation!: string | null;
-  @ApiProperty()
-  earnedPoints!: number;
+  @ApiPropertyOptional({ type: SessionReviewItemDto })
+  nextItem?: SessionReviewItemDto;
 }
 
 export class ReviewResultDto {
@@ -103,9 +108,55 @@ export class ReviewResultDto {
   completedAt!: Date;
 }
 
-export class CompleteReviewSessionDataDto {
-  @ApiProperty({ type: ReviewResultDto })
-  result!: ReviewResultDto;
+export class SubmittedReviewAnswerDataDto {
+  @ApiProperty({ format: 'uuid' })
+  answerId!: string;
+  @ApiProperty({ example: false })
+  isCorrect!: boolean;
+  @ApiProperty({ example: 'hấp dẫn' })
+  correctAnswer!: string;
+  @ApiProperty({
+    description:
+      'A short persisted explanation, with a deterministic fallback for legacy questions.',
+    example: 'It means something holds your interest in this context.',
+  })
+  explanation!: string;
+  @ApiProperty({ example: 0 })
+  earnedPoints!: number;
+  @ApiProperty({
+    minimum: 0,
+    maximum: 5,
+    example: 0,
+    description:
+      'Server-inferred scheduling score. Clients must not ask the learner to provide or display it.',
+  })
+  inferredReviewScore!: number;
+  @ApiProperty({
+    description: 'Whether an incorrect word was requeued for another attempt.',
+    example: true,
+  })
+  willReturnLater!: boolean;
+  @ApiProperty({ example: false })
+  sessionCompleted!: boolean;
+  @ApiProperty({ type: ReviewProgressDto })
+  progress!: ReviewProgressDto;
+  @ApiPropertyOptional({ type: SessionReviewItemDto })
+  nextQuestion?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewResultDto })
+  completionSummary?: ReviewResultDto;
+}
+
+export class SkippedReviewItemDataDto {
+  @ApiProperty({ minimum: 0, maximum: 5, example: 0 })
+  inferredReviewScore!: number;
+  @ApiProperty()
+  sessionCompleted!: boolean;
+  @ApiProperty({ type: ReviewProgressDto })
+  progress!: ReviewProgressDto;
+  @ApiPropertyOptional({ type: SessionReviewItemDto })
+  nextQuestion?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewResultDto })
+  completionSummary?: ReviewResultDto;
 }
 
 export class AbandonReviewSessionDataDto {
@@ -270,8 +321,8 @@ export class ReviewSessionStateSuccessResponseDto extends successResponse(
 export class SubmitReviewAnswerSuccessResponseDto extends successResponse(
   SubmittedReviewAnswerDataDto,
 ) {}
-export class CompleteReviewSessionSuccessResponseDto extends successResponse(
-  CompleteReviewSessionDataDto,
+export class SkipReviewItemSuccessResponseDto extends successResponse(
+  SkippedReviewItemDataDto,
 ) {}
 export class AbandonReviewSessionSuccessResponseDto extends successResponse(
   AbandonReviewSessionDataDto,
