@@ -177,8 +177,12 @@ export class GuardianClient {
   ): Promise<GuardianSearchResult | GuardianImportResult> {
     const query = this.validateInput(input);
     const url = new URL('/search', this.config.guardianBaseUrl);
-    if (query.q) url.searchParams.set('q', query.q);
-    if (query.section) url.searchParams.set('section', query.section);
+    if (query.articleIds && query.articleIds.length > 0) {
+      url.searchParams.set('ids', query.articleIds.join(','));
+    } else {
+      if (query.q) url.searchParams.set('q', query.q);
+      if (query.section) url.searchParams.set('section', query.section);
+    }
     if (query.fromDate) url.searchParams.set('from-date', query.fromDate);
     if (query.toDate) url.searchParams.set('to-date', query.toDate);
     url.searchParams.set('page', String(query.page));
@@ -266,15 +270,14 @@ export class GuardianClient {
     page: number;
     pageSize: number;
     orderBy: GuardianOrderBy;
+    articleIds?: string[];
   } {
     const q = input.q?.trim();
     const section = input.section?.trim().toLowerCase();
-    if (!q && !section) {
-      throw new NewsIngestionError(
-        'NEWS_PROVIDER_BAD_REQUEST',
-        'A news query or section is required',
-      );
-    }
+    const articleIds = Array.isArray(input.articleIds)
+      ? input.articleIds.filter((id) => typeof id === 'string' && Boolean(id.trim()))
+      : undefined;
+
     if (q && q.length > MAX_QUERY_LENGTH) {
       throw new NewsIngestionError(
         'NEWS_PROVIDER_BAD_REQUEST',
@@ -314,7 +317,7 @@ export class GuardianClient {
     }
 
     const page = input.page ?? 1;
-    const pageSize = input.pageSize ?? this.config.defaultPageSize;
+    const pageSize = articleIds?.length ?? input.pageSize ?? this.config.defaultPageSize;
     const orderBy = input.orderBy ?? 'newest';
     if (!Number.isInteger(page) || page < 1 || page > MAX_PAGE) {
       throw new NewsIngestionError(
@@ -344,6 +347,7 @@ export class GuardianClient {
       ...(section ? { section } : {}),
       ...(input.fromDate ? { fromDate: input.fromDate } : {}),
       ...(input.toDate ? { toDate: input.toDate } : {}),
+      ...(articleIds?.length ? { articleIds } : {}),
       page,
       pageSize,
       orderBy,

@@ -186,8 +186,53 @@ export class ArticlesService {
     }
   }
 
-  async requireActiveImportCategory(categoryId: string): Promise<void> {
+  async requireActiveImportCategory(categoryId?: string): Promise<void> {
+    if (!categoryId) return;
     await this.requireActiveCategory(categoryId);
+  }
+
+  async resolveCategoryForSection(
+    actingAdminId: string,
+    sectionId?: string | null,
+    sectionName?: string | null,
+    defaultCategoryId?: string | null,
+  ): Promise<string> {
+    if (defaultCategoryId) {
+      const active = await this.categoriesRepository.findActiveById(
+        defaultCategoryId,
+      );
+      if (active) return active.id;
+    }
+
+    const rawSlug = sectionId?.trim() || sectionName?.trim() || 'general';
+    const slug = normalizeCategorySlug(rawSlug);
+
+    const existingBySlug =
+      await this.categoriesRepository.findActiveBySlug(slug);
+    if (existingBySlug) return existingBySlug.id;
+
+    const allCategories = await this.categoriesRepository.findAdminCategories({
+      page: 1,
+      limit: 100,
+    });
+    const match = allCategories.items.find(
+      (c) =>
+        c.slug === slug ||
+        c.name.toLowerCase() ===
+          (sectionName || sectionId || '').trim().toLowerCase(),
+    );
+    if (match) return match.id;
+
+    const name = sectionName?.trim() || sectionId?.trim() || 'General';
+    const created = await this.categoriesRepository.create({
+      name,
+      slug,
+      isActive: true,
+      displayOrder: 0,
+      createdByUserId: actingAdminId,
+      updatedByUserId: actingAdminId,
+    });
+    return created.id;
   }
 
   findImportedDuplicate(

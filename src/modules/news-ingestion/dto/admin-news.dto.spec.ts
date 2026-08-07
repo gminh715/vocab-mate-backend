@@ -17,22 +17,15 @@ describe('admin news DTOs', () => {
     });
   });
 
-  it('requires q or section for both discovery operations', async () => {
+  it('allows optional q or section for discovery operations', async () => {
     const search = plainToInstance(AdminNewsSearchQueryDto, {});
     const sync = plainToInstance(AdminNewsSyncDto, {
       defaultCategoryId: '550e8400-e29b-41d4-a716-446655440000',
+      articleIds: ['art-1', 'art-2'],
     });
 
-    expect(await validate(search)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ property: 'discoveryCriterion' }),
-      ]),
-    );
-    expect(await validate(sync)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ property: 'discoveryCriterion' }),
-      ]),
-    );
+    await expect(validate(search)).resolves.toHaveLength(0);
+    await expect(validate(sync)).resolves.toHaveLength(0);
   });
 
   it('normalizes and accepts bounded Guardian criteria', async () => {
@@ -69,16 +62,16 @@ describe('admin news DTOs', () => {
     ).toEqual(expect.arrayContaining([expect.objectContaining({ property })]));
   });
 
-  it('caps synchronous imports at five results', async () => {
+  it('caps synchronous imports at ten results', async () => {
     const valid = plainToInstance(AdminNewsSyncDto, {
       section: 'technology',
       defaultCategoryId: '550e8400-e29b-41d4-a716-446655440000',
-      pageSize: 5,
+      pageSize: 10,
     });
     const invalid = plainToInstance(AdminNewsSyncDto, {
       q: 'learning',
       defaultCategoryId: '550e8400-e29b-41d4-a716-446655440000',
-      pageSize: 6,
+      pageSize: 11,
     });
 
     await expect(validate(valid)).resolves.toHaveLength(0);

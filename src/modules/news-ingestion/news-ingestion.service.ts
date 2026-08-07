@@ -100,7 +100,7 @@ export class NewsIngestionService {
     private readonly newsContentService: NewsContentService,
     private readonly articlesService: ArticlesService,
     private readonly articleSentencesService: ArticleSentencesService,
-  ) {}
+  ) { }
 
   async search(query: AdminNewsSearchQueryDto): Promise<GuardianSearchResult> {
     try {
@@ -115,17 +115,18 @@ export class NewsIngestionService {
     dto: AdminNewsSyncDto,
   ): Promise<NewsSyncResult> {
     if (
-      (!dto.q?.trim() && !dto.section) ||
       !Number.isInteger(dto.pageSize) ||
       dto.pageSize < 1 ||
-      dto.pageSize > 5
+      dto.pageSize > 10
     ) {
       throw new BadRequestException('Invalid news sync criteria');
     }
 
-    await this.articlesService.requireActiveImportCategory(
-      dto.defaultCategoryId,
-    );
+    if (dto.defaultCategoryId) {
+      await this.articlesService.requireActiveImportCategory(
+        dto.defaultCategoryId,
+      );
+    }
 
     let discovered: GuardianImportResult;
     try {
@@ -136,13 +137,14 @@ export class NewsIngestionService {
         toDate: dto.toDate,
         pageSize: dto.pageSize,
         orderBy: dto.orderBy,
+        articleIds: dto.articleIds,
       });
     } catch (error: unknown) {
       this.throwPublicProviderError(error);
     }
 
     const items: NewsSyncItem[] = [];
-    for (const article of discovered.articles.slice(0, dto.pageSize)) {
+    for (const article of discovered?.articles ?? []) {
       items.push(
         await this.importOne(actingAdminId, dto.defaultCategoryId, article),
       );
@@ -163,7 +165,7 @@ export class NewsIngestionService {
 
   private async importOne(
     actingAdminId: string,
-    categoryId: string,
+    defaultCategoryId: string | undefined,
     article: NormalizedNewsImportArticle,
   ): Promise<NewsSyncItem> {
     const base = {
@@ -200,6 +202,14 @@ export class NewsIngestionService {
           status: 'skippedDuplicate',
         };
       }
+
+      const categoryId =
+        defaultCategoryId ??
+        (await this.articlesService.resolveCategoryForSection(
+          actingAdminId,
+          article.sectionId,
+          article.sectionName,
+        ));
 
       const { article: created } =
         await this.articlesService.createImportedDraft(actingAdminId, {
