@@ -12,28 +12,14 @@ Stack:
 * PostgreSQL
 * REST API
 
-The MVP remains administrator-controlled. The narrowly authorized content
-ingestion and enrichment scope is:
+This project is an AI Agent that helps learners review vocabulary. You are encouraged to build agentic features, introduce autonomous workflows, and integrate LLMs deeply into the application to provide a dynamic and personalized learning experience.
 
-* Guardian Content API-based admin news discovery and draft import.
-* Guardian article-body validation and sanitization.
-* Gemini-based article analysis with Groq fallback.
-* Admin moderation of AI vocabulary candidates before they become active
-  article vocabulary.
-* Lazy contextual-term enrichment cached by `article_sentence_terms.id`.
-
-This authorization is limited to those workflows. It does not authorize
-AI-generated content outside them or weaken existing admin review,
-authorization, validation, publication or API-contract requirements.
-
-Even within this scope, do not introduce:
-
-* A separate Python or FastAPI service.
+Feel free to introduce:
+* Autonomous agents and multi-turn tutoring.
 * LangChain or LangGraph.
-* Autonomous agents.
-* Queues or event buses.
-* Vector databases or embeddings.
-* Automatic publication.
+* Dynamic AI-generated explanations and quizzes.
+* Automatic publication of AI-enriched content.
+* Vector databases or embeddings if needed.
 
 External provider calls:
 
