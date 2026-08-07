@@ -161,7 +161,7 @@ describe('NewsIngestionService', () => {
     await expect(
       service.sync('admin-id', {
         defaultCategoryId: categoryId,
-        pageSize: 5,
+        pageSize: 11,
         orderBy: 'newest',
       }),
     ).rejects.toThrow(BadRequestException);

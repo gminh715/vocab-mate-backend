@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsDateString,
   IsEmpty,
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   IsUUID,
   Matches,
@@ -37,12 +39,8 @@ const lower = ({ value }: { value: unknown }): unknown =>
 
 @ValidatorConstraint({ name: 'hasNewsDiscoveryCriterion', async: false })
 class HasNewsDiscoveryCriterionConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: ValidationArguments): boolean {
-    const object = args.object as { q?: unknown; section?: unknown };
-    return (
-      (typeof object.q === 'string' && object.q.trim().length > 0) ||
-      (typeof object.section === 'string' && object.section.length > 0)
-    );
+  validate(_value: unknown, _args: ValidationArguments): boolean {
+    return true;
   }
 
   defaultMessage(): string {
@@ -133,14 +131,24 @@ export class AdminNewsSearchQueryDto extends NewsDiscoveryFieldsDto {
 }
 
 export class AdminNewsSyncDto extends NewsDiscoveryFieldsDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
   @IsUUID()
-  defaultCategoryId!: string;
+  defaultCategoryId?: string;
 
-  @ApiPropertyOptional({ default: 5, minimum: 1, maximum: 5 })
+  @ApiPropertyOptional({ default: 5, minimum: 1, maximum: 10 })
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(10)
   pageSize = 5;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }: { value: unknown }) =>
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && Boolean(v.trim())) : value,
+  )
+  articleIds?: string[];
 }

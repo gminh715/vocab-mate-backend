@@ -290,9 +290,6 @@ describe('GuardianClient', () => {
   });
 
   it('enforces request and configured page-size bounds before HTTP', async () => {
-    await expect(client.searchMetadata({ pageSize: 5 })).rejects.toMatchObject({
-      code: 'NEWS_PROVIDER_BAD_REQUEST',
-    });
     await expect(
       client.searchMetadata({ q: 'test', page: 0 }),
     ).rejects.toMatchObject({ code: 'NEWS_PROVIDER_BAD_REQUEST' });

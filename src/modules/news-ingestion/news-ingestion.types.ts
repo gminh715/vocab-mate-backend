@@ -10,6 +10,7 @@ export interface GuardianSearchInput {
   page?: number;
   pageSize?: number;
   orderBy?: GuardianOrderBy;
+  articleIds?: string[];
 }
 
 export interface NormalizedNewsArticle {
