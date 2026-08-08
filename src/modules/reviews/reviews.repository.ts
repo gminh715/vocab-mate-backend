@@ -7,9 +7,11 @@ import {
   QuestionGenerationSource,
   QuestionType,
   QuizStatus,
+  type ReviewErrorType,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
   ReviewSessionType,
+  type ReviewSkillDimension,
 } from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import type {
@@ -41,6 +43,7 @@ export class NoUsableReviewQuestionError extends Error {}
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
+const MAX_LEARNER_SNAPSHOT_VOCABULARIES = 100;
 const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
   LearningStatus.NEW,
   LearningStatus.LEARNING,
@@ -136,6 +139,7 @@ const reviewVocabularySelect = {
   savedExplanation: true,
   savedCefrLevel: true,
   savedAt: true,
+  lastReviewedAt: true,
   nextReviewAt: true,
   reviewIntervalDays: true,
   consecutiveCorrectReviews: true,
@@ -254,6 +258,68 @@ export interface PreparedAiReviewQuestion {
   questionType: QuestionType;
 }
 
+export interface LearnerSnapshotAttempt {
+  answerId: string;
+  questionType: QuestionType;
+  skillDimension: ReviewSkillDimension;
+  errorType: ReviewErrorType | null;
+  isCorrect: boolean;
+  responseTimeMs: number | null;
+  hintsUsed: number;
+  inferredReviewScore: number | null;
+  answeredAt: Date;
+}
+
+export interface LearnerSnapshotVocabulary {
+  id: string;
+  articleSentenceTermId: string;
+  savedWordDisplay: string;
+  savedLemma: string;
+  savedPartOfSpeech: string;
+  savedMeaningVi: string;
+  savedContextSentence: string;
+  savedExplanation: string | null;
+  savedCefrLevel: CefrLevel;
+  learningStatus: LearningStatus;
+  savedAt: Date;
+  lastReviewedAt: Date | null;
+  nextReviewAt: Date | null;
+  overdueDurationMs: number;
+  reviewIntervalDays: number | null;
+  consecutiveCorrectReviews: number;
+  lapseCount: number;
+  lastReviewScore: number | null;
+  recentAttempts: LearnerSnapshotAttempt[];
+}
+
+export interface LearnerSkillAggregate {
+  skillDimension: ReviewSkillDimension;
+  attemptCount: number;
+  correctCount: number;
+  accuracy: number;
+  averageResponseTimeMs: number | null;
+}
+
+export interface LearnerReviewSnapshot {
+  currentCefrLevel: CefrLevel | null;
+  skillWindowDays: 7 | 14;
+  skillAggregates: LearnerSkillAggregate[];
+  eligibleVocabulary: LearnerSnapshotVocabulary[];
+}
+
+interface RecentAttemptSnapshotRow {
+  answerId: string;
+  userVocabularyId: string;
+  questionType: QuestionType;
+  skillDimension: ReviewSkillDimension | null;
+  errorType: ReviewErrorType | null;
+  isCorrect: boolean;
+  responseTimeMs: number | null;
+  hintsUsed: number;
+  inferredReviewScore: number | null;
+  answeredAt: Date;
+}
+
 @Injectable()
 export class ReviewsRepository {
   constructor(
@@ -262,6 +328,147 @@ export class ReviewsRepository {
     private readonly reviewScoringService: InvisibleReviewScoringService,
     private readonly questionSelectionService: QuestionSelectionService,
   ) {}
+
+  async getLearnerSnapshot(
+    userId: string,
+    limit: number,
+    now: Date,
+    skillWindowDays: 7 | 14 = 14,
+  ): Promise<LearnerReviewSnapshot> {
+    if (!Number.isFinite(limit)) {
+      throw new RangeError('limit must be finite');
+    }
+    const boundedLimit = Math.min(
+      Math.max(Math.trunc(limit), 1),
+      MAX_LEARNER_SNAPSHOT_VOCABULARIES,
+    );
+    const skillWindowStart = new Date(
+      now.getTime() - skillWindowDays * 24 * 60 * 60 * 1_000,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const vocabularies = await this.findEligibleVocabularies(
+        tx,
+        userId,
+        {
+          sessionType: ReviewSessionType.DAILY_REVIEW,
+          limit: boundedLimit,
+        },
+        undefined,
+        now,
+      );
+      const [profile, attemptsByVocabulary, skillTotals, skillCorrectCounts] =
+        await Promise.all([
+          tx.userProfile.findUnique({
+            where: { userId },
+            select: { currentCefrLevel: true },
+          }),
+          this.loadRecentAttemptSnapshots(tx, vocabularies),
+          tx.reviewAnswer.groupBy({
+            by: ['skillDimension'],
+            where: {
+              skillDimension: { not: null },
+              answeredAt: { gte: skillWindowStart, lte: now },
+              reviewSessionItem: {
+                is: { reviewSession: { is: { userId } } },
+              },
+            },
+            _count: { _all: true },
+            _avg: { responseTimeMs: true },
+          }),
+          tx.reviewAnswer.groupBy({
+            by: ['skillDimension'],
+            where: {
+              skillDimension: { not: null },
+              isCorrect: true,
+              answeredAt: { gte: skillWindowStart, lte: now },
+              reviewSessionItem: {
+                is: { reviewSession: { is: { userId } } },
+              },
+            },
+            _count: { _all: true },
+          }),
+        ]);
+      const correctCountBySkill = new Map<ReviewSkillDimension, number>();
+      for (const aggregate of skillCorrectCounts) {
+        if (aggregate.skillDimension) {
+          correctCountBySkill.set(
+            aggregate.skillDimension,
+            aggregate._count._all,
+          );
+        }
+      }
+      const skillAggregates: LearnerSkillAggregate[] = [];
+      for (const aggregate of skillTotals) {
+        if (!aggregate.skillDimension) continue;
+        const correctCount =
+          correctCountBySkill.get(aggregate.skillDimension) ?? 0;
+        skillAggregates.push({
+          skillDimension: aggregate.skillDimension,
+          attemptCount: aggregate._count._all,
+          correctCount,
+          accuracy: correctCount / aggregate._count._all,
+          averageResponseTimeMs: aggregate._avg.responseTimeMs,
+        });
+      }
+      skillAggregates.sort((left, right) =>
+        left.skillDimension.localeCompare(right.skillDimension),
+      );
+
+      return {
+        currentCefrLevel: profile?.currentCefrLevel ?? null,
+        skillWindowDays,
+        skillAggregates,
+        eligibleVocabulary: vocabularies.map((vocabulary) => ({
+          id: vocabulary.id,
+          articleSentenceTermId: vocabulary.articleSentenceTermId,
+          savedWordDisplay: vocabulary.savedWordDisplay,
+          savedLemma: vocabulary.savedLemma,
+          savedPartOfSpeech: vocabulary.savedPartOfSpeech,
+          savedMeaningVi: vocabulary.savedMeaningVi,
+          savedContextSentence: vocabulary.savedContextSentence,
+          savedExplanation: vocabulary.savedExplanation,
+          savedCefrLevel: vocabulary.savedCefrLevel,
+          learningStatus: vocabulary.learningStatus,
+          savedAt: vocabulary.savedAt,
+          lastReviewedAt: vocabulary.lastReviewedAt,
+          nextReviewAt: vocabulary.nextReviewAt,
+          overdueDurationMs: vocabulary.nextReviewAt
+            ? Math.max(0, now.getTime() - vocabulary.nextReviewAt.getTime())
+            : 0,
+          reviewIntervalDays: vocabulary.reviewIntervalDays,
+          consecutiveCorrectReviews: vocabulary.consecutiveCorrectReviews,
+          lapseCount: vocabulary.lapseCount,
+          lastReviewScore: vocabulary.lastReviewScore,
+          recentAttempts: attemptsByVocabulary.get(vocabulary.id) ?? [],
+        })),
+      };
+    });
+  }
+
+  async reserveAiCallSlot(
+    userId: string,
+    sessionId: string,
+    maximumCalls: number,
+  ): Promise<boolean> {
+    if (
+      !Number.isInteger(maximumCalls) ||
+      maximumCalls < 1 ||
+      maximumCalls > 32_767
+    ) {
+      throw new RangeError('maximumCalls must be a positive SmallInt');
+    }
+    const reservation = await this.prisma.reviewSession.updateMany({
+      where: {
+        id: sessionId,
+        userId,
+        status: ReviewSessionStatus.IN_PROGRESS,
+        aiCallCount: { lt: maximumCalls },
+      },
+      data: { aiCallCount: { increment: 1 } },
+    });
+    return reservation.count === 1;
+  }
 
   getAiQuestionGenerationCandidates(
     userId: string,
@@ -604,6 +811,9 @@ export class ReviewsRepository {
             attemptNumber: item._count.answers + 1,
             hintsUsed: dto.hintsUsed ?? 0,
             inferredReviewScore: inferredScore,
+            skillDimension: this.questionSelectionService.skillDimensionFor(
+              question.questionType,
+            ),
             answeredAt: now,
           },
           select: { id: true },
@@ -1446,26 +1656,51 @@ export class ReviewsRepository {
     tx: Prisma.TransactionClient,
     vocabularies: ReviewVocabulary[],
   ): Promise<Map<string, RecentQuestionAttempt[]>> {
+    const snapshots = await this.loadRecentAttemptSnapshots(tx, vocabularies);
+    const history = new Map<string, RecentQuestionAttempt[]>();
+    for (const [userVocabularyId, attempts] of snapshots) {
+      history.set(
+        userVocabularyId,
+        attempts.map(({ questionType, isCorrect }) => ({
+          questionType,
+          isCorrect,
+        })),
+      );
+    }
+    return history;
+  }
+
+  private async loadRecentAttemptSnapshots(
+    tx: Prisma.TransactionClient,
+    vocabularies: ReviewVocabulary[],
+  ): Promise<Map<string, LearnerSnapshotAttempt[]>> {
     if (vocabularies.length === 0) return new Map();
     const vocabularyIds = Prisma.join(
       vocabularies.map(({ id }) => Prisma.sql`${id}::uuid`),
     );
-    const rows = await tx.$queryRaw<
-      Array<{
-        userVocabularyId: string;
-        questionType: QuestionType;
-        isCorrect: boolean;
-      }>
-    >(Prisma.sql`
+    const rows = await tx.$queryRaw<RecentAttemptSnapshotRow[]>(Prisma.sql`
       SELECT
+        recent.answer_id AS "answerId",
         recent.user_vocabulary_id AS "userVocabularyId",
         recent.question_type AS "questionType",
-        recent.is_correct AS "isCorrect"
+        recent.skill_dimension AS "skillDimension",
+        recent.error_type AS "errorType",
+        recent.is_correct AS "isCorrect",
+        recent.response_time_ms AS "responseTimeMs",
+        recent.hints_used AS "hintsUsed",
+        recent.inferred_review_score AS "inferredReviewScore",
+        recent.answered_at AS "answeredAt"
       FROM (
         SELECT
+          answer.id AS answer_id,
           item.user_vocabulary_id,
           question.question_type,
+          answer.skill_dimension,
+          answer.error_type,
           answer.is_correct,
+          answer.response_time_ms,
+          answer.hints_used,
+          answer.inferred_review_score,
           answer.answered_at,
           answer.id,
           ROW_NUMBER() OVER (
@@ -1482,12 +1717,21 @@ export class ReviewsRepository {
       WHERE recent.recent_number <= ${RECENT_ACCURACY_WINDOW}
       ORDER BY recent.user_vocabulary_id ASC, recent.recent_number ASC
     `);
-    const history = new Map<string, RecentQuestionAttempt[]>();
+    const history = new Map<string, LearnerSnapshotAttempt[]>();
     for (const row of rows) {
       const attempts = history.get(row.userVocabularyId) ?? [];
       attempts.push({
+        answerId: row.answerId,
         questionType: row.questionType,
+        skillDimension:
+          row.skillDimension ??
+          this.questionSelectionService.skillDimensionFor(row.questionType),
+        errorType: row.errorType,
         isCorrect: row.isCorrect,
+        responseTimeMs: row.responseTimeMs,
+        hintsUsed: row.hintsUsed,
+        inferredReviewScore: row.inferredReviewScore,
+        answeredAt: row.answeredAt,
       });
       history.set(row.userVocabularyId, attempts);
     }

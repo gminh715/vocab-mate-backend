@@ -130,3 +130,60 @@ enum ReviewSessionStatus {
 
   @@map("review_session_status")
 }
+
+enum ReviewGoal {
+  BALANCED
+  RECALL
+  SPELLING
+  CONTEXT
+
+  @@map("review_goal")
+}
+
+enum ReviewSkillDimension {
+  RECOGNITION
+  RECALL
+  SPELLING
+  CONTEXT
+  PRODUCTION
+
+  @@map("review_skill_dimension")
+}
+
+enum ReviewErrorType {
+  LOW_RECALL
+  MEANING_CONFUSION
+  CONFUSABLE_WORD
+  SPELLING_ERROR
+  WORD_FORM_ERROR
+  COLLOCATION_ERROR
+  CONTEXT_MISUNDERSTANDING
+  CARELESS_ERROR
+  UNKNOWN
+
+  @@map("review_error_type")
+}
+
+enum ReviewAgentAction {
+  CONTINUE
+  REQUEUE_WITH_NEW_TYPE
+  TEACH_AND_REQUEUE
+  FLAG_FOR_FUTURE_FOCUS
+
+  @@map("review_agent_action")
+}
+
+enum ReviewDecisionKind {
+  SESSION_PLAN
+  ANSWER_INTERVENTION
+  SESSION_SUMMARY
+
+  @@map("review_decision_kind")
+}
+
+enum ReviewDecisionSource {
+  AI
+  RULE
+
+  @@map("review_decision_source")
+}

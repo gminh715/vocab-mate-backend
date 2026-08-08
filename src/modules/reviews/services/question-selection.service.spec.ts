@@ -1,6 +1,7 @@
 import {
   LearningStatus,
   QuestionType,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import { QuestionSelectionService } from './question-selection.service';
 
@@ -11,6 +12,15 @@ describe('QuestionSelectionService', () => {
     consecutiveCorrectReviews: 0,
     lastReviewScore: 3,
   };
+
+  it.each([
+    [QuestionType.SELECT_MEANING, ReviewSkillDimension.RECOGNITION],
+    [QuestionType.SELECT_WORD, ReviewSkillDimension.RECALL],
+    [QuestionType.SELECT_CORRECT_CONTEXT, ReviewSkillDimension.CONTEXT],
+    [QuestionType.FILL_BLANK, ReviewSkillDimension.SPELLING],
+  ])('maps %s to %s deterministically', (questionType, dimension) => {
+    expect(service.skillDimensionFor(questionType)).toBe(dimension);
+  });
 
   it('prefers SELECT_MEANING for NEW vocabulary', () => {
     expect(

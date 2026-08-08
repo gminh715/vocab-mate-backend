@@ -11,6 +11,7 @@ import {
   ReviewSessionItemStatus,
   ReviewSessionStatus,
   ReviewSessionType,
+  ReviewSkillDimension,
 } from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { AnswerGradingService } from './services/answer-grading.service';
@@ -45,6 +46,8 @@ describe('ReviewsRepository', () => {
   const itemUpdate = jest.fn();
   const itemAggregate = jest.fn();
   const answerCreate = jest.fn();
+  const answerGroupBy = jest.fn();
+  const profileFindUnique = jest.fn();
   const vocabularyFindUnique = jest.fn();
   const vocabularyFindMany = jest.fn();
   const vocabularyUpdate = jest.fn();
@@ -74,7 +77,8 @@ describe('ReviewsRepository', () => {
       count: itemCount,
       aggregate: itemAggregate,
     },
-    reviewAnswer: { create: answerCreate },
+    reviewAnswer: { create: answerCreate, groupBy: answerGroupBy },
+    userProfile: { findUnique: profileFindUnique },
     userVocabulary: {
       findUnique: vocabularyFindUnique,
       findMany: vocabularyFindMany,
@@ -101,6 +105,7 @@ describe('ReviewsRepository', () => {
     savedExplanation: null,
     savedCefrLevel: CefrLevel.B1,
     savedAt: new Date('2026-07-01T00:00:00Z'),
+    lastReviewedAt: new Date('2026-07-31T00:00:00Z'),
     nextReviewAt: new Date('2026-08-01T00:00:00Z'),
     reviewIntervalDays: 2,
     consecutiveCorrectReviews: 1,
@@ -115,6 +120,8 @@ describe('ReviewsRepository', () => {
     jest.resetAllMocks();
     query.mockResolvedValue([]);
     vocabularyFindMany.mockResolvedValue([]);
+    answerGroupBy.mockResolvedValue([]);
+    profileFindUnique.mockResolvedValue(null);
     transaction.mockImplementation((input) =>
       Array.isArray(input) ? Promise.all(input) : input(tx),
     );
@@ -143,7 +150,10 @@ describe('ReviewsRepository', () => {
         {
           provide: PrismaService,
           useValue: {
-            reviewSession: { findFirst: sessionFindFirst },
+            reviewSession: {
+              findFirst: sessionFindFirst,
+              updateMany: sessionUpdateMany,
+            },
             quizQuestion: {
               count: questionCount,
               findFirst: questionFindFirst,
@@ -537,6 +547,124 @@ describe('ReviewsRepository', () => {
         now,
       ]),
     );
+  });
+
+  it('builds a bounded learner snapshot without personal or raw-answer data', async () => {
+    const now = new Date('2026-08-08T00:00:00Z');
+    vocabularyFindMany
+      .mockResolvedValueOnce([reviewVocabulary])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    profileFindUnique.mockResolvedValue({ currentCefrLevel: CefrLevel.B1 });
+    query.mockResolvedValue([
+      {
+        answerId: 'answer-1',
+        userVocabularyId: reviewVocabulary.id,
+        questionType: QuestionType.SELECT_WORD,
+        skillDimension: null,
+        errorType: null,
+        isCorrect: false,
+        responseTimeMs: 5_000,
+        hintsUsed: 1,
+        inferredReviewScore: 0,
+        answeredAt: new Date('2026-08-07T00:00:00Z'),
+      },
+    ]);
+    answerGroupBy
+      .mockResolvedValueOnce([
+        {
+          skillDimension: ReviewSkillDimension.RECALL,
+          _count: { _all: 4 },
+          _avg: { responseTimeMs: 3_500 },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          skillDimension: ReviewSkillDimension.RECALL,
+          _count: { _all: 3 },
+        },
+      ]);
+
+    const snapshot = await repository.getLearnerSnapshot('owner', 500, now, 7);
+
+    expect(vocabularyFindMany.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ take: 100 }),
+    );
+    expect(profileFindUnique).toHaveBeenCalledWith({
+      where: { userId: 'owner' },
+      select: { currentCefrLevel: true },
+    });
+    expect(answerGroupBy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        by: ['skillDimension'],
+        where: expect.objectContaining({
+          answeredAt: {
+            gte: new Date('2026-08-01T00:00:00Z'),
+            lte: now,
+          },
+          reviewSessionItem: {
+            is: { reviewSession: { is: { userId: 'owner' } } },
+          },
+        }),
+      }),
+    );
+    expect(snapshot).toMatchObject({
+      currentCefrLevel: CefrLevel.B1,
+      skillWindowDays: 7,
+      skillAggregates: [
+        {
+          skillDimension: ReviewSkillDimension.RECALL,
+          attemptCount: 4,
+          correctCount: 3,
+          accuracy: 0.75,
+          averageResponseTimeMs: 3_500,
+        },
+      ],
+      eligibleVocabulary: [
+        {
+          id: reviewVocabulary.id,
+          overdueDurationMs: 7 * 24 * 60 * 60 * 1_000,
+          lapseCount: 0,
+          recentAttempts: [
+            {
+              answerId: 'answer-1',
+              skillDimension: ReviewSkillDimension.RECALL,
+              isCorrect: false,
+            },
+          ],
+        },
+      ],
+    });
+    expect(snapshot.eligibleVocabulary[0]).not.toHaveProperty('personalNote');
+    expect(snapshot.eligibleVocabulary[0].recentAttempts[0]).not.toHaveProperty(
+      'userAnswerText',
+    );
+  });
+
+  it('reserves an AI call slot with one atomic owner-scoped update', async () => {
+    sessionUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(
+      repository.reserveAiCallSlot('owner', 'session', 6),
+    ).resolves.toBe(true);
+    expect(sessionUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'session',
+        userId: 'owner',
+        status: ReviewSessionStatus.IN_PROGRESS,
+        aiCallCount: { lt: 6 },
+      },
+      data: { aiCallCount: { increment: 1 } },
+    });
+  });
+
+  it('does not reserve an AI call slot after the atomic budget guard loses', async () => {
+    sessionUpdateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      repository.reserveAiCallSlot('owner', 'session', 6),
+    ).resolves.toBe(false);
   });
 
   it('selects collection review vocabulary only through that owned collection', async () => {
@@ -989,6 +1117,7 @@ describe('ReviewsRepository', () => {
           attemptNumber: 1,
           hintsUsed: 0,
           inferredReviewScore: 4,
+          skillDimension: ReviewSkillDimension.RECOGNITION,
           isCorrect: true,
         }),
       }),

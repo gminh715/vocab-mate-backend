@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   LearningStatus,
   QuestionType,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 
 export const RECENT_ACCURACY_WINDOW = 5;
@@ -27,8 +28,19 @@ const ALL_TYPES = [
   QuestionType.FILL_BLANK,
 ] as const;
 
+const QUESTION_SKILL_DIMENSIONS: Record<QuestionType, ReviewSkillDimension> = {
+  [QuestionType.SELECT_MEANING]: ReviewSkillDimension.RECOGNITION,
+  [QuestionType.SELECT_WORD]: ReviewSkillDimension.RECALL,
+  [QuestionType.SELECT_CORRECT_CONTEXT]: ReviewSkillDimension.CONTEXT,
+  [QuestionType.FILL_BLANK]: ReviewSkillDimension.SPELLING,
+};
+
 @Injectable()
 export class QuestionSelectionService {
+  skillDimensionFor(questionType: QuestionType): ReviewSkillDimension {
+    return QUESTION_SKILL_DIMENSIONS[questionType];
+  }
+
   preferredTypes(
     vocabulary: QuestionSelectionVocabulary,
     attempts: RecentQuestionAttempt[],
