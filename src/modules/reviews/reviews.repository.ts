@@ -92,6 +92,7 @@ const sessionSelect = {
   quizId: true,
   articleId: true,
   collectionId: true,
+  planSummary: true,
   status: true,
   startedAt: true,
   completedAt: true,
@@ -1480,6 +1481,7 @@ export class ReviewsRepository {
             quizId: row.quizId,
             articleId: row.articleId,
             collectionId: row.collectionId,
+            planSummary: row.planSummary,
             status: row.status,
             startedAt: row.startedAt,
             completedAt: row.completedAt,
@@ -2256,6 +2258,7 @@ export class ReviewsRepository {
       quizId: string | null;
       articleId: string | null;
       collectionId: string | null;
+      planSummary: string | null;
       status: ReviewSessionStatus;
       startedAt: Date;
       completedAt: Date | null;

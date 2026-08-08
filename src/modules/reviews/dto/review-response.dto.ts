@@ -22,6 +22,13 @@ export class ReviewSessionDto {
   articleId!: string | null;
   @ApiProperty({ format: 'uuid', nullable: true })
   collectionId!: string | null;
+  @ApiProperty({
+    nullable: true,
+    example: 'Review recall first, then reinforce meaning in context.',
+    description:
+      'Persisted learner-facing session plan. Null for legacy or unplanned sessions.',
+  })
+  planSummary!: string | null;
   @ApiProperty({ enum: ReviewSessionStatus })
   status!: ReviewSessionStatus;
   @ApiProperty({ format: 'date-time' })

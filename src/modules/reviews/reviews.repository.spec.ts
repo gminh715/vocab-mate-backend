@@ -1322,15 +1322,22 @@ describe('ReviewsRepository', () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
       quizId: 'quiz',
+      planSummary: 'Review recall first, then reinforce meaning in context.',
       status: ReviewSessionStatus.IN_PROGRESS,
     });
     itemCount.mockResolvedValueOnce(3).mockResolvedValueOnce(1);
     itemFindFirst.mockResolvedValue(null);
 
-    await repository.getSessionState('owner', 'session');
+    const state = await repository.getSessionState('owner', 'session');
 
     expect(sessionFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'session', userId: 'owner' } }),
+      expect.objectContaining({
+        where: { id: 'session', userId: 'owner' },
+        select: expect.objectContaining({ planSummary: true }),
+      }),
+    );
+    expect(state.session.planSummary).toBe(
+      'Review recall first, then reinforce meaning in context.',
     );
     expect(itemCount.mock.calls[1][0]).toMatchObject({
       where: {
