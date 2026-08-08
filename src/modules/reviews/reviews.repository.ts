@@ -516,13 +516,7 @@ export class ReviewsRepository {
     sessionId: string,
     maximumCalls: number,
   ): Promise<boolean> {
-    if (
-      !Number.isInteger(maximumCalls) ||
-      maximumCalls < 1 ||
-      maximumCalls > 32_767
-    ) {
-      throw new RangeError('maximumCalls must be a positive SmallInt');
-    }
+    this.assertAiCallMaximum(maximumCalls, 'maximumCalls');
     const reservation = await this.prisma.reviewSession.updateMany({
       where: {
         id: sessionId,
@@ -531,6 +525,30 @@ export class ReviewsRepository {
         aiCallCount: { lt: maximumCalls },
       },
       data: { aiCallCount: { increment: 1 } },
+    });
+    return reservation.count === 1;
+  }
+
+  async reserveDiagnosisAiCallSlot(
+    userId: string,
+    sessionId: string,
+    maximumCalls: number,
+    maximumDiagnosisCalls: number,
+  ): Promise<boolean> {
+    this.assertAiCallMaximum(maximumCalls, 'maximumCalls');
+    this.assertAiCallMaximum(maximumDiagnosisCalls, 'maximumDiagnosisCalls');
+    const reservation = await this.prisma.reviewSession.updateMany({
+      where: {
+        id: sessionId,
+        userId,
+        status: ReviewSessionStatus.IN_PROGRESS,
+        aiCallCount: { lt: maximumCalls },
+        aiDiagnosisCallCount: { lt: maximumDiagnosisCalls },
+      },
+      data: {
+        aiCallCount: { increment: 1 },
+        aiDiagnosisCallCount: { increment: 1 },
+      },
     });
     return reservation.count === 1;
   }
@@ -2458,6 +2476,12 @@ export class ReviewsRepository {
       'code' in error &&
       error.code === code
     );
+  }
+
+  private assertAiCallMaximum(value: number, name: string): void {
+    if (!Number.isInteger(value) || value < 1 || value > 32_767) {
+      throw new RangeError(`${name} must be a positive SmallInt`);
+    }
   }
 }
 

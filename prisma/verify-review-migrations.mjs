@@ -91,6 +91,7 @@ try {
           ('review_sessions', 'planned_item_count'),
           ('review_sessions', 'plan_summary'),
           ('review_sessions', 'ai_call_count'),
+          ('review_sessions', 'ai_diagnosis_call_count'),
           ('review_sessions', 'agent_version'),
           ('review_answers', 'review_session_item_id'),
           ('review_answers', 'inferred_review_score'),
@@ -100,7 +101,7 @@ try {
     [schemaName],
   );
   assert(
-    requiredColumns.count === 16,
+    requiredColumns.count === 17,
     'Review migration columns are incomplete',
   );
 
@@ -122,11 +123,16 @@ try {
             AND is_nullable = 'NO'
             AND column_default LIKE '0%'
           )
+          OR (
+            column_name = 'ai_diagnosis_call_count'
+            AND is_nullable = 'NO'
+            AND column_default LIKE '0%'
+          )
         )`,
     [schemaName],
   );
   assert(
-    backwardCompatibleColumns.count === 6,
+    backwardCompatibleColumns.count === 7,
     'Review planning columns are not backward compatible',
   );
 

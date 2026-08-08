@@ -140,7 +140,14 @@ export class ReviewAgentService {
     if (!this.isDiagnosisCallUseful(request, input)) {
       return fallback('CALL_NOT_USEFUL');
     }
-    if (!(await this.reserveCall(request.userId, request.reviewSessionId))) {
+    if (
+      !(await this.reviewsRepository.reserveDiagnosisAiCallSlot(
+        request.userId,
+        request.reviewSessionId,
+        this.config.reviewMaxCallsPerSession,
+        this.config.reviewMaxDiagnosisCalls,
+      ))
+    ) {
       return fallback('BUDGET_EXHAUSTED');
     }
 

@@ -11,6 +11,7 @@ export interface AiConfig {
   reviewMaxDiagnosisCalls: number;
   reviewMinConfidence: number;
   reviewDefaultDurationMinutes: 5 | 10 | 15;
+  reviewQuestionWarmLimit: number;
 }
 
 const requiredValue = (name: string): string => {
@@ -114,5 +115,10 @@ export const aiConfig = (): AiConfig => ({
   reviewMinConfidence: boundedNumber('AI_REVIEW_MIN_CONFIDENCE', 0, 1),
   reviewDefaultDurationMinutes: reviewDuration(
     'AI_REVIEW_DEFAULT_DURATION_MINUTES',
+  ),
+  reviewQuestionWarmLimit: boundedPositiveInteger(
+    'AI_REVIEW_QUESTION_WARM_LIMIT',
+    1,
+    4,
   ),
 });

@@ -10,4 +10,5 @@ process.env.AI_REVIEW_MAX_CALLS_PER_SESSION ??= '6';
 process.env.AI_REVIEW_MAX_DIAGNOSIS_CALLS ??= '4';
 process.env.AI_REVIEW_MIN_CONFIDENCE ??= '0.65';
 process.env.AI_REVIEW_DEFAULT_DURATION_MINUTES ??= '10';
+process.env.AI_REVIEW_QUESTION_WARM_LIMIT ??= '2';
 process.env.GUARDIAN_API_KEY ??= 'e2e-guardian-key';

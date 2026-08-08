@@ -11,6 +11,7 @@ model ReviewSession {
   plannedItemCount      Int?                @map("planned_item_count") @db.SmallInt
   planSummary           String?             @map("plan_summary") @db.Text
   aiCallCount           Int                 @default(0) @map("ai_call_count") @db.SmallInt
+  aiDiagnosisCallCount  Int                 @default(0) @map("ai_diagnosis_call_count") @db.SmallInt
   agentVersion          String?             @map("agent_version") @db.VarChar(50)
   startedAt             DateTime            @default(now()) @map("started_at") @db.Timestamptz(6)
   completedAt           DateTime?           @map("completed_at") @db.Timestamptz(6)

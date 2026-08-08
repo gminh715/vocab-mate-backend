@@ -48,6 +48,9 @@ numbers for the same review-session item.
 `20260808000000_agentic_review_decision_foundation` adds nullable planning and
 answer-signal fields, a default-zero AI call counter, and the auditable agent
 decision table. Existing sessions and answers require no backfill.
+`20260808120000_agentic_review_call_budget_hardening` adds a default-zero
+diagnosis-call counter so the total and diagnosis-specific budgets can both be
+reserved atomically. Existing sessions require no backfill.
 
 ### Existing database
 

@@ -686,6 +686,27 @@ describe('ReviewsRepository', () => {
     ).resolves.toBe(false);
   });
 
+  it('reserves a diagnosis slot against both atomic call budgets', async () => {
+    sessionUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(
+      repository.reserveDiagnosisAiCallSlot('owner', 'session', 6, 4),
+    ).resolves.toBe(true);
+    expect(sessionUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'session',
+        userId: 'owner',
+        status: ReviewSessionStatus.IN_PROGRESS,
+        aiCallCount: { lt: 6 },
+        aiDiagnosisCallCount: { lt: 4 },
+      },
+      data: {
+        aiCallCount: { increment: 1 },
+        aiDiagnosisCallCount: { increment: 1 },
+      },
+    });
+  });
+
   it('persists an owner-scoped AI decision in a short transaction', async () => {
     sessionFindFirst.mockResolvedValue({ id: 'session' });
     itemFindFirst.mockResolvedValue({ id: 'item' });

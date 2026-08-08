@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { AiConfig } from '../../../config/ai.config';
+import { AI_CONFIG } from '../../../config/config.module';
 import {
   QuestionGenerationSource,
   QuestionType,
@@ -17,14 +19,13 @@ import {
 } from '../reviews.repository';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
 
-export const MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS = 4;
-
 @Injectable()
 export class AiAssistedQuestionGeneratorService {
   private readonly logger = new Logger(AiAssistedQuestionGeneratorService.name);
   private readonly inFlight = new Map<string, Promise<{ id: string }>>();
 
   constructor(
+    @Inject(AI_CONFIG) private readonly config: AiConfig,
     private readonly aiService: AiService,
     private readonly reviewsRepository: ReviewsRepository,
   ) {}
@@ -45,7 +46,7 @@ export class AiAssistedQuestionGeneratorService {
 
     for (const [index, candidate] of candidates.entries()) {
       if (prepared[index]) continue;
-      if (reservedGenerationCount >= MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS) {
+      if (reservedGenerationCount >= this.config.reviewQuestionWarmLimit) {
         continue;
       }
       reservedGenerationCount += 1;

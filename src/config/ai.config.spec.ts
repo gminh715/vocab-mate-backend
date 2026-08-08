@@ -13,6 +13,7 @@ const variableNames = [
   'AI_REVIEW_MAX_DIAGNOSIS_CALLS',
   'AI_REVIEW_MIN_CONFIDENCE',
   'AI_REVIEW_DEFAULT_DURATION_MINUTES',
+  'AI_REVIEW_QUESTION_WARM_LIMIT',
 ] as const;
 
 describe('aiConfig', () => {
@@ -33,6 +34,7 @@ describe('aiConfig', () => {
     process.env.AI_REVIEW_MAX_DIAGNOSIS_CALLS = '4';
     process.env.AI_REVIEW_MIN_CONFIDENCE = '0.65';
     process.env.AI_REVIEW_DEFAULT_DURATION_MINUTES = '10';
+    process.env.AI_REVIEW_QUESTION_WARM_LIMIT = '2';
   });
 
   afterAll(() => {
@@ -60,6 +62,7 @@ describe('aiConfig', () => {
       reviewMaxDiagnosisCalls: 4,
       reviewMinConfidence: 0.65,
       reviewDefaultDurationMinutes: 10,
+      reviewQuestionWarmLimit: 2,
     });
   });
 
@@ -80,6 +83,7 @@ describe('aiConfig', () => {
     ['AI_MAX_TERMS_PER_ARTICLE', '101'],
     ['AI_REVIEW_MAX_CALLS_PER_SESSION', '21'],
     ['AI_REVIEW_MAX_DIAGNOSIS_CALLS', '0'],
+    ['AI_REVIEW_QUESTION_WARM_LIMIT', '5'],
   ] as const)('rejects invalid %s', (name, value) => {
     process.env[name] = value;
 

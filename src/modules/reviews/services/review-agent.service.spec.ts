@@ -27,6 +27,7 @@ const config: AiConfig = {
   reviewMaxDiagnosisCalls: 4,
   reviewMinConfidence: 0.65,
   reviewDefaultDurationMinutes: 10,
+  reviewQuestionWarmLimit: 2,
 };
 
 const planInput: PlanReviewSessionInput = {
@@ -125,14 +126,20 @@ describe('ReviewAgentService', () => {
       AiService['diagnoseReviewAnswer']
     >;
   };
-  let repository: { reserveAiCallSlot: jest.Mock };
+  let repository: {
+    reserveAiCallSlot: jest.Mock;
+    reserveDiagnosisAiCallSlot: jest.Mock;
+  };
 
   beforeEach(async () => {
     ai = {
       planReviewSession: jest.fn(),
       diagnoseReviewAnswer: jest.fn(),
     };
-    repository = { reserveAiCallSlot: jest.fn().mockResolvedValue(true) };
+    repository = {
+      reserveAiCallSlot: jest.fn().mockResolvedValue(true),
+      reserveDiagnosisAiCallSlot: jest.fn().mockResolvedValue(true),
+    };
     const module = await Test.createTestingModule({
       providers: [
         ReviewAgentService,
@@ -160,12 +167,12 @@ describe('ReviewAgentService', () => {
       source: ReviewDecisionSource.RULE,
       reasonCode: 'CALL_NOT_USEFUL',
     });
-    expect(repository.reserveAiCallSlot).not.toHaveBeenCalled();
+    expect(repository.reserveDiagnosisAiCallSlot).not.toHaveBeenCalled();
     expect(ai.diagnoseReviewAnswer).not.toHaveBeenCalled();
   });
 
   it('returns a deterministic RULE decision when the atomic budget is exhausted', async () => {
-    repository.reserveAiCallSlot.mockResolvedValue(false);
+    repository.reserveDiagnosisAiCallSlot.mockResolvedValue(false);
 
     const decision = await service.diagnoseAnswer({
       userId: 'user',
@@ -178,10 +185,11 @@ describe('ReviewAgentService', () => {
       input: diagnosisInput,
     });
 
-    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
+    expect(repository.reserveDiagnosisAiCallSlot).toHaveBeenCalledWith(
       'user',
       'session',
       6,
+      4,
     );
     expect(decision).toMatchObject({
       source: ReviewDecisionSource.RULE,
@@ -360,7 +368,7 @@ describe('ReviewAgentService', () => {
       errorType: ReviewErrorType.SPELLING_ERROR,
       reasonCode: 'OBVIOUS_SPELLING_ERROR',
     });
-    expect(repository.reserveAiCallSlot).not.toHaveBeenCalled();
+    expect(repository.reserveDiagnosisAiCallSlot).not.toHaveBeenCalled();
   });
 
   it('sends and persists only the sanitized bounded snapshot', async () => {

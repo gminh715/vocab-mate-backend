@@ -38,6 +38,7 @@ const config: AiConfig = {
   reviewMaxDiagnosisCalls: 4,
   reviewMinConfidence: 0.65,
   reviewDefaultDurationMinutes: 10,
+  reviewQuestionWarmLimit: 2,
 };
 
 const articleInput: ArticleAnalysisInput = {

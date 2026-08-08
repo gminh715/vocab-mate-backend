@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { AI_CONFIG } from '../../../config/config.module';
 import {
   CefrLevel,
   QuestionGenerationSource,
@@ -13,10 +14,7 @@ import {
   type PreparedAiReviewQuestion,
   ReviewsRepository,
 } from '../reviews.repository';
-import {
-  AiAssistedQuestionGeneratorService,
-  MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS,
-} from './ai-assisted-question-generator.service';
+import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 
 describe('AiAssistedQuestionGeneratorService', () => {
   const generated: ReviewQuestionGenerationResult = {
@@ -83,6 +81,10 @@ describe('AiAssistedQuestionGeneratorService', () => {
     const module = await Test.createTestingModule({
       providers: [
         AiAssistedQuestionGeneratorService,
+        {
+          provide: AI_CONFIG,
+          useValue: { reviewQuestionWarmLimit: 2 },
+        },
         { provide: AiService, useValue: ai },
         { provide: ReviewsRepository, useValue: repository },
       ],
@@ -201,13 +203,9 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
     const prepared = await warmCache();
 
-    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(
-      MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS,
-    );
-    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(
-      MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS,
-    );
-    expect(prepared).toHaveLength(MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS);
+    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(2);
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(2);
+    expect(prepared).toHaveLength(2);
   });
 
   it('prepares a requested retest type through the same cache-first AI path', async () => {
