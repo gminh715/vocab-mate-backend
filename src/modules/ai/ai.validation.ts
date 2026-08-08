@@ -1,17 +1,29 @@
 import type { AiConfig } from '../../config/ai.config';
 import {
+  AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
   CEFR_LEVELS,
   LEXICAL_UNIT_TYPES,
+  REVIEW_AGENT_ACTIONS,
+  REVIEW_ERROR_TYPES,
+  REVIEW_GOALS,
   REVIEW_QUESTION_TYPES,
+  REVIEW_RETEST_AFTER_ITEMS,
+  REVIEW_TARGET_DURATIONS,
   type ArticleAnalysisInput,
   type ArticleAnalysisResult,
   type ArticleAnalysisTerm,
+  type DiagnoseReviewAnswerInput,
+  type PlanReviewSessionInput,
+  type ReviewAnswerDiagnosisResult,
+  type ReviewAttemptSnapshot,
   type TermEnrichmentInput,
   type TermEnrichmentResult,
   type TermExample,
   type ReviewQuestionGenerationInput,
   type ReviewQuestionGenerationOption,
   type ReviewQuestionGenerationResult,
+  type ReviewSessionPlanResult,
+  type ReviewSkillAggregate,
 } from './ai.contracts';
 import { AiError, ProviderCallError } from './ai.errors';
 
@@ -34,6 +46,16 @@ export const AI_OUTPUT_LIMITS = {
   reviewExplanation: 600,
   reviewExplanationSentence: 220,
   reviewOptions: 4,
+  reviewCandidates: 100,
+  reviewAlias: 32,
+  reviewRecentAttempts: 5,
+  reviewSkillAggregates: 5,
+  reviewPlanFocusDimensions: 3,
+  reviewPlanSummary: 300,
+  reviewReasonCode: 80,
+  reviewLessonTitle: 80,
+  reviewLessonExplanation: 400,
+  reviewLessonExample: 240,
 } as const;
 
 type ValidationBoundary = 'input' | 'output';
@@ -117,6 +139,48 @@ const positiveIntegerValue = (
   return Number(value);
 };
 
+const nonNegativeIntegerValue = (
+  value: unknown,
+  field: string,
+  maximum: number,
+  boundary: ValidationBoundary,
+): number => {
+  if (
+    !Number.isInteger(value) ||
+    Number(value) < 0 ||
+    Number(value) > maximum
+  ) {
+    fail(boundary, field);
+  }
+
+  return Number(value);
+};
+
+const booleanValue = (
+  value: unknown,
+  field: string,
+  boundary: ValidationBoundary,
+): boolean => {
+  if (typeof value !== 'boolean') {
+    fail(boundary, field);
+  }
+
+  return value === true;
+};
+
+const confidenceValue = (value: unknown, field: string): number => {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1
+  ) {
+    fail('output', field);
+  }
+
+  return Number(value);
+};
+
 const enumValue = <T extends readonly string[]>(
   value: unknown,
   field: string,
@@ -148,6 +212,70 @@ const arrayValue = (
   }
 
   return fail(boundary, field);
+};
+
+const requireNonEmptyArray = (
+  value: unknown,
+  field: string,
+  maximum: number,
+  boundary: ValidationBoundary,
+): unknown[] => {
+  const items = arrayValue(value, field, maximum, boundary);
+  if (items.length === 0) {
+    fail(boundary, field);
+  }
+
+  return items;
+};
+
+const uniqueEnumArrayValue = <T extends readonly string[]>(
+  value: unknown,
+  field: string,
+  maximum: number,
+  allowed: T,
+  boundary: ValidationBoundary,
+): T[number][] => {
+  const items = requireNonEmptyArray(value, field, maximum, boundary).map(
+    (item, index) => enumValue(item, `${field}[${index}]`, allowed, boundary),
+  );
+  if (new Set(items).size !== items.length) {
+    fail(boundary, field);
+  }
+
+  return items;
+};
+
+const allowedIntegerValue = <T extends readonly number[]>(
+  value: unknown,
+  field: string,
+  allowed: T,
+  boundary: ValidationBoundary,
+): T[number] => {
+  if (typeof value === 'number') {
+    const matched = allowed.find((item) => item === value);
+    if (matched !== undefined) {
+      return matched;
+    }
+  }
+
+  return fail(boundary, field);
+};
+
+const uniqueAllowedIntegerArrayValue = <T extends readonly number[]>(
+  value: unknown,
+  field: string,
+  maximum: number,
+  allowed: T,
+): T[number][] => {
+  const items = requireNonEmptyArray(value, field, maximum, 'input').map(
+    (item, index) =>
+      allowedIntegerValue(item, `${field}[${index}]`, allowed, 'input'),
+  );
+  if (new Set(items).size !== items.length) {
+    fail('input', field);
+  }
+
+  return items;
 };
 
 const stringArrayValue = (value: unknown, field: string): string[] => {
@@ -364,6 +492,366 @@ export const validateReviewQuestionGenerationInput = (
     'requestedQuestionType',
     REVIEW_QUESTION_TYPES,
     'input',
+  );
+};
+
+const MAX_RESPONSE_TIME_MS = 2_147_483_647;
+const MAX_HINTS_USED = 32_767;
+const MAX_LAPSE_COUNT = 32_767;
+const MAX_DAYS_OVERDUE = 36_500;
+
+const validateAttemptSnapshots = (
+  value: unknown,
+  field: string,
+): ReviewAttemptSnapshot[] =>
+  arrayValue(value, field, AI_OUTPUT_LIMITS.reviewRecentAttempts, 'input').map(
+    (attempt, index) => {
+      const item = recordValue(
+        attempt,
+        `${field}[${index}]`,
+        [
+          'questionType',
+          'skillDimension',
+          'isCorrect',
+          'responseTimeMs',
+          'hintsUsed',
+        ],
+        'input',
+      );
+
+      return {
+        questionType: enumValue(
+          item.questionType,
+          `${field}[${index}].questionType`,
+          REVIEW_QUESTION_TYPES,
+          'input',
+        ),
+        skillDimension: enumValue(
+          item.skillDimension,
+          `${field}[${index}].skillDimension`,
+          AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
+          'input',
+        ),
+        isCorrect: booleanValue(
+          item.isCorrect,
+          `${field}[${index}].isCorrect`,
+          'input',
+        ),
+        responseTimeMs: nonNegativeIntegerValue(
+          item.responseTimeMs,
+          `${field}[${index}].responseTimeMs`,
+          MAX_RESPONSE_TIME_MS,
+          'input',
+        ),
+        hintsUsed: nonNegativeIntegerValue(
+          item.hintsUsed,
+          `${field}[${index}].hintsUsed`,
+          MAX_HINTS_USED,
+          'input',
+        ),
+      };
+    },
+  );
+
+const validateSkillAggregates = (
+  value: unknown,
+  field: string,
+): ReviewSkillAggregate[] => {
+  const aggregates = arrayValue(
+    value,
+    field,
+    AI_OUTPUT_LIMITS.reviewSkillAggregates,
+    'input',
+  ).map((aggregate, index) => {
+    const item = recordValue(
+      aggregate,
+      `${field}[${index}]`,
+      ['skillDimension', 'attempts', 'correct', 'averageResponseTimeMs'],
+      'input',
+    );
+    const attempts = nonNegativeIntegerValue(
+      item.attempts,
+      `${field}[${index}].attempts`,
+      10_000,
+      'input',
+    );
+    const correct = nonNegativeIntegerValue(
+      item.correct,
+      `${field}[${index}].correct`,
+      10_000,
+      'input',
+    );
+    if (correct > attempts) {
+      fail('input', `${field}[${index}].correct`);
+    }
+
+    return {
+      skillDimension: enumValue(
+        item.skillDimension,
+        `${field}[${index}].skillDimension`,
+        AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
+        'input',
+      ),
+      attempts,
+      correct,
+      averageResponseTimeMs: nonNegativeIntegerValue(
+        item.averageResponseTimeMs,
+        `${field}[${index}].averageResponseTimeMs`,
+        MAX_RESPONSE_TIME_MS,
+        'input',
+      ),
+    };
+  });
+  if (
+    new Set(aggregates.map(({ skillDimension }) => skillDimension)).size !==
+    aggregates.length
+  ) {
+    fail('input', field);
+  }
+
+  return aggregates;
+};
+
+export const validatePlanReviewSessionInput = (
+  input: PlanReviewSessionInput,
+): void => {
+  const value = recordValue(
+    input,
+    'reviewSessionPlan',
+    [
+      'targetCefr',
+      'reviewGoal',
+      'targetDurationMinutes',
+      'maxItemCount',
+      'allowedFocusDimensions',
+      'candidates',
+      'skillAggregates',
+    ],
+    'input',
+  );
+
+  enumValue(value.targetCefr, 'targetCefr', CEFR_LEVELS, 'input');
+  enumValue(value.reviewGoal, 'reviewGoal', REVIEW_GOALS, 'input');
+  allowedIntegerValue(
+    value.targetDurationMinutes,
+    'targetDurationMinutes',
+    REVIEW_TARGET_DURATIONS,
+    'input',
+  );
+  positiveIntegerValue(
+    value.maxItemCount,
+    'maxItemCount',
+    AI_OUTPUT_LIMITS.reviewCandidates,
+  );
+  uniqueEnumArrayValue(
+    value.allowedFocusDimensions,
+    'allowedFocusDimensions',
+    AGENTIC_REVIEW_V1_SKILL_DIMENSIONS.length,
+    AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
+    'input',
+  );
+
+  const candidates = requireNonEmptyArray(
+    value.candidates,
+    'candidates',
+    AI_OUTPUT_LIMITS.reviewCandidates,
+    'input',
+  );
+  const aliases = new Set<string>();
+  for (const [index, candidate] of candidates.entries()) {
+    const item = recordValue(
+      candidate,
+      `candidates[${index}]`,
+      [
+        'alias',
+        'wordOrPhrase',
+        'lemma',
+        'partOfSpeech',
+        'contextualMeaningVi',
+        'originalSentence',
+        'daysOverdue',
+        'lapseCount',
+        'recentAttempts',
+      ],
+      'input',
+    );
+    const alias = stringValue(
+      item.alias,
+      `candidates[${index}].alias`,
+      AI_OUTPUT_LIMITS.reviewAlias,
+      'input',
+    );
+    if (!/^[a-z][a-z0-9_-]*$/u.test(alias) || aliases.has(alias)) {
+      fail('input', `candidates[${index}].alias`);
+    }
+    aliases.add(alias);
+    stringValue(
+      item.wordOrPhrase,
+      `candidates[${index}].wordOrPhrase`,
+      AI_OUTPUT_LIMITS.termText,
+      'input',
+    );
+    stringValue(
+      item.lemma,
+      `candidates[${index}].lemma`,
+      AI_OUTPUT_LIMITS.termText,
+      'input',
+    );
+    stringValue(
+      item.partOfSpeech,
+      `candidates[${index}].partOfSpeech`,
+      AI_OUTPUT_LIMITS.partOfSpeech,
+      'input',
+    );
+    stringValue(
+      item.contextualMeaningVi,
+      `candidates[${index}].contextualMeaningVi`,
+      AI_OUTPUT_LIMITS.enrichmentText,
+      'input',
+    );
+    stringValue(
+      item.originalSentence,
+      `candidates[${index}].originalSentence`,
+      10_000,
+      'input',
+    );
+    nonNegativeIntegerValue(
+      item.daysOverdue,
+      `candidates[${index}].daysOverdue`,
+      MAX_DAYS_OVERDUE,
+      'input',
+    );
+    nonNegativeIntegerValue(
+      item.lapseCount,
+      `candidates[${index}].lapseCount`,
+      MAX_LAPSE_COUNT,
+      'input',
+    );
+    validateAttemptSnapshots(
+      item.recentAttempts,
+      `candidates[${index}].recentAttempts`,
+    );
+  }
+
+  validateSkillAggregates(value.skillAggregates, 'skillAggregates');
+};
+
+export const validateDiagnoseReviewAnswerInput = (
+  input: DiagnoseReviewAnswerInput,
+): void => {
+  const value = recordValue(
+    input,
+    'reviewAnswerDiagnosis',
+    [
+      'targetCefr',
+      'wordOrPhrase',
+      'lemma',
+      'partOfSpeech',
+      'contextualMeaningVi',
+      'originalSentence',
+      'questionType',
+      'learnerAnswer',
+      'correctAnswer',
+      'responseTimeMs',
+      'hintsUsed',
+      'attemptNumber',
+      'recentAttempts',
+      'skillAggregates',
+      'allowedSkillDimensions',
+      'allowedActions',
+      'allowedRetestQuestionTypes',
+      'allowedRetestAfterItems',
+    ],
+    'input',
+  );
+
+  enumValue(value.targetCefr, 'targetCefr', CEFR_LEVELS, 'input');
+  stringValue(
+    value.wordOrPhrase,
+    'wordOrPhrase',
+    AI_OUTPUT_LIMITS.termText,
+    'input',
+  );
+  stringValue(value.lemma, 'lemma', AI_OUTPUT_LIMITS.termText, 'input');
+  stringValue(
+    value.partOfSpeech,
+    'partOfSpeech',
+    AI_OUTPUT_LIMITS.partOfSpeech,
+    'input',
+  );
+  stringValue(
+    value.contextualMeaningVi,
+    'contextualMeaningVi',
+    AI_OUTPUT_LIMITS.enrichmentText,
+    'input',
+  );
+  stringValue(value.originalSentence, 'originalSentence', 10_000, 'input');
+  const questionType = enumValue(
+    value.questionType,
+    'questionType',
+    REVIEW_QUESTION_TYPES,
+    'input',
+  );
+  stringValue(
+    value.learnerAnswer,
+    'learnerAnswer',
+    AI_OUTPUT_LIMITS.reviewAnswer,
+    'input',
+  );
+  stringValue(
+    value.correctAnswer,
+    'correctAnswer',
+    AI_OUTPUT_LIMITS.reviewAnswer,
+    'input',
+  );
+  nonNegativeIntegerValue(
+    value.responseTimeMs,
+    'responseTimeMs',
+    MAX_RESPONSE_TIME_MS,
+    'input',
+  );
+  nonNegativeIntegerValue(
+    value.hintsUsed,
+    'hintsUsed',
+    MAX_HINTS_USED,
+    'input',
+  );
+  positiveIntegerValue(value.attemptNumber, 'attemptNumber', 2);
+  validateAttemptSnapshots(value.recentAttempts, 'recentAttempts');
+  validateSkillAggregates(value.skillAggregates, 'skillAggregates');
+  uniqueEnumArrayValue(
+    value.allowedSkillDimensions,
+    'allowedSkillDimensions',
+    AGENTIC_REVIEW_V1_SKILL_DIMENSIONS.length,
+    AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
+    'input',
+  );
+  uniqueEnumArrayValue(
+    value.allowedActions,
+    'allowedActions',
+    REVIEW_AGENT_ACTIONS.length,
+    REVIEW_AGENT_ACTIONS,
+    'input',
+  );
+  const allowedRetestQuestionTypes = uniqueEnumArrayValue(
+    value.allowedRetestQuestionTypes,
+    'allowedRetestQuestionTypes',
+    REVIEW_QUESTION_TYPES.length,
+    REVIEW_QUESTION_TYPES,
+    'input',
+  );
+  if (
+    allowedRetestQuestionTypes.every(
+      (allowedQuestionType) => allowedQuestionType === questionType,
+    )
+  ) {
+    fail('input', 'allowedRetestQuestionTypes');
+  }
+  uniqueAllowedIntegerArrayValue(
+    value.allowedRetestAfterItems,
+    'allowedRetestAfterItems',
+    REVIEW_RETEST_AFTER_ITEMS.length,
+    REVIEW_RETEST_AFTER_ITEMS,
   );
 };
 
@@ -823,6 +1311,201 @@ export const parseReviewQuestionGenerationResult = (
     correctAnswerText: null,
     answerExplanation,
     options: canonicalOptions,
+  };
+};
+
+export const parseReviewSessionPlanResult = (
+  raw: unknown,
+  input: PlanReviewSessionInput,
+): ReviewSessionPlanResult => {
+  const result = recordValue(
+    raw,
+    'result',
+    [
+      'reviewGoal',
+      'focusDimensions',
+      'orderedCandidateAliases',
+      'summary',
+      'confidence',
+    ],
+    'output',
+  );
+  const focusDimensions = uniqueEnumArrayValue(
+    result.focusDimensions,
+    'focusDimensions',
+    AI_OUTPUT_LIMITS.reviewPlanFocusDimensions,
+    input.allowedFocusDimensions,
+    'output',
+  );
+  const aliases = requireNonEmptyArray(
+    result.orderedCandidateAliases,
+    'orderedCandidateAliases',
+    Math.min(input.maxItemCount, input.candidates.length),
+    'output',
+  ).map((alias, index) =>
+    stringValue(
+      alias,
+      `orderedCandidateAliases[${index}]`,
+      AI_OUTPUT_LIMITS.reviewAlias,
+      'output',
+    ),
+  );
+  const allowedAliases = new Set(input.candidates.map(({ alias }) => alias));
+  if (
+    new Set(aliases).size !== aliases.length ||
+    aliases.some((alias) => !allowedAliases.has(alias))
+  ) {
+    fail('output', 'orderedCandidateAliases');
+  }
+
+  return {
+    reviewGoal: enumValue(
+      result.reviewGoal,
+      'reviewGoal',
+      [input.reviewGoal],
+      'output',
+    ),
+    focusDimensions,
+    orderedCandidateAliases: aliases,
+    summary: stringValue(
+      result.summary,
+      'summary',
+      AI_OUTPUT_LIMITS.reviewPlanSummary,
+      'output',
+    ),
+    confidence: confidenceValue(result.confidence, 'confidence'),
+  };
+};
+
+export const parseReviewAnswerDiagnosisResult = (
+  raw: unknown,
+  input: DiagnoseReviewAnswerInput,
+): ReviewAnswerDiagnosisResult => {
+  const result = recordValue(
+    raw,
+    'result',
+    [
+      'action',
+      'skillDimension',
+      'errorType',
+      'confidence',
+      'reasonCode',
+      'microLesson',
+      'retest',
+    ],
+    'output',
+  );
+  const action = enumValue(
+    result.action,
+    'action',
+    input.allowedActions,
+    'output',
+  );
+  const reasonCode = stringValue(
+    result.reasonCode,
+    'reasonCode',
+    AI_OUTPUT_LIMITS.reviewReasonCode,
+    'output',
+  );
+  if (!/^[A-Z][A-Z0-9_]*$/u.test(reasonCode)) {
+    fail('output', 'reasonCode');
+  }
+
+  let microLesson: ReviewAnswerDiagnosisResult['microLesson'] = null;
+  if (result.microLesson !== null) {
+    const lesson = recordValue(
+      result.microLesson,
+      'microLesson',
+      ['title', 'explanation', 'example'],
+      'output',
+    );
+    microLesson = {
+      title: stringValue(
+        lesson.title,
+        'microLesson.title',
+        AI_OUTPUT_LIMITS.reviewLessonTitle,
+        'output',
+      ),
+      explanation: stringValue(
+        lesson.explanation,
+        'microLesson.explanation',
+        AI_OUTPUT_LIMITS.reviewLessonExplanation,
+        'output',
+      ),
+      example: stringValue(
+        lesson.example,
+        'microLesson.example',
+        AI_OUTPUT_LIMITS.reviewLessonExample,
+        'output',
+      ),
+    };
+  }
+
+  let retest: ReviewAnswerDiagnosisResult['retest'] = null;
+  if (result.retest !== null) {
+    const retestValue = recordValue(
+      result.retest,
+      'retest',
+      ['questionType', 'afterItems'],
+      'output',
+    );
+    const questionType = enumValue(
+      retestValue.questionType,
+      'retest.questionType',
+      input.allowedRetestQuestionTypes,
+      'output',
+    );
+    if (questionType === input.questionType) {
+      fail('output', 'retest.questionType');
+    }
+    retest = {
+      questionType,
+      afterItems: allowedIntegerValue(
+        retestValue.afterItems,
+        'retest.afterItems',
+        input.allowedRetestAfterItems,
+        'output',
+      ),
+    };
+  }
+
+  if (
+    (action === 'CONTINUE' || action === 'FLAG_FOR_FUTURE_FOCUS') &&
+    (microLesson !== null || retest !== null)
+  ) {
+    fail('output', 'action');
+  }
+  if (
+    action === 'REQUEUE_WITH_NEW_TYPE' &&
+    (microLesson !== null || retest === null)
+  ) {
+    fail('output', 'action');
+  }
+  if (
+    action === 'TEACH_AND_REQUEUE' &&
+    (microLesson === null || retest === null)
+  ) {
+    fail('output', 'action');
+  }
+
+  return {
+    action,
+    skillDimension: enumValue(
+      result.skillDimension,
+      'skillDimension',
+      input.allowedSkillDimensions,
+      'output',
+    ),
+    errorType: enumValue(
+      result.errorType,
+      'errorType',
+      REVIEW_ERROR_TYPES,
+      'output',
+    ),
+    confidence: confidenceValue(result.confidence, 'confidence'),
+    reasonCode,
+    microLesson,
+    retest,
   };
 };
 

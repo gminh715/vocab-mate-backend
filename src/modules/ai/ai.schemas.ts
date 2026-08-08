@@ -1,7 +1,10 @@
 import {
   CEFR_LEVELS,
   LEXICAL_UNIT_TYPES,
+  REVIEW_ERROR_TYPES,
   type ArticleAnalysisInput,
+  type DiagnoseReviewAnswerInput,
+  type PlanReviewSessionInput,
   type ReviewQuestionGenerationInput,
 } from './ai.contracts';
 
@@ -18,6 +21,20 @@ const strictObject = (properties: Record<string, JsonSchema>): JsonSchema => ({
   required: Object.keys(properties),
   additionalProperties: false,
 });
+
+const boundedString = (description: string, maxLength: number): JsonSchema => ({
+  type: 'string',
+  minLength: 1,
+  maxLength,
+  description,
+});
+
+const confidenceSchema: JsonSchema = {
+  type: 'number',
+  minimum: 0,
+  maximum: 1,
+  description: 'Confidence from zero to one.',
+};
 
 export const articleAnalysisSchema = (
   input: ArticleAnalysisInput,
@@ -172,3 +189,100 @@ export const reviewQuestionGenerationSchema = (
     },
   });
 };
+
+export const reviewSessionPlanSchema = (
+  input: PlanReviewSessionInput,
+): JsonSchema =>
+  strictObject({
+    reviewGoal: {
+      type: 'string',
+      enum: [input.reviewGoal],
+      description: 'The server-supplied review goal; do not replace it.',
+    },
+    focusDimensions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: Math.min(3, input.allowedFocusDimensions.length),
+      uniqueItems: true,
+      items: {
+        type: 'string',
+        enum: input.allowedFocusDimensions,
+      },
+      description: 'One to three server-allowed skill dimensions.',
+    },
+    orderedCandidateAliases: {
+      type: 'array',
+      minItems: 1,
+      maxItems: Math.min(input.maxItemCount, input.candidates.length),
+      uniqueItems: true,
+      items: {
+        type: 'string',
+        enum: input.candidates.map(({ alias }) => alias),
+      },
+      description:
+        'A bounded ranking containing only supplied opaque aliases, never identifiers.',
+    },
+    summary: boundedString(
+      `A concise learner-facing plan at or below ${input.targetCefr}.`,
+      300,
+    ),
+    confidence: confidenceSchema,
+  });
+
+const nullableStrictObject = (
+  properties: Record<string, JsonSchema>,
+): JsonSchema => ({
+  type: ['object', 'null'],
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
+});
+
+export const reviewAnswerDiagnosisSchema = (
+  input: DiagnoseReviewAnswerInput,
+): JsonSchema =>
+  strictObject({
+    action: {
+      type: 'string',
+      enum: input.allowedActions,
+      description: 'One server-allowed advisory action.',
+    },
+    skillDimension: {
+      type: 'string',
+      enum: input.allowedSkillDimensions,
+      description: 'One server-allowed weak skill dimension.',
+    },
+    errorType: {
+      type: 'string',
+      enum: REVIEW_ERROR_TYPES,
+      description: 'One closed error classification.',
+    },
+    confidence: confidenceSchema,
+    reasonCode: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 80,
+      pattern: '^[A-Z][A-Z0-9_]{0,79}$',
+      description: 'A concise machine-readable reason code.',
+    },
+    microLesson: nullableStrictObject({
+      title: boundedString('A concise lesson title.', 80),
+      explanation: boundedString(
+        `A concise explanation at or below ${input.targetCefr}.`,
+        400,
+      ),
+      example: boundedString('One concise English example.', 240),
+    }),
+    retest: nullableStrictObject({
+      questionType: {
+        type: 'string',
+        enum: input.allowedRetestQuestionTypes,
+        description: 'One server-allowed question type.',
+      },
+      afterItems: {
+        type: 'integer',
+        enum: input.allowedRetestAfterItems,
+        description: 'One server-allowed retest offset.',
+      },
+    }),
+  });
