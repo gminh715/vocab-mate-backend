@@ -1,7 +1,6 @@
 import { Test } from '@nestjs/testing';
 import {
   CefrLevel,
-  LearningStatus,
   QuestionGenerationSource,
   QuestionType,
   ReviewSessionType,
@@ -11,9 +10,13 @@ import { AiError } from '../../ai/ai.errors';
 import { AiService } from '../../ai/ai.service';
 import {
   type AiQuestionGenerationCandidate,
+  type PreparedAiReviewQuestion,
   ReviewsRepository,
 } from '../reviews.repository';
-import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
+import {
+  AiAssistedQuestionGeneratorService,
+  MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS,
+} from './ai-assisted-question-generator.service';
 
 describe('AiAssistedQuestionGeneratorService', () => {
   const generated: ReviewQuestionGenerationResult = {
@@ -28,10 +31,14 @@ describe('AiAssistedQuestionGeneratorService', () => {
       { optionText: 'ngan gon', isCorrect: false },
     ],
   };
-  const candidate: AiQuestionGenerationCandidate = {
+
+  const makeCandidate = (
+    index: number,
+    cachedQuestion: PreparedAiReviewQuestion | null = null,
+  ): AiQuestionGenerationCandidate => ({
     vocabulary: {
-      id: 'vocabulary',
-      articleSentenceTermId: 'term',
+      id: `vocabulary-${index}`,
+      articleSentenceTermId: `term-${index}`,
       savedWordDisplay: 'engaging',
       savedLemma: 'engage',
       savedPartOfSpeech: 'adjective',
@@ -42,14 +49,20 @@ describe('AiAssistedQuestionGeneratorService', () => {
       categoryId: 'category',
       articleTopic: 'Education',
     },
-    questionTypes: [QuestionType.SELECT_MEANING],
-  };
+    questionType: QuestionType.SELECT_MEANING,
+    preferredQuestionTypes: [
+      QuestionType.SELECT_MEANING,
+      QuestionType.SELECT_WORD,
+    ],
+    cachedQuestion,
+  });
 
   let service: AiAssistedQuestionGeneratorService;
   let ai: { generateReviewQuestion: jest.Mock };
   let repository: {
     getAiQuestionGenerationCandidates: jest.Mock;
     findCachedAiQuestion: jest.Mock;
+    findPreferredCachedAiQuestion: jest.Mock;
     cacheAiQuestion: jest.Mock;
   };
 
@@ -58,9 +71,14 @@ describe('AiAssistedQuestionGeneratorService', () => {
     repository = {
       getAiQuestionGenerationCandidates: jest
         .fn()
-        .mockResolvedValue([candidate]),
+        .mockResolvedValue([makeCandidate(1)]),
       findCachedAiQuestion: jest.fn().mockResolvedValue(null),
-      cacheAiQuestion: jest.fn().mockResolvedValue({ id: 'ai-question' }),
+      findPreferredCachedAiQuestion: jest.fn().mockResolvedValue(null),
+      cacheAiQuestion: jest
+        .fn()
+        .mockImplementation((spec: { articleSentenceTermId: string }) =>
+          Promise.resolve({ id: `question-${spec.articleSentenceTermId}` }),
+        ),
     };
     const module = await Test.createTestingModule({
       providers: [
@@ -72,12 +90,33 @@ describe('AiAssistedQuestionGeneratorService', () => {
     service = module.get(AiAssistedQuestionGeneratorService);
   });
 
-  it('caches a validated AI question and option provenance without user history', async () => {
-    await service.warmCache(
+  const warmCache = () =>
+    service.warmCache(
       'user',
       { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
       new Date('2026-08-03T00:00:00Z'),
     );
+
+  it('returns a valid cache hit without calling either generation path', async () => {
+    const cached: PreparedAiReviewQuestion = {
+      userVocabularyId: 'vocabulary-1',
+      quizQuestionId: 'cached-ai',
+      articleSentenceTermId: 'term-1',
+      difficultyCefr: CefrLevel.B1,
+      questionType: QuestionType.SELECT_WORD,
+    };
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue([
+      makeCandidate(1, cached),
+    ]);
+
+    await expect(warmCache()).resolves.toEqual([cached]);
+    expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
+    expect(repository.findCachedAiQuestion).not.toHaveBeenCalled();
+    expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
+  });
+
+  it('generates and caches only the question type selected for the candidate', async () => {
+    const prepared = await warmCache();
 
     expect(ai.generateReviewQuestion).toHaveBeenCalledWith({
       wordOrPhrase: 'engaging',
@@ -91,117 +130,83 @@ describe('AiAssistedQuestionGeneratorService', () => {
     });
     expect(repository.cacheAiQuestion).toHaveBeenCalledWith(
       expect.objectContaining({
-        articleSentenceTermId: 'term',
+        articleSentenceTermId: 'term-1',
+        questionType: QuestionType.SELECT_MEANING,
         difficultyCefr: CefrLevel.B1,
         generationSource: QuestionGenerationSource.AI,
-        options: [
-          expect.objectContaining({ optionText: 'hap dan', isCorrect: true }),
-          expect.objectContaining({ optionText: 'kho hieu', isCorrect: false }),
-          expect.objectContaining({ optionText: 'ngan gon', isCorrect: false }),
-        ],
       }),
     );
-  });
-
-  it('reuses a term-context and CEFR cache entry for another user', async () => {
-    repository.findCachedAiQuestion.mockResolvedValue({ id: 'cached-ai' });
-
-    await service.warmCache(
-      'other-user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
-      new Date(),
-    );
-
-    expect(repository.findCachedAiQuestion).toHaveBeenCalledWith(
-      'term',
-      CefrLevel.B1,
-      QuestionType.SELECT_MEANING,
-    );
-    expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
-    expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        userVocabularyId: 'vocabulary-1',
+        quizQuestionId: 'question-term-1',
+        questionType: QuestionType.SELECT_MEANING,
+      }),
+    ]);
   });
 
   it('deduplicates concurrent generation for the same cache key', async () => {
-    await Promise.all([
-      service.warmCache(
-        'first-user',
-        { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
-        new Date(),
-      ),
-      service.warmCache(
-        'second-user',
-        { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
-        new Date(),
-      ),
-    ]);
+    await Promise.all([warmCache(), warmCache()]);
 
     expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(1);
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['invalid structured output', 'timeout or quota'])(
-    'returns immediately so rule generation can handle %s',
-    async () => {
-      ai.generateReviewQuestion.mockRejectedValue(
+  it('uses a concurrently cached preferred AI question after provider failure', async () => {
+    const cachedAlternative: PreparedAiReviewQuestion = {
+      userVocabularyId: 'vocabulary-1',
+      quizQuestionId: 'cached-alternative',
+      articleSentenceTermId: 'term-1',
+      difficultyCefr: CefrLevel.B1,
+      questionType: QuestionType.SELECT_WORD,
+    };
+    ai.generateReviewQuestion.mockRejectedValue(
+      new AiError(
+        'PROVIDER_UNAVAILABLE',
+        'AI service is temporarily unavailable',
+      ),
+    );
+    repository.findPreferredCachedAiQuestion.mockResolvedValue(
+      cachedAlternative,
+    );
+
+    await expect(warmCache()).resolves.toEqual([cachedAlternative]);
+    expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
+  });
+
+  it('omits only the candidate that has no valid AI question', async () => {
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue([
+      makeCandidate(1),
+      makeCandidate(2),
+    ]);
+    ai.generateReviewQuestion
+      .mockRejectedValueOnce(
         new AiError(
           'PROVIDER_UNAVAILABLE',
           'AI service is temporarily unavailable',
         ),
-      );
+      )
+      .mockResolvedValueOnce(generated);
 
-      await expect(
-        service.warmCache(
-          'user',
-          { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
-          new Date(),
-        ),
-      ).resolves.toBeUndefined();
-      expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
-    },
-  );
-
-  it('pre-generates a second remedial type selected for repeated confusion', async () => {
-    repository.getAiQuestionGenerationCandidates.mockResolvedValue([
-      {
-        ...candidate,
-        vocabulary: {
-          ...candidate.vocabulary,
-          learningStatus: LearningStatus.LEARNING,
-        },
-        questionTypes: [
-          QuestionType.SELECT_CORRECT_CONTEXT,
-          QuestionType.SELECT_WORD,
-        ],
-      },
+    await expect(warmCache()).resolves.toEqual([
+      expect.objectContaining({ userVocabularyId: 'vocabulary-2' }),
     ]);
-    ai.generateReviewQuestion
-      .mockResolvedValueOnce({
-        ...generated,
-        options: [
-          {
-            optionText: candidate.vocabulary.savedContextSentence,
-            isCorrect: true,
-          },
-          { optionText: 'Wrong context one.', isCorrect: false },
-          { optionText: 'Wrong context two.', isCorrect: false },
-        ],
-      })
-      .mockResolvedValueOnce({
-        ...generated,
-        options: [
-          { optionText: 'engaging', isCorrect: true },
-          { optionText: 'boring', isCorrect: false },
-          { optionText: 'brief', isCorrect: false },
-        ],
-      });
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
+  });
 
-    await service.warmCache(
-      'user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
-      new Date(),
+  it('caps synchronous generation attempts for a 20-word session', async () => {
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue(
+      Array.from({ length: 20 }, (_, index) => makeCandidate(index + 1)),
     );
 
-    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(2);
-    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(2);
+    const prepared = await warmCache();
+
+    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(
+      MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS,
+    );
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(
+      MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS,
+    );
+    expect(prepared).toHaveLength(MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS);
   });
 });

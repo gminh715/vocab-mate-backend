@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import {
   ArticleStatus,
+  type CefrLevel,
   LearningStatus,
   QuestionGenerationSource,
   QuestionType,
@@ -30,17 +31,13 @@ import {
   RECENT_ACCURACY_WINDOW,
   type RecentQuestionAttempt,
 } from './services/question-selection.service';
-import {
-  RuleBasedQuestionGeneratorService,
-  type GeneratedQuestionSpec,
-  type VocabularyQuestionSnapshot,
-} from './services/rule-based-question-generator.service';
 
 export class ReviewResourceNotFoundError extends Error {}
 export class ReviewSessionStateConflictError extends Error {}
 export class ReviewConcurrencyConflictError extends Error {}
 export class InvalidReviewSourceShapeError extends Error {}
 export class ReviewSubmissionConflictError extends Error {}
+export class NoUsableReviewQuestionError extends Error {}
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
@@ -208,7 +205,53 @@ interface ValidatedReviewSource {
 
 export interface AiQuestionGenerationCandidate {
   vocabulary: VocabularyQuestionSnapshot;
-  questionTypes: QuestionType[];
+  questionType: QuestionType;
+  preferredQuestionTypes: QuestionType[];
+  cachedQuestion: PreparedAiReviewQuestion | null;
+}
+
+export interface VocabularyQuestionSnapshot {
+  id: string;
+  articleSentenceTermId: string;
+  savedWordDisplay: string;
+  savedLemma: string;
+  savedPartOfSpeech: string;
+  savedCefrLevel: CefrLevel;
+  savedContextSentence: string;
+  savedMeaningVi: string;
+  savedExplanation: string | null;
+  categoryId: string;
+  articleTopic?: string;
+}
+
+export interface GeneratedAiQuestionSpec {
+  quizId: null;
+  articleSentenceTermId: string;
+  questionType: QuestionType;
+  generationSource: typeof QuestionGenerationSource.AI;
+  difficultyCefr: CefrLevel;
+  prompt: string;
+  blankSentence: string | null;
+  correctAnswerText: string | null;
+  answerExplanation: string | null;
+  isCaseSensitive: boolean;
+  points: number;
+  displayOrder: number;
+  isActive: boolean;
+  options: Array<{
+    optionText: string;
+    isCorrect: boolean;
+    explanation: string | null;
+    displayOrder: number;
+  }>;
+}
+
+export interface PreparedAiReviewQuestion {
+  userVocabularyId: string;
+  quizQuestionId: string;
+  articleSentenceTermId: string;
+  difficultyCefr: CefrLevel;
+  questionType: QuestionType;
 }
 
 @Injectable()
@@ -218,7 +261,6 @@ export class ReviewsRepository {
     private readonly answerGradingService: AnswerGradingService,
     private readonly reviewScoringService: InvisibleReviewScoringService,
     private readonly questionSelectionService: QuestionSelectionService,
-    private readonly questionGeneratorService: RuleBasedQuestionGeneratorService,
   ) {}
 
   getAiQuestionGenerationCandidates(
@@ -255,18 +297,49 @@ export class ReviewsRepository {
         now,
       );
       const history = await this.loadRecentAttemptHistory(tx, vocabularies);
+      const cachedQuestions =
+        vocabularies.length === 0
+          ? []
+          : await tx.quizQuestion.findMany({
+              where: {
+                quizId: null,
+                articleSentenceTermId: {
+                  in: vocabularies.map(
+                    ({ articleSentenceTermId }) => articleSentenceTermId,
+                  ),
+                },
+                generationSource: QuestionGenerationSource.AI,
+                isActive: true,
+              },
+              orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+              select: {
+                id: true,
+                articleSentenceTermId: true,
+                difficultyCefr: true,
+                questionType: true,
+              },
+            });
 
       return vocabularies.map((vocabulary) => {
         const preferredTypes = this.questionSelectionService.preferredTypes(
           vocabulary,
           history.get(vocabulary.id) ?? [],
         );
+        const cachedQuestion = preferredTypes.flatMap((questionType) => {
+          const match = cachedQuestions.find(
+            (question) =>
+              question.articleSentenceTermId ===
+                vocabulary.articleSentenceTermId &&
+              question.difficultyCefr === vocabulary.savedCefrLevel &&
+              question.questionType === questionType,
+          );
+          return match ? [this.toPreparedAiQuestion(vocabulary.id, match)] : [];
+        })[0];
         return {
           vocabulary: this.toQuestionSnapshot(vocabulary),
-          questionTypes: preferredTypes.slice(
-            0,
-            vocabulary.lapseCount >= 2 ? 2 : 1,
-          ),
+          questionType: cachedQuestion?.questionType ?? preferredTypes[0],
+          preferredQuestionTypes: preferredTypes,
+          cachedQuestion: cachedQuestion ?? null,
         };
       });
     });
@@ -290,7 +363,41 @@ export class ReviewsRepository {
     });
   }
 
-  async cacheAiQuestion(spec: GeneratedQuestionSpec) {
+  async findPreferredCachedAiQuestion(
+    userVocabularyId: string,
+    articleSentenceTermId: string,
+    difficultyCefr: ReviewVocabulary['savedCefrLevel'],
+    preferredQuestionTypes: QuestionType[],
+  ): Promise<PreparedAiReviewQuestion | null> {
+    const cached = await this.prisma.quizQuestion.findMany({
+      where: {
+        quizId: null,
+        articleSentenceTermId,
+        difficultyCefr,
+        questionType: { in: preferredQuestionTypes },
+        generationSource: QuestionGenerationSource.AI,
+        isActive: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        articleSentenceTermId: true,
+        difficultyCefr: true,
+        questionType: true,
+      },
+    });
+    const selected = preferredQuestionTypes.flatMap((questionType) => {
+      const match = cached.find(
+        (question) => question.questionType === questionType,
+      );
+      return match ? [match] : [];
+    })[0];
+    return selected
+      ? this.toPreparedAiQuestion(userVocabularyId, selected)
+      : null;
+  }
+
+  async cacheAiQuestion(spec: GeneratedAiQuestionSpec) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const cached = await tx.quizQuestion.findFirst({
@@ -332,7 +439,12 @@ export class ReviewsRepository {
     }
   }
 
-  startSession(userId: string, dto: StartReviewSessionDto, now: Date) {
+  startSession(
+    userId: string,
+    dto: StartReviewSessionDto,
+    now: Date,
+    preparedAiQuestions: PreparedAiReviewQuestion[] = [],
+  ) {
     return this.withSerializableRetry(async (tx) => {
       this.assertSourceShape(dto);
       const active = await tx.reviewSession.findFirst({
@@ -368,10 +480,13 @@ export class ReviewsRepository {
 
       const assignedQuestions = await this.assignInitialQuestions(
         tx,
-        userId,
         vocabularies,
         source.quizId,
+        preparedAiQuestions,
       );
+      if (assignedQuestions.length === 0) {
+        throw new NoUsableReviewQuestionError();
+      }
 
       const session = await tx.reviewSession.create({
         data: {
@@ -386,10 +501,10 @@ export class ReviewsRepository {
         select: sessionSelect,
       });
       await tx.reviewSessionItem.createMany({
-        data: vocabularies.map((vocabulary, index) => ({
+        data: assignedQuestions.map(({ vocabulary, question }, index) => ({
           reviewSessionId: session.id,
           userVocabularyId: vocabulary.id,
-          quizQuestionId: assignedQuestions[index].id,
+          quizQuestionId: question.id,
           sequenceNumber: index + 1,
           status: ReviewSessionItemStatus.PENDING,
         })),
@@ -505,6 +620,7 @@ export class ReviewsRepository {
         ? await this.assignRetryQuestion(
             tx,
             vocabulary,
+            question.id,
             question.questionType,
             session.quizId,
           )
@@ -1152,9 +1268,9 @@ export class ReviewsRepository {
 
   private async assignInitialQuestions(
     tx: Prisma.TransactionClient,
-    userId: string,
     vocabularies: ReviewVocabulary[],
     quizId: string | null,
+    preparedAiQuestions: PreparedAiReviewQuestion[],
   ) {
     const history = await this.loadRecentAttemptHistory(tx, vocabularies);
     const preferences = vocabularies.map((vocabulary) => ({
@@ -1193,16 +1309,55 @@ export class ReviewsRepository {
           preferredTypes,
         );
         if (!selected) throw new ReviewResourceNotFoundError();
-        return selected;
+        return { vocabulary, question: selected };
       });
     }
 
-    return this.resolveGeneratedQuestions(tx, userId, preferences);
+    if (preparedAiQuestions.length === 0) return [];
+    const preparedByVocabularyId = new Map(
+      preparedAiQuestions.map((question) => [
+        question.userVocabularyId,
+        question,
+      ]),
+    );
+    const questions = await tx.quizQuestion.findMany({
+      where: {
+        id: {
+          in: preparedAiQuestions.map(({ quizQuestionId }) => quizQuestionId),
+        },
+        quizId: null,
+        generationSource: QuestionGenerationSource.AI,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        articleSentenceTermId: true,
+        difficultyCefr: true,
+        questionType: true,
+      },
+    });
+
+    return vocabularies.flatMap((vocabulary) => {
+      const prepared = preparedByVocabularyId.get(vocabulary.id);
+      if (!prepared) return [];
+      const question = questions.find(
+        (candidate) =>
+          candidate.id === prepared.quizQuestionId &&
+          candidate.articleSentenceTermId ===
+            vocabulary.articleSentenceTermId &&
+          candidate.articleSentenceTermId === prepared.articleSentenceTermId &&
+          candidate.difficultyCefr === vocabulary.savedCefrLevel &&
+          candidate.difficultyCefr === prepared.difficultyCefr &&
+          candidate.questionType === prepared.questionType,
+      );
+      return question ? [{ vocabulary, question }] : [];
+    });
   }
 
   private async assignRetryQuestion(
     tx: Prisma.TransactionClient,
     vocabulary: ReviewVocabulary | null,
+    previousQuestionId: string,
     previousType: QuestionType,
     quizId: string | null,
   ) {
@@ -1228,212 +1383,25 @@ export class ReviewsRepository {
       if (selected) return selected;
     }
 
-    const generated = await this.resolveGeneratedQuestions(
-      tx,
-      vocabulary.userId,
-      [{ vocabulary, preferredTypes }],
-    );
-    const selected = generated[0];
-    if (!selected || selected.questionType === previousType) {
-      throw new ReviewResourceNotFoundError();
-    }
-    return selected;
-  }
-
-  private async resolveGeneratedQuestions(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    assignments: Array<{
-      vocabulary: ReviewVocabulary;
-      preferredTypes: QuestionType[];
-    }>,
-  ) {
-    const vocabularies = assignments.map(({ vocabulary }) => vocabulary);
-    const pool = await this.loadQuestionPool(tx, userId, vocabularies);
-    const termIds = vocabularies.map(
-      ({ articleSentenceTermId }) => articleSentenceTermId,
-    );
     const cached = await tx.quizQuestion.findMany({
       where: {
         quizId: null,
-        generationSource: {
-          in: [
-            QuestionGenerationSource.AI,
-            QuestionGenerationSource.RULE_BASED,
-          ],
-        },
+        articleSentenceTermId: vocabulary.articleSentenceTermId,
+        difficultyCefr: vocabulary.savedCefrLevel,
+        questionType: { in: preferredTypes },
+        generationSource: QuestionGenerationSource.AI,
         isActive: true,
-        articleSentenceTermId: { in: termIds },
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        articleSentenceTermId: true,
-        questionType: true,
-        generationSource: true,
-        difficultyCefr: true,
-        prompt: true,
-        blankSentence: true,
-        correctAnswerText: true,
-        answerExplanation: true,
-        isCaseSensitive: true,
-        points: true,
-        options: {
-          orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-          select: {
-            optionText: true,
-            isCorrect: true,
-            explanation: true,
-            displayOrder: true,
-          },
-        },
-      },
+      select: { id: true, articleSentenceTermId: true, questionType: true },
     });
-
-    const selected = new Map<
-      string,
-      { id: string; articleSentenceTermId: string; questionType: QuestionType }
-    >();
-    const specsToCreate: GeneratedQuestionSpec[] = [];
-    for (const { vocabulary, preferredTypes } of assignments) {
-      const snapshot = this.toQuestionSnapshot(vocabulary);
-      const aiCached = preferredTypes.flatMap((questionType) => {
-        const match = cached.find(
-          (question) =>
-            question.generationSource === QuestionGenerationSource.AI &&
-            question.articleSentenceTermId ===
-              vocabulary.articleSentenceTermId &&
-            question.difficultyCefr === vocabulary.savedCefrLevel &&
-            question.questionType === questionType,
-        );
-        return match ? [match] : [];
-      })[0];
-      if (aiCached) {
-        selected.set(vocabulary.id, aiCached);
-        continue;
+    const selected = this.selectExistingQuestion(cached, preferredTypes);
+    return (
+      selected ?? {
+        id: previousQuestionId,
+        articleSentenceTermId: vocabulary.articleSentenceTermId,
+        questionType: previousType,
       }
-      const generated = preferredTypes.flatMap((questionType) => {
-        const spec = this.questionGeneratorService.generate(
-          snapshot,
-          questionType,
-          pool,
-        );
-        return spec ? [spec] : [];
-      });
-      const reusable = generated.flatMap((spec) => {
-        const match = cached.find(
-          (question) =>
-            question.generationSource === QuestionGenerationSource.RULE_BASED &&
-            question.articleSentenceTermId ===
-              vocabulary.articleSentenceTermId &&
-            question.questionType === spec.questionType &&
-            this.questionGeneratorService.canReuseCache(
-              question,
-              snapshot,
-              spec.questionType,
-              pool,
-            ),
-        );
-        return match ? [match] : [];
-      })[0];
-      if (reusable) {
-        selected.set(vocabulary.id, reusable);
-        continue;
-      }
-      const spec = generated[0];
-      if (!spec) throw new ReviewResourceNotFoundError();
-      specsToCreate.push(spec);
-    }
-
-    if (specsToCreate.length > 0) {
-      const created = await tx.quizQuestion.createManyAndReturn({
-        data: specsToCreate.map(({ options: _options, ...question }) => {
-          void _options;
-          return question;
-        }),
-        select: {
-          id: true,
-          articleSentenceTermId: true,
-          questionType: true,
-        },
-      });
-      const createdByKey = new Map(
-        created.map((question) => [
-          `${question.articleSentenceTermId}:${question.questionType}`,
-          question,
-        ]),
-      );
-      const options = specsToCreate.flatMap((spec) => {
-        const question = createdByKey.get(
-          `${spec.articleSentenceTermId}:${spec.questionType}`,
-        );
-        if (!question) throw new ReviewResourceNotFoundError();
-        return spec.options.map((option) => ({
-          quizQuestionId: question.id,
-          generationSource: QuestionGenerationSource.RULE_BASED,
-          ...option,
-        }));
-      });
-      if (options.length > 0) {
-        await tx.questionOption.createMany({ data: options });
-      }
-      for (const { vocabulary } of assignments) {
-        if (selected.has(vocabulary.id)) continue;
-        const createdQuestion = created.find(
-          ({ articleSentenceTermId }) =>
-            articleSentenceTermId === vocabulary.articleSentenceTermId,
-        );
-        if (!createdQuestion) throw new ReviewResourceNotFoundError();
-        selected.set(vocabulary.id, createdQuestion);
-      }
-    }
-
-    return assignments.map(({ vocabulary }) => {
-      const question = selected.get(vocabulary.id);
-      if (!question) throw new ReviewResourceNotFoundError();
-      return question;
-    });
-  }
-
-  private async loadQuestionPool(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    selected: ReviewVocabulary[],
-  ): Promise<VocabularyQuestionSnapshot[]> {
-    const cefrLevels = [
-      ...new Set(selected.map(({ savedCefrLevel }) => savedCefrLevel)),
-    ];
-    const categoryIds = [
-      ...new Set(
-        selected.map(
-          ({ articleSentenceTerm }) =>
-            articleSentenceTerm.sentence.article.categoryId,
-        ),
-      ),
-    ];
-    const extra = await tx.userVocabulary.findMany({
-      where: {
-        userId,
-        id: { notIn: selected.map(({ id }) => id) },
-        OR: [
-          { savedCefrLevel: { in: cefrLevels } },
-          {
-            articleSentenceTerm: {
-              is: {
-                sentence: {
-                  is: { article: { is: { categoryId: { in: categoryIds } } } },
-                },
-              },
-            },
-          },
-        ],
-      },
-      orderBy: [{ savedAt: 'desc' }, { id: 'asc' }],
-      take: 200,
-      select: reviewVocabularySelect,
-    });
-    return [...selected, ...extra].map((vocabulary) =>
-      this.toQuestionSnapshot(vocabulary),
     );
   }
 
@@ -1453,6 +1421,24 @@ export class ReviewsRepository {
       categoryId: vocabulary.articleSentenceTerm.sentence.article.categoryId,
       articleTopic:
         vocabulary.articleSentenceTerm.sentence.article.category?.name,
+    };
+  }
+
+  private toPreparedAiQuestion(
+    userVocabularyId: string,
+    question: {
+      id: string;
+      articleSentenceTermId: string;
+      difficultyCefr: CefrLevel;
+      questionType: QuestionType;
+    },
+  ): PreparedAiReviewQuestion {
+    return {
+      userVocabularyId,
+      quizQuestionId: question.id,
+      articleSentenceTermId: question.articleSentenceTermId,
+      difficultyCefr: question.difficultyCefr,
+      questionType: question.questionType,
     };
   }
 

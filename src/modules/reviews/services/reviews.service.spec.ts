@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
   ReviewSessionStatus,
@@ -6,6 +10,7 @@ import {
 } from '../../../../generated/prisma/enums';
 import {
   InvalidReviewSourceShapeError,
+  NoUsableReviewQuestionError,
   ReviewsRepository,
 } from '../reviews.repository';
 import { ReviewsService } from './reviews.service';
@@ -28,7 +33,7 @@ describe('ReviewsService', () => {
       getCompletedResult: jest.fn(),
       getDueRecommendations: jest.fn(),
     };
-    aiQuestionGenerator = { warmCache: jest.fn().mockResolvedValue(undefined) };
+    aiQuestionGenerator = { warmCache: jest.fn().mockResolvedValue([]) };
     const module = await Test.createTestingModule({
       providers: [
         ReviewsService,
@@ -71,6 +76,58 @@ describe('ReviewsService', () => {
       progress: { answeredCount: 1, remainingCount: 2 },
       nextItem: { id: 'next-item' },
     });
+  });
+
+  it('finishes AI preparation before entering the session transaction', async () => {
+    const callOrder: string[] = [];
+    const prepared = [
+      {
+        userVocabularyId: 'vocabulary',
+        quizQuestionId: 'ai-question',
+        articleSentenceTermId: 'term',
+        difficultyCefr: 'B1',
+        questionType: 'SELECT_MEANING',
+      },
+    ];
+    aiQuestionGenerator.warmCache.mockImplementation(() => {
+      callOrder.push('provider-complete');
+      return prepared;
+    });
+    repository.startSession.mockImplementation(() => {
+      callOrder.push('transaction-start');
+      return Promise.resolve({
+        session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+        answeredCount: 0,
+        totalQuestions: 1,
+        nextItem: { id: 'item' },
+      });
+    });
+
+    await service.startSession('user', {
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      limit: 20,
+    });
+
+    expect(callOrder).toEqual(['provider-complete', 'transaction-start']);
+    expect(repository.startSession).toHaveBeenCalledWith(
+      'user',
+      expect.any(Object),
+      expect.any(Date),
+      prepared,
+    );
+  });
+
+  it('returns a retryable 503 when eligible vocabulary has no usable AI question', async () => {
+    repository.startSession.mockRejectedValue(
+      new NoUsableReviewQuestionError(),
+    );
+
+    await expect(
+      service.startSession('user', {
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        limit: 20,
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('maps mismatched source fields to a bad request', async () => {

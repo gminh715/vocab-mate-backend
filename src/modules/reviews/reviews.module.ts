@@ -7,7 +7,6 @@ import { AnswerGradingService } from './services/answer-grading.service';
 import { AiAssistedQuestionGeneratorService } from './services/ai-assisted-question-generator.service';
 import { InvisibleReviewScoringService } from './services/invisible-review-scoring.service';
 import { QuestionSelectionService } from './services/question-selection.service';
-import { RuleBasedQuestionGeneratorService } from './services/rule-based-question-generator.service';
 import { ReviewsService } from './services/reviews.service';
 
 @Module({
@@ -20,7 +19,6 @@ import { ReviewsService } from './services/reviews.service';
     AnswerGradingService,
     InvisibleReviewScoringService,
     QuestionSelectionService,
-    RuleBasedQuestionGeneratorService,
   ],
 })
 export class ReviewsModule {}

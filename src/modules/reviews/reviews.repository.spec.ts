@@ -16,8 +16,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { AnswerGradingService } from './services/answer-grading.service';
 import { InvisibleReviewScoringService } from './services/invisible-review-scoring.service';
 import { QuestionSelectionService } from './services/question-selection.service';
-import { RuleBasedQuestionGeneratorService } from './services/rule-based-question-generator.service';
 import {
+  NoUsableReviewQuestionError,
   ReviewResourceNotFoundError,
   ReviewsRepository,
   ReviewSubmissionConflictError,
@@ -140,7 +140,6 @@ describe('ReviewsRepository', () => {
         AnswerGradingService,
         InvisibleReviewScoringService,
         QuestionSelectionService,
-        RuleBasedQuestionGeneratorService,
         {
           provide: PrismaService,
           useValue: {
@@ -386,7 +385,7 @@ describe('ReviewsRepository', () => {
         id: `cached-${suffix}`,
         articleSentenceTermId: `term-${suffix}`,
         questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.RULE_BASED,
+        generationSource: QuestionGenerationSource.AI,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Complete the original sentence with the saved vocabulary.',
         blankSentence: 'A ___ here.',
@@ -413,6 +412,13 @@ describe('ReviewsRepository', () => {
       'user',
       { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 3 },
       new Date('2026-08-03T00:00:00Z'),
+      ['overdue', 'unscheduled', 'new'].map((suffix) => ({
+        userVocabularyId: suffix,
+        quizQuestionId: `cached-${suffix}`,
+        articleSentenceTermId: `term-${suffix}`,
+        difficultyCefr: CefrLevel.B1,
+        questionType: QuestionType.FILL_BLANK,
+      })),
     );
 
     expect(vocabularyFindMany.mock.calls[0][0].where).toEqual(
@@ -545,7 +551,7 @@ describe('ReviewsRepository', () => {
         id: 'cached-question',
         articleSentenceTermId: reviewVocabulary.articleSentenceTermId,
         questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.RULE_BASED,
+        generationSource: QuestionGenerationSource.AI,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Complete the original sentence with the saved vocabulary.',
         blankSentence: 'A ___ here.',
@@ -576,6 +582,15 @@ describe('ReviewsRepository', () => {
         limit: 20,
       },
       new Date('2026-08-03T00:00:00Z'),
+      [
+        {
+          userVocabularyId: reviewVocabulary.id,
+          quizQuestionId: 'cached-question',
+          articleSentenceTermId: reviewVocabulary.articleSentenceTermId,
+          difficultyCefr: CefrLevel.B1,
+          questionType: QuestionType.FILL_BLANK,
+        },
+      ],
     );
 
     expect(collectionFindFirst).toHaveBeenCalledWith(
@@ -653,17 +668,17 @@ describe('ReviewsRepository', () => {
     expect(sessionCreate).not.toHaveBeenCalled();
   });
 
-  it('validates an article source and batch-creates a missing initial question', async () => {
+  it('revalidates and attaches only the prepared AI question inside the start transaction', async () => {
     articleFindFirst.mockResolvedValue({ id: 'article' });
     sessionFindFirst.mockResolvedValue(null);
     vocabularyFindMany
       .mockResolvedValue([])
       .mockResolvedValueOnce([reviewVocabulary]);
-    questionFindMany.mockResolvedValue([]);
-    questionCreateManyAndReturn.mockResolvedValue([
+    questionFindMany.mockResolvedValue([
       {
-        id: 'generated-question',
+        id: 'prepared-ai-question',
         articleSentenceTermId: 'term',
+        difficultyCefr: CefrLevel.B1,
         questionType: QuestionType.FILL_BLANK,
       },
     ]);
@@ -687,6 +702,15 @@ describe('ReviewsRepository', () => {
         limit: 20,
       },
       new Date('2026-08-03T00:00:00Z'),
+      [
+        {
+          userVocabularyId: 'vocabulary',
+          quizQuestionId: 'prepared-ai-question',
+          articleSentenceTermId: 'term',
+          difficultyCefr: CefrLevel.B1,
+          questionType: QuestionType.FILL_BLANK,
+        },
+      ],
     );
 
     expect(articleFindFirst).toHaveBeenCalledWith(
@@ -695,21 +719,27 @@ describe('ReviewsRepository', () => {
       }),
     );
     expect(questionFindMany).toHaveBeenCalledTimes(1);
-    expect(questionCreateManyAndReturn).toHaveBeenCalledWith(
+    expect(questionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: [
-          expect.objectContaining({
-            articleSentenceTermId: 'term',
-            questionType: QuestionType.FILL_BLANK,
-            generationSource: 'RULE_BASED',
-            blankSentence: 'A ___ here.',
-          }),
-        ],
+        where: expect.objectContaining({
+          id: { in: ['prepared-ai-question'] },
+          generationSource: QuestionGenerationSource.AI,
+        }),
       }),
     );
+    expect(itemCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          userVocabularyId: 'vocabulary',
+          quizQuestionId: 'prepared-ai-question',
+        }),
+      ],
+    });
+    expect(questionCreateManyAndReturn).not.toHaveBeenCalled();
+    expect(optionCreateMany).not.toHaveBeenCalled();
   });
 
-  it('generates and caches one-correct-option SELECT_MEANING for NEW vocabulary', async () => {
+  it('omits an eligible candidate whose prepared AI question is unavailable', async () => {
     const target = {
       ...reviewVocabulary,
       learningStatus: LearningStatus.NEW,
@@ -728,13 +758,13 @@ describe('ReviewsRepository', () => {
     articleFindFirst.mockResolvedValue({ id: 'article' });
     sessionFindFirst.mockResolvedValue(null);
     vocabularyFindMany
-      .mockResolvedValueOnce([target])
-      .mockResolvedValueOnce([distractor]);
-    questionFindMany.mockResolvedValue([]);
-    questionCreateManyAndReturn.mockResolvedValue([
+      .mockResolvedValue([])
+      .mockResolvedValueOnce([target, distractor]);
+    questionFindMany.mockResolvedValue([
       {
-        id: 'generated-meaning',
+        id: 'available-question',
         articleSentenceTermId: 'term',
+        difficultyCefr: CefrLevel.B1,
         questionType: QuestionType.SELECT_MEANING,
       },
     ]);
@@ -755,32 +785,69 @@ describe('ReviewsRepository', () => {
       {
         sessionType: ReviewSessionType.ARTICLE_REVIEW,
         articleId: 'article',
-        limit: 1,
+        limit: 2,
       },
       new Date('2026-08-03T00:00:00Z'),
+      [
+        {
+          userVocabularyId: 'vocabulary',
+          quizQuestionId: 'available-question',
+          articleSentenceTermId: 'term',
+          difficultyCefr: CefrLevel.B1,
+          questionType: QuestionType.SELECT_MEANING,
+        },
+        {
+          userVocabularyId: 'distractor',
+          quizQuestionId: 'missing-question',
+          articleSentenceTermId: 'distractor-term',
+          difficultyCefr: CefrLevel.B1,
+          questionType: QuestionType.SELECT_MEANING,
+        },
+      ],
     );
 
-    expect(questionCreateManyAndReturn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: [
-          expect.objectContaining({
+    expect(itemCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          userVocabularyId: 'vocabulary',
+          quizQuestionId: 'available-question',
+        }),
+      ],
+    });
+    expect(questionCreateManyAndReturn).not.toHaveBeenCalled();
+    expect(optionCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not create a session when no prepared AI question remains usable', async () => {
+    articleFindFirst.mockResolvedValue({ id: 'article' });
+    sessionFindFirst.mockResolvedValue(null);
+    vocabularyFindMany
+      .mockResolvedValue([])
+      .mockResolvedValueOnce([reviewVocabulary]);
+    questionFindMany.mockResolvedValue([]);
+
+    await expect(
+      repository.startSession(
+        'owner',
+        {
+          sessionType: ReviewSessionType.ARTICLE_REVIEW,
+          articleId: 'article',
+          limit: 1,
+        },
+        new Date('2026-08-03T00:00:00Z'),
+        [
+          {
+            userVocabularyId: 'vocabulary',
+            quizQuestionId: 'missing-question',
+            articleSentenceTermId: 'term',
+            difficultyCefr: CefrLevel.B1,
             questionType: QuestionType.SELECT_MEANING,
-            generationSource: 'RULE_BASED',
-          }),
+          },
         ],
-      }),
-    );
-    const options = optionCreateMany.mock.calls[0][0].data as Array<{
-      optionText: string;
-      isCorrect: boolean;
-    }>;
-    expect(options).toHaveLength(2);
-    expect(options.filter(({ isCorrect }) => isCorrect)).toEqual([
-      expect.objectContaining({ optionText: 'meaning' }),
-    ]);
-    expect(options.filter(({ isCorrect }) => !isCorrect)).toEqual([
-      expect.objectContaining({ optionText: 'khác' }),
-    ]);
+      ),
+    ).rejects.toBeInstanceOf(NoUsableReviewQuestionError);
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(itemCreateMany).not.toHaveBeenCalled();
   });
 
   it('selects SELECT_CORRECT_CONTEXT for a fixed quiz after low recent accuracy', async () => {
@@ -1029,7 +1096,7 @@ describe('ReviewsRepository', () => {
     );
   });
 
-  it('atomically records a failure, leaves the item pending, and resets an established vocabulary', async () => {
+  it('keeps deterministic retry scheduling when no alternate AI question is cached', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
       quizId: 'quiz',
@@ -1071,14 +1138,17 @@ describe('ReviewsRepository', () => {
         userVocabularyId: 'vocabulary',
         retryCount: 1,
         quizQuestion: {
-          id: 'retry-question',
+          id: 'question',
           articleSentenceTermId: 'term',
-          questionType: QuestionType.FILL_BLANK,
-          prompt: 'Complete the sentence',
-          blankSentence: 'A ___ here.',
-          points: 1,
+          questionType: QuestionType.SELECT_MEANING,
+          prompt: 'Choose the meaning',
+          blankSentence: null,
+          points: 2,
           displayOrder: 1,
-          options: [],
+          options: [
+            { id: 'correct-option', optionText: 'Correct', displayOrder: 1 },
+            { id: 'wrong-option', optionText: 'Wrong', displayOrder: 2 },
+          ],
         },
       });
     vocabularyFindUnique.mockResolvedValue({
@@ -1089,13 +1159,7 @@ describe('ReviewsRepository', () => {
       consecutiveCorrectReviews: 3,
       lapseCount: 4,
     });
-    questionFindMany.mockResolvedValue([
-      {
-        id: 'retry-question',
-        articleSentenceTermId: 'term',
-        questionType: QuestionType.FILL_BLANK,
-      },
-    ]);
+    questionFindMany.mockResolvedValue([]);
     itemCount
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1)
@@ -1128,7 +1192,7 @@ describe('ReviewsRepository', () => {
           retryCount: 1,
           finalInferredScore: null,
           completedAt: null,
-          quizQuestionId: 'retry-question',
+          quizQuestionId: 'question',
           sequenceNumber: 2,
         },
       }),
@@ -1137,6 +1201,17 @@ describe('ReviewsRepository', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           questionType: { not: QuestionType.SELECT_MEANING },
+        }),
+      }),
+    );
+    expect(questionFindMany).toHaveBeenCalledTimes(2);
+    expect(questionFindMany.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          generationSource: QuestionGenerationSource.AI,
+          questionType: {
+            in: expect.not.arrayContaining([QuestionType.SELECT_MEANING]),
+          },
         }),
       }),
     );
@@ -1156,7 +1231,7 @@ describe('ReviewsRepository', () => {
       nextItem: {
         id: 'item',
         attemptNumber: 2,
-        question: { questionType: QuestionType.FILL_BLANK },
+        question: { questionType: QuestionType.SELECT_MEANING },
       },
     });
     expect(transaction).toHaveBeenCalledWith(expect.any(Function), {

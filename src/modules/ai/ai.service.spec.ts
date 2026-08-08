@@ -239,7 +239,7 @@ describe('AiService', () => {
     await expect(
       service.generateReviewQuestion(reviewQuestionInput),
     ).resolves.toEqual(reviewQuestionResult);
-    expect(groq.generateStructured).not.toHaveBeenCalled();
+    expect(groq.generateStructured.mock.calls).toHaveLength(0);
   });
 
   it('uses the limited provider fallback when review generation times out', async () => {
@@ -255,6 +255,25 @@ describe('AiService', () => {
     ).resolves.toEqual(reviewQuestionResult);
     expect(gemini.generateStructured.mock.calls).toHaveLength(1);
     expect(groq.generateStructured.mock.calls).toHaveLength(1);
+  });
+
+  it('returns no review question after both Gemini and Groq fail', async () => {
+    gemini.generateStructured.mockRejectedValue(
+      new ProviderCallError('server'),
+    );
+    groq.generateStructured.mockRejectedValue(new ProviderCallError('network'));
+
+    await expect(
+      service.generateReviewQuestion(reviewQuestionInput),
+    ).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'AI service is temporarily unavailable',
+    });
+    expect(gemini.generateStructured.mock.calls).toHaveLength(1);
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
+    expect(gemini.generateStructured.mock.invocationCallOrder[0]).toBeLessThan(
+      groq.generateStructured.mock.invocationCallOrder[0],
+    );
   });
 
   it('uses Groq once after a retryable Gemini failure', async () => {

@@ -451,6 +451,7 @@ describe('Review REST APIs (e2e)', () => {
     expect(createResponses).toHaveProperty('400');
     expect(createResponses).toHaveProperty('404');
     expect(createResponses).toHaveProperty('409');
+    expect(createResponses).toHaveProperty('503');
     expect(createResponses['400'].content['application/json'].example).toEqual(
       expect.objectContaining({
         success: false,

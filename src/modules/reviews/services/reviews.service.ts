@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import type {
   GetDueReviewsQueryDto,
@@ -15,6 +16,7 @@ import {
   InvalidAnswerRelationshipError,
   InvalidAnswerShapeError,
   InvalidReviewSourceShapeError,
+  NoUsableReviewQuestionError,
   ReviewConcurrencyConflictError,
   ReviewResourceNotFoundError,
   ReviewsRepository,
@@ -33,11 +35,16 @@ export class ReviewsService {
   async startSession(userId: string, dto: StartReviewSessionDto) {
     try {
       const now = new Date();
-      await this.aiQuestionGenerator.warmCache(userId, dto, now);
+      const preparedAiQuestions = await this.aiQuestionGenerator.warmCache(
+        userId,
+        dto,
+        now,
+      );
       const result = await this.reviewsRepository.startSession(
         userId,
         dto,
         now,
+        preparedAiQuestions,
       );
       if (!result) {
         throw new NotFoundException('No eligible vocabulary found');
@@ -192,6 +199,11 @@ export class ReviewsService {
     if (error instanceof InvalidReviewSourceShapeError) {
       throw new BadRequestException(
         'Review session source does not match its type',
+      );
+    }
+    if (error instanceof NoUsableReviewQuestionError) {
+      throw new ServiceUnavailableException(
+        'Review questions are temporarily unavailable; retry later',
       );
     }
     if (

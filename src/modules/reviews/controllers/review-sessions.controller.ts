@@ -21,6 +21,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -107,9 +108,13 @@ export class ReviewSessionsController {
     type: ApiErrorResponseDto,
     example: conflictErrorExample,
   })
-  @ApiInternalServerErrorResponse({
+  @ApiServiceUnavailableResponse({
     description:
-      'Unexpected persistence failure. AI unavailability is handled by rule-based fallback and does not produce this response.',
+      'Eligible vocabulary exists, but no valid AI question is currently available. The request can be retried.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiInternalServerErrorResponse({
+    description: 'Unexpected persistence failure.',
     type: ApiErrorResponseDto,
   })
   create(
