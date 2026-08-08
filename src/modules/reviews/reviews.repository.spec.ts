@@ -8,6 +8,10 @@ import {
   QuestionGenerationSource,
   QuestionType,
   QuizStatus,
+  ReviewAgentAction,
+  ReviewDecisionKind,
+  ReviewDecisionSource,
+  ReviewErrorType,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
   ReviewSessionType,
@@ -46,7 +50,10 @@ describe('ReviewsRepository', () => {
   const itemUpdate = jest.fn();
   const itemAggregate = jest.fn();
   const answerCreate = jest.fn();
+  const answerFindFirst = jest.fn();
   const answerGroupBy = jest.fn();
+  const decisionCreate = jest.fn();
+  const decisionFindFirst = jest.fn();
   const profileFindUnique = jest.fn();
   const vocabularyFindUnique = jest.fn();
   const vocabularyFindMany = jest.fn();
@@ -77,7 +84,15 @@ describe('ReviewsRepository', () => {
       count: itemCount,
       aggregate: itemAggregate,
     },
-    reviewAnswer: { create: answerCreate, groupBy: answerGroupBy },
+    reviewAnswer: {
+      create: answerCreate,
+      findFirst: answerFindFirst,
+      groupBy: answerGroupBy,
+    },
+    reviewAgentDecision: {
+      create: decisionCreate,
+      findFirst: decisionFindFirst,
+    },
     userProfile: { findUnique: profileFindUnique },
     userVocabulary: {
       findUnique: vocabularyFindUnique,
@@ -162,6 +177,7 @@ describe('ReviewsRepository', () => {
               count: itemCount,
               findFirst: itemFindFirst,
             },
+            reviewAgentDecision: { findFirst: decisionFindFirst },
             $transaction: transaction,
             $queryRaw: query,
           },
@@ -665,6 +681,90 @@ describe('ReviewsRepository', () => {
     await expect(
       repository.reserveAiCallSlot('owner', 'session', 6),
     ).resolves.toBe(false);
+  });
+
+  it('persists an owner-scoped AI decision in a short transaction', async () => {
+    sessionFindFirst.mockResolvedValue({ id: 'session' });
+    itemFindFirst.mockResolvedValue({ id: 'item' });
+    answerFindFirst.mockResolvedValue({ id: 'answer' });
+    decisionCreate.mockResolvedValue({ id: 'decision' });
+
+    await expect(
+      repository.persistAgentDecision('owner', {
+        reviewSessionId: 'session',
+        reviewSessionItemId: 'item',
+        reviewAnswerId: 'answer',
+        kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+        source: ReviewDecisionSource.AI,
+        action: ReviewAgentAction.TEACH_AND_REQUEUE,
+        skillDimension: ReviewSkillDimension.RECALL,
+        errorType: ReviewErrorType.LOW_RECALL,
+        confidence: 0.84,
+        reasonCode: 'LOW_RECALL_EVIDENCE',
+        stateSnapshot: { wordOrPhrase: 'engaging' },
+        decisionPayload: { action: 'TEACH_AND_REQUEUE' },
+        provider: 'GROQ',
+        model: 'groq-model',
+        promptVersion: 'review-answer-diagnosis-v1',
+        latencyMs: 120,
+      }),
+    ).resolves.toEqual({ decision: { id: 'decision' }, created: true });
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(sessionFindFirst).toHaveBeenCalledWith({
+      where: { id: 'session', userId: 'owner' },
+      select: { id: true },
+    });
+    expect(answerFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'answer',
+        reviewSessionItem: {
+          is: { reviewSessionId: 'session', id: 'item' },
+        },
+      },
+      select: { id: true },
+    });
+  });
+
+  it('returns the existing owner-scoped decision after a duplicate constraint conflict', async () => {
+    sessionFindFirst.mockResolvedValue({ id: 'session' });
+    itemFindFirst.mockResolvedValue({ id: 'item' });
+    answerFindFirst.mockResolvedValue({ id: 'answer' });
+    decisionCreate.mockRejectedValue({ code: 'P2002' });
+    decisionFindFirst.mockResolvedValue({ id: 'existing-decision' });
+
+    const input = {
+      reviewSessionId: 'session',
+      reviewSessionItemId: 'item',
+      reviewAnswerId: 'answer',
+      kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+      source: ReviewDecisionSource.RULE,
+      action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
+      skillDimension: ReviewSkillDimension.RECALL,
+      errorType: ReviewErrorType.UNKNOWN,
+      confidence: null,
+      reasonCode: 'AI_UNAVAILABLE',
+      stateSnapshot: { wordOrPhrase: 'engaging' },
+      decisionPayload: { action: 'REQUEUE_WITH_NEW_TYPE' },
+      provider: null,
+      model: null,
+      promptVersion: 'review-agent-rule-v1',
+      latencyMs: null,
+    };
+
+    await expect(
+      repository.persistAgentDecision('owner', input),
+    ).resolves.toEqual({
+      decision: { id: 'existing-decision' },
+      created: false,
+    });
+    expect(decisionFindFirst).toHaveBeenCalledWith({
+      where: {
+        reviewAnswerId: 'answer',
+        kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+        reviewSession: { is: { userId: 'owner' } },
+      },
+    });
   });
 
   it('selects collection review vocabulary only through that owned collection', async () => {

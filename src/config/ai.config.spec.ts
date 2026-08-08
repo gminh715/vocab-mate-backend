@@ -8,6 +8,11 @@ const variableNames = [
   'AI_REQUEST_TIMEOUT_MS',
   'AI_MAX_ARTICLE_CHARACTERS',
   'AI_MAX_TERMS_PER_ARTICLE',
+  'AI_REVIEW_AGENT_ENABLED',
+  'AI_REVIEW_MAX_CALLS_PER_SESSION',
+  'AI_REVIEW_MAX_DIAGNOSIS_CALLS',
+  'AI_REVIEW_MIN_CONFIDENCE',
+  'AI_REVIEW_DEFAULT_DURATION_MINUTES',
 ] as const;
 
 describe('aiConfig', () => {
@@ -23,6 +28,11 @@ describe('aiConfig', () => {
     process.env.AI_REQUEST_TIMEOUT_MS = '15000';
     process.env.AI_MAX_ARTICLE_CHARACTERS = '50000';
     process.env.AI_MAX_TERMS_PER_ARTICLE = '25';
+    process.env.AI_REVIEW_AGENT_ENABLED = 'true';
+    process.env.AI_REVIEW_MAX_CALLS_PER_SESSION = '6';
+    process.env.AI_REVIEW_MAX_DIAGNOSIS_CALLS = '4';
+    process.env.AI_REVIEW_MIN_CONFIDENCE = '0.65';
+    process.env.AI_REVIEW_DEFAULT_DURATION_MINUTES = '10';
   });
 
   afterAll(() => {
@@ -45,6 +55,11 @@ describe('aiConfig', () => {
       requestTimeoutMs: 15000,
       maxArticleCharacters: 50000,
       maxTermsPerArticle: 25,
+      reviewAgentEnabled: true,
+      reviewMaxCallsPerSession: 6,
+      reviewMaxDiagnosisCalls: 4,
+      reviewMinConfidence: 0.65,
+      reviewDefaultDurationMinutes: 10,
     });
   });
 
@@ -63,9 +78,21 @@ describe('aiConfig', () => {
     ['AI_REQUEST_TIMEOUT_MS', '999'],
     ['AI_MAX_ARTICLE_CHARACTERS', 'not-a-number'],
     ['AI_MAX_TERMS_PER_ARTICLE', '101'],
+    ['AI_REVIEW_MAX_CALLS_PER_SESSION', '21'],
+    ['AI_REVIEW_MAX_DIAGNOSIS_CALLS', '0'],
   ] as const)('rejects invalid %s', (name, value) => {
     process.env[name] = value;
 
     expect(() => aiConfig()).toThrow(`${name} must be an integer between`);
+  });
+
+  it.each([
+    ['AI_REVIEW_AGENT_ENABLED', 'yes'],
+    ['AI_REVIEW_MIN_CONFIDENCE', '1.1'],
+    ['AI_REVIEW_DEFAULT_DURATION_MINUTES', '12'],
+  ] as const)('rejects invalid review-agent setting %s', (name, value) => {
+    process.env[name] = value;
+
+    expect(() => aiConfig()).toThrow(name);
   });
 });

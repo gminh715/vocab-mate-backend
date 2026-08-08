@@ -15,11 +15,16 @@ import {
 } from '../reviews.repository';
 import { ReviewsService } from './reviews.service';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
+import { ReviewAgentService } from './review-agent.service';
 
 describe('ReviewsService', () => {
   let service: ReviewsService;
   let repository: Record<string, jest.Mock>;
   let aiQuestionGenerator: { warmCache: jest.Mock };
+  let reviewAgent: {
+    planSession: jest.Mock;
+    diagnoseAnswer: jest.Mock;
+  };
 
   beforeEach(async () => {
     repository = {
@@ -32,8 +37,13 @@ describe('ReviewsService', () => {
       listHistory: jest.fn(),
       getCompletedResult: jest.fn(),
       getDueRecommendations: jest.fn(),
+      persistAgentDecision: jest.fn(),
     };
     aiQuestionGenerator = { warmCache: jest.fn().mockResolvedValue([]) };
+    reviewAgent = {
+      planSession: jest.fn(),
+      diagnoseAnswer: jest.fn(),
+    };
     const module = await Test.createTestingModule({
       providers: [
         ReviewsService,
@@ -42,9 +52,58 @@ describe('ReviewsService', () => {
           provide: AiAssistedQuestionGeneratorService,
           useValue: aiQuestionGenerator,
         },
+        { provide: ReviewAgentService, useValue: reviewAgent },
       ],
     }).compile();
     service = module.get(ReviewsService);
+  });
+
+  it('persists a session-plan decision only after the provider phase finishes', async () => {
+    const callOrder: string[] = [];
+    const request = {
+      userId: 'user',
+      reviewSessionId: 'session',
+      input: {
+        targetCefr: 'B1' as const,
+        reviewGoal: 'BALANCED' as const,
+        targetDurationMinutes: 10 as const,
+        maxItemCount: 1,
+        allowedFocusDimensions: ['RECALL' as const],
+        candidates: [
+          {
+            alias: 'v1',
+            wordOrPhrase: 'word',
+            lemma: 'word',
+            partOfSpeech: 'noun',
+            contextualMeaningVi: 'nghia',
+            originalSentence: 'A word in context.',
+            daysOverdue: 1,
+            lapseCount: 0,
+            recentAttempts: [],
+          },
+        ],
+        skillAggregates: [],
+      },
+    };
+    const decision = { reviewSessionId: 'session', source: 'AI' };
+    reviewAgent.planSession.mockImplementation(() => {
+      callOrder.push('provider-complete');
+      return Promise.resolve(decision);
+    });
+    repository.persistAgentDecision.mockImplementation(() => {
+      callOrder.push('persistence-transaction');
+      return Promise.resolve({ decision: { id: 'decision' }, created: true });
+    });
+
+    await expect(service.createSessionPlanDecision(request)).resolves.toEqual({
+      decision: { id: 'decision' },
+      created: true,
+    });
+    expect(callOrder).toEqual(['provider-complete', 'persistence-transaction']);
+    expect(repository.persistAgentDecision).toHaveBeenCalledWith(
+      'user',
+      decision,
+    );
   });
 
   it('returns generic not found for an ineligible quiz', async () => {

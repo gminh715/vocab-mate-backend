@@ -24,13 +24,37 @@ import {
   ReviewSubmissionConflictError,
 } from '../reviews.repository';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
+import {
+  type AnswerDiagnosisDecisionRequest,
+  ReviewAgentService,
+  type SessionPlanDecisionRequest,
+} from './review-agent.service';
 
 @Injectable()
 export class ReviewsService {
   constructor(
     private readonly reviewsRepository: ReviewsRepository,
     private readonly aiQuestionGenerator: AiAssistedQuestionGeneratorService,
+    private readonly reviewAgent: ReviewAgentService,
   ) {}
+
+  async createSessionPlanDecision(request: SessionPlanDecisionRequest) {
+    const decision = await this.reviewAgent.planSession(request);
+    return this.reviewsRepository.persistAgentDecision(
+      request.userId,
+      decision,
+    );
+  }
+
+  async createAnswerInterventionDecision(
+    request: AnswerDiagnosisDecisionRequest,
+  ) {
+    const decision = await this.reviewAgent.diagnoseAnswer(request);
+    return this.reviewsRepository.persistAgentDecision(
+      request.userId,
+      decision,
+    );
+  }
 
   async startSession(userId: string, dto: StartReviewSessionDto) {
     try {

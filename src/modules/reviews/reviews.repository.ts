@@ -7,6 +7,9 @@ import {
   QuestionGenerationSource,
   QuestionType,
   QuizStatus,
+  type ReviewAgentAction,
+  ReviewDecisionKind,
+  type ReviewDecisionSource,
   type ReviewErrorType,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
@@ -40,6 +43,7 @@ export class ReviewConcurrencyConflictError extends Error {}
 export class InvalidReviewSourceShapeError extends Error {}
 export class ReviewSubmissionConflictError extends Error {}
 export class NoUsableReviewQuestionError extends Error {}
+export class InvalidReviewAgentDecisionRelationshipError extends Error {}
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
@@ -307,6 +311,37 @@ export interface LearnerReviewSnapshot {
   eligibleVocabulary: LearnerSnapshotVocabulary[];
 }
 
+export type ReviewAgentJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ReviewAgentJsonValue[]
+  | ReviewAgentJsonObject;
+
+export interface ReviewAgentJsonObject {
+  [key: string]: ReviewAgentJsonValue;
+}
+
+export interface PersistReviewAgentDecisionInput {
+  reviewSessionId: string;
+  reviewSessionItemId: string | null;
+  reviewAnswerId: string | null;
+  kind: ReviewDecisionKind;
+  source: ReviewDecisionSource;
+  action: ReviewAgentAction | null;
+  skillDimension: ReviewSkillDimension | null;
+  errorType: ReviewErrorType | null;
+  confidence: number | null;
+  reasonCode: string;
+  stateSnapshot: ReviewAgentJsonObject;
+  decisionPayload: ReviewAgentJsonObject;
+  provider: string | null;
+  model: string | null;
+  promptVersion: string;
+  latencyMs: number | null;
+}
+
 interface RecentAttemptSnapshotRow {
   answerId: string;
   userVocabularyId: string;
@@ -468,6 +503,82 @@ export class ReviewsRepository {
       data: { aiCallCount: { increment: 1 } },
     });
     return reservation.count === 1;
+  }
+
+  async persistAgentDecision(
+    userId: string,
+    input: PersistReviewAgentDecisionInput,
+  ) {
+    const isAnswerDecision =
+      input.kind === ReviewDecisionKind.ANSWER_INTERVENTION;
+    if (
+      (isAnswerDecision &&
+        (!input.reviewSessionItemId || !input.reviewAnswerId)) ||
+      (!isAnswerDecision &&
+        (input.reviewSessionItemId !== null || input.reviewAnswerId !== null))
+    ) {
+      throw new InvalidReviewAgentDecisionRelationshipError();
+    }
+    try {
+      const decision = await this.prisma.$transaction(async (tx) => {
+        const session = await tx.reviewSession.findFirst({
+          where: { id: input.reviewSessionId, userId },
+          select: { id: true },
+        });
+        if (!session) throw new ReviewResourceNotFoundError();
+
+        if (input.reviewSessionItemId) {
+          const item = await tx.reviewSessionItem.findFirst({
+            where: {
+              id: input.reviewSessionItemId,
+              reviewSessionId: input.reviewSessionId,
+            },
+            select: { id: true },
+          });
+          if (!item) {
+            throw new InvalidReviewAgentDecisionRelationshipError();
+          }
+        }
+
+        if (input.reviewAnswerId) {
+          const answer = await tx.reviewAnswer.findFirst({
+            where: {
+              id: input.reviewAnswerId,
+              reviewSessionItem: {
+                is: {
+                  reviewSessionId: input.reviewSessionId,
+                  ...(input.reviewSessionItemId
+                    ? { id: input.reviewSessionItemId }
+                    : {}),
+                },
+              },
+            },
+            select: { id: true },
+          });
+          if (!answer) {
+            throw new InvalidReviewAgentDecisionRelationshipError();
+          }
+        }
+
+        return tx.reviewAgentDecision.create({
+          data: input,
+        });
+      });
+      return { decision, created: true } as const;
+    } catch (error: unknown) {
+      if (!input.reviewAnswerId || !this.hasPrismaCode(error, 'P2002')) {
+        throw error;
+      }
+      const existing = await this.prisma.reviewAgentDecision.findFirst({
+        where: {
+          reviewAnswerId: input.reviewAnswerId,
+          kind: input.kind,
+          reviewSession: { is: { userId } },
+        },
+      });
+      if (!existing) throw error;
+      return { decision: existing, created: false } as const;
+    }
   }
 
   getAiQuestionGenerationCandidates(
