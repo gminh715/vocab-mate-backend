@@ -76,6 +76,33 @@ export class AiAssistedQuestionGeneratorService {
     );
   }
 
+  async prepareRetestQuestion(
+    vocabulary: AiQuestionGenerationCandidate['vocabulary'],
+    questionType: QuestionType,
+  ): Promise<PreparedAiReviewQuestion | null> {
+    const candidate: AiQuestionGenerationCandidate = {
+      vocabulary,
+      questionType,
+      preferredQuestionTypes: [questionType],
+      cachedQuestion: null,
+    };
+    try {
+      const question = await this.ensureCached(candidate, questionType);
+      return this.toPreparedQuestion(candidate, question.id);
+    } catch (error: unknown) {
+      if (!(error instanceof AiError)) throw error;
+      this.logger.warn(
+        `AI retest question unavailable; keeping deterministic transition (${error.code})`,
+      );
+      return this.reviewsRepository.findPreferredCachedAiQuestion(
+        vocabulary.id,
+        vocabulary.articleSentenceTermId,
+        vocabulary.savedCefrLevel,
+        [questionType],
+      );
+    }
+  }
+
   private async ensureCached(
     candidate: AiQuestionGenerationCandidate,
     questionType: QuestionType,

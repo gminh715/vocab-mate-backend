@@ -209,4 +209,47 @@ describe('AiAssistedQuestionGeneratorService', () => {
     );
     expect(prepared).toHaveLength(MAX_SYNCHRONOUS_AI_QUESTION_GENERATIONS);
   });
+
+  it('prepares a requested retest type through the same cache-first AI path', async () => {
+    const candidate = makeCandidate(1);
+
+    await expect(
+      service.prepareRetestQuestion(
+        candidate.vocabulary,
+        QuestionType.FILL_BLANK,
+      ),
+    ).resolves.toMatchObject({
+      userVocabularyId: 'vocabulary-1',
+      questionType: QuestionType.FILL_BLANK,
+    });
+    expect(ai.generateReviewQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedQuestionType: QuestionType.FILL_BLANK,
+      }),
+    );
+  });
+
+  it('returns no rule-based retest when both providers and the AI cache are unavailable', async () => {
+    const candidate = makeCandidate(1);
+    ai.generateReviewQuestion.mockRejectedValue(
+      new AiError(
+        'PROVIDER_UNAVAILABLE',
+        'AI service is temporarily unavailable',
+      ),
+    );
+
+    await expect(
+      service.prepareRetestQuestion(
+        candidate.vocabulary,
+        QuestionType.FILL_BLANK,
+      ),
+    ).resolves.toBeNull();
+    expect(repository.findPreferredCachedAiQuestion).toHaveBeenCalledWith(
+      'vocabulary-1',
+      'term-1',
+      CefrLevel.B1,
+      [QuestionType.FILL_BLANK],
+    );
+    expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
+  });
 });

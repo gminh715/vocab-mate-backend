@@ -3,8 +3,12 @@ import {
   ArticleStatus,
   QuestionType,
   QuizStatus,
+  ReviewAgentAction,
+  ReviewDecisionSource,
+  ReviewErrorType,
   ReviewSessionStatus,
   ReviewSessionType,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 
 export class ReviewSessionDto {
@@ -77,6 +81,30 @@ export class SessionReviewItemDto {
   question!: SessionQuestionDto;
 }
 
+export class ReviewAgentMicroLessonDto {
+  @ApiProperty()
+  title!: string;
+  @ApiProperty()
+  explanation!: string;
+  @ApiProperty()
+  example!: string;
+}
+
+export class ReviewAgentFeedbackDto {
+  @ApiProperty({ enum: ReviewDecisionSource })
+  source!: ReviewDecisionSource;
+  @ApiProperty({ enum: ReviewAgentAction })
+  action!: ReviewAgentAction;
+  @ApiProperty({ enum: ReviewSkillDimension })
+  skillDimension!: ReviewSkillDimension;
+  @ApiProperty({ enum: ReviewErrorType })
+  errorType!: ReviewErrorType;
+  @ApiPropertyOptional({ type: ReviewAgentMicroLessonDto })
+  microLesson?: ReviewAgentMicroLessonDto;
+  @ApiPropertyOptional({ minimum: 2, maximum: 5 })
+  retestAfterItems?: number;
+}
+
 export class StartReviewSessionDataDto {
   @ApiProperty({ type: ReviewSessionDto })
   session!: ReviewSessionDto;
@@ -84,6 +112,8 @@ export class StartReviewSessionDataDto {
   progress!: ReviewProgressDto;
   @ApiPropertyOptional({ type: SessionReviewItemDto })
   nextItem?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewAgentFeedbackDto })
+  agentFeedback?: ReviewAgentFeedbackDto;
 }
 
 export class ReviewSessionStateDataDto {
@@ -93,6 +123,8 @@ export class ReviewSessionStateDataDto {
   progress!: ReviewProgressDto;
   @ApiPropertyOptional({ type: SessionReviewItemDto })
   nextItem?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewAgentFeedbackDto })
+  agentFeedback?: ReviewAgentFeedbackDto;
 }
 
 export class ReviewResultDto {
@@ -142,6 +174,8 @@ export class SubmittedReviewAnswerDataDto {
   progress!: ReviewProgressDto;
   @ApiPropertyOptional({ type: SessionReviewItemDto })
   nextQuestion?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewAgentFeedbackDto })
+  agentFeedback?: ReviewAgentFeedbackDto;
   @ApiPropertyOptional({ type: ReviewResultDto })
   completionSummary?: ReviewResultDto;
 }

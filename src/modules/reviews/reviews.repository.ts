@@ -7,15 +7,19 @@ import {
   QuestionGenerationSource,
   QuestionType,
   QuizStatus,
-  type ReviewAgentAction,
+  ReviewAgentAction,
   ReviewDecisionKind,
   type ReviewDecisionSource,
   type ReviewErrorType,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
   ReviewSessionType,
-  type ReviewSkillDimension,
+  ReviewSkillDimension,
 } from '../../../generated/prisma/enums';
+import type {
+  DiagnoseReviewAnswerInput,
+  ReviewRetestAfterItems,
+} from '../ai/ai.contracts';
 import { PrismaService } from '../../database/prisma.service';
 import type {
   GetDueReviewsQueryDto,
@@ -44,9 +48,11 @@ export class InvalidReviewSourceShapeError extends Error {}
 export class ReviewSubmissionConflictError extends Error {}
 export class NoUsableReviewQuestionError extends Error {}
 export class InvalidReviewAgentDecisionRelationshipError extends Error {}
+export class ReviewAgentDecisionConflictError extends Error {}
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
+const DEFAULT_RETEST_AFTER_ITEMS: ReviewRetestAfterItems = 3;
 const MAX_LEARNER_SNAPSHOT_VOCABULARIES = 100;
 const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
   LearningStatus.NEW,
@@ -342,6 +348,29 @@ export interface PersistReviewAgentDecisionInput {
   latencyMs: number | null;
 }
 
+export interface PostAnswerDiagnosisSnapshot {
+  request: {
+    reviewSessionItemId: string;
+    reviewAnswerId: string;
+    isCorrect: false;
+    wasSkipped: false;
+    lapseCount: number;
+    input: DiagnoseReviewAnswerInput;
+  };
+  vocabulary: VocabularyQuestionSnapshot;
+  originalQuestionType: QuestionType;
+  fallbackRetestQuestionType: QuestionType;
+  fallbackRetestAfterItems: ReviewRetestAfterItems;
+  attemptNumber: number;
+}
+
+export interface ApplyAnswerAgentDecisionInput {
+  decision: PersistReviewAgentDecisionInput;
+  originalQuestionType: QuestionType;
+  expectedAttemptNumber: number;
+  preparedRetestQuestion: PreparedAiReviewQuestion | null;
+}
+
 interface RecentAttemptSnapshotRow {
   answerId: string;
   userVocabularyId: string;
@@ -578,6 +607,149 @@ export class ReviewsRepository {
       });
       if (!existing) throw error;
       return { decision: existing, created: false } as const;
+    }
+  }
+
+  async applyAnswerAgentDecision(
+    userId: string,
+    input: ApplyAnswerAgentDecisionInput,
+  ) {
+    const { decision } = input;
+    const retest = this.readRetestDecision(decision.decisionPayload);
+    if (
+      decision.kind !== ReviewDecisionKind.ANSWER_INTERVENTION ||
+      !decision.reviewSessionItemId ||
+      !decision.reviewAnswerId ||
+      !decision.action ||
+      !decision.skillDimension ||
+      !decision.errorType ||
+      !retest ||
+      retest.questionType === input.originalQuestionType
+    ) {
+      throw new InvalidReviewAgentDecisionRelationshipError();
+    }
+    const reviewSessionItemId = decision.reviewSessionItemId;
+    const reviewAnswerId = decision.reviewAnswerId;
+
+    try {
+      return await this.withSerializableRetry(async (tx) => {
+        const session = await tx.reviewSession.findFirst({
+          where: {
+            id: decision.reviewSessionId,
+            userId,
+            status: ReviewSessionStatus.IN_PROGRESS,
+          },
+          select: sessionSelect,
+        });
+        if (!session) throw new ReviewAgentDecisionConflictError();
+
+        const item = await tx.reviewSessionItem.findFirst({
+          where: {
+            id: reviewSessionItemId,
+            reviewSessionId: session.id,
+            status: ReviewSessionItemStatus.PENDING,
+          },
+          select: {
+            id: true,
+            userVocabularyId: true,
+            retryCount: true,
+            quizQuestion: {
+              select: {
+                id: true,
+                articleSentenceTermId: true,
+                questionType: true,
+              },
+            },
+            userVocabulary: {
+              select: { savedCefrLevel: true },
+            },
+          },
+        });
+        if (
+          !item ||
+          !item.userVocabularyId ||
+          !item.userVocabulary ||
+          item.retryCount !== input.expectedAttemptNumber
+        ) {
+          throw new ReviewAgentDecisionConflictError();
+        }
+
+        const answer = await tx.reviewAnswer.findFirst({
+          where: {
+            id: reviewAnswerId,
+            reviewSessionItemId: item.id,
+            attemptNumber: input.expectedAttemptNumber,
+            isCorrect: false,
+            quizQuestion: {
+              is: { questionType: input.originalQuestionType },
+            },
+          },
+          select: { id: true },
+        });
+        if (!answer) throw new ReviewAgentDecisionConflictError();
+
+        let retestQuestionId = item.quizQuestion.id;
+        if (item.quizQuestion.questionType !== retest.questionType) {
+          const prepared = input.preparedRetestQuestion;
+          if (
+            !prepared ||
+            prepared.userVocabularyId !== item.userVocabularyId ||
+            prepared.articleSentenceTermId !==
+              item.quizQuestion.articleSentenceTermId ||
+            prepared.difficultyCefr !== item.userVocabulary.savedCefrLevel ||
+            prepared.questionType !== retest.questionType
+          ) {
+            throw new ReviewAgentDecisionConflictError();
+          }
+          const preparedQuestion = await tx.quizQuestion.findFirst({
+            where: {
+              id: prepared.quizQuestionId,
+              quizId: null,
+              articleSentenceTermId: prepared.articleSentenceTermId,
+              difficultyCefr: prepared.difficultyCefr,
+              questionType: retest.questionType,
+              generationSource: QuestionGenerationSource.AI,
+              isActive: true,
+            },
+            select: { id: true },
+          });
+          if (!preparedQuestion) throw new ReviewAgentDecisionConflictError();
+          retestQuestionId = preparedQuestion.id;
+        }
+
+        await tx.reviewAgentDecision.create({ data: decision });
+        await tx.reviewAnswer.update({
+          where: { id: answer.id },
+          data: {
+            skillDimension: decision.skillDimension,
+            errorType: decision.errorType,
+          },
+          select: { id: true },
+        });
+        if (retestQuestionId !== item.quizQuestion.id) {
+          await tx.reviewSessionItem.update({
+            where: { id: item.id },
+            data: { quizQuestionId: retestQuestionId },
+            select: { id: true },
+          });
+        }
+        await this.movePendingItemAfter(
+          tx,
+          session.id,
+          item.id,
+          retest.afterItems,
+        );
+        const state = await this.getSessionStateWithClient(tx, session);
+        return {
+          ...state,
+          agentFeedback: this.toAgentFeedback(decision),
+        };
+      });
+    } catch (error: unknown) {
+      if (this.hasPrismaCode(error, 'P2002')) {
+        throw new ReviewAgentDecisionConflictError();
+      }
+      throw error;
     }
   }
 
@@ -935,26 +1107,32 @@ export class ReviewsRepository {
         }
         throw error;
       }
-      const shouldRetry =
+      const wantsRetry =
         !grading.isCorrect && item.retryCount < MAX_RETRY_COUNT;
-      const retryQuestion = shouldRetry
-        ? await this.assignRetryQuestion(
-            tx,
-            vocabulary,
-            question.id,
-            question.questionType,
-            session.quizId,
-          )
-        : null;
+      const pendingItemsAfterCurrent = wantsRetry
+        ? await tx.reviewSessionItem.findMany({
+            where: {
+              reviewSessionId: session.id,
+              status: ReviewSessionItemStatus.PENDING,
+              id: { not: item.id },
+              sequenceNumber: { gt: item.sequenceNumber },
+            },
+            orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+            take: 5,
+            select: { id: true, sequenceNumber: true },
+          })
+        : [];
+      const retryQuestion =
+        wantsRetry && pendingItemsAfterCurrent.length >= 2
+          ? await this.assignRetryQuestion(
+              tx,
+              vocabulary,
+              question.questionType,
+              session.quizId,
+            )
+          : null;
+      const shouldRetry = retryQuestion !== null;
       const completed = grading.isCorrect || !shouldRetry;
-      const nextSequence = shouldRetry
-        ? ((
-            await tx.reviewSessionItem.aggregate({
-              where: { reviewSessionId: session.id },
-              _max: { sequenceNumber: true },
-            })
-          )._max.sequenceNumber ?? item.sequenceNumber)
-        : item.sequenceNumber;
       await tx.reviewSessionItem.update({
         where: { id: item.id },
         data: {
@@ -967,12 +1145,23 @@ export class ReviewsRepository {
           ...(retryQuestion
             ? {
                 quizQuestionId: retryQuestion.id,
-                sequenceNumber: nextSequence + 1,
               }
             : {}),
         },
         select: { id: true },
       });
+
+      const fallbackRetestAfterItems = shouldRetry
+        ? this.defaultRetestOffset(pendingItemsAfterCurrent.length)
+        : null;
+      if (fallbackRetestAfterItems !== null) {
+        await this.movePendingItemAfter(
+          tx,
+          session.id,
+          item.id,
+          fallbackRetestAfterItems,
+        );
+      }
 
       if (vocabulary && shouldRetry) {
         await tx.userVocabulary.update({
@@ -987,7 +1176,7 @@ export class ReviewsRepository {
             inferredScore,
             vocabulary,
             now,
-            false,
+            !grading.isCorrect && item.retryCount === 0,
           ),
           select: { id: true },
         });
@@ -1019,6 +1208,69 @@ export class ReviewsRepository {
           )
         : undefined;
 
+      const attemptNumber = item._count.answers + 1;
+      const learnerAnswer =
+        grading.selectedOptionId === null
+          ? (dto.userAnswerText ?? '')
+          : (question.options.find(({ id }) => id === grading.selectedOptionId)
+              ?.optionText ?? '');
+      const diagnosisSnapshot: PostAnswerDiagnosisSnapshot | undefined =
+        !grading.isCorrect &&
+        shouldRetry &&
+        retryQuestion &&
+        vocabulary &&
+        fallbackRetestAfterItems !== null
+          ? {
+              request: {
+                reviewSessionItemId: item.id,
+                reviewAnswerId: answer.id,
+                isCorrect: false,
+                wasSkipped: false,
+                lapseCount: vocabulary.lapseCount,
+                input: {
+                  targetCefr: vocabulary.savedCefrLevel,
+                  wordOrPhrase: vocabulary.savedWordDisplay,
+                  lemma: vocabulary.savedLemma,
+                  partOfSpeech: vocabulary.savedPartOfSpeech,
+                  contextualMeaningVi: vocabulary.savedMeaningVi,
+                  originalSentence: vocabulary.savedContextSentence,
+                  questionType: question.questionType,
+                  learnerAnswer,
+                  correctAnswer: grading.correctAnswer,
+                  responseTimeMs: dto.responseTimeMs ?? 0,
+                  hintsUsed: dto.hintsUsed ?? 0,
+                  attemptNumber,
+                  recentAttempts: [],
+                  skillAggregates: [],
+                  allowedSkillDimensions: [
+                    ReviewSkillDimension.RECOGNITION,
+                    ReviewSkillDimension.RECALL,
+                    ReviewSkillDimension.SPELLING,
+                    ReviewSkillDimension.CONTEXT,
+                  ],
+                  allowedActions: [
+                    ReviewAgentAction.CONTINUE,
+                    ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
+                    ReviewAgentAction.TEACH_AND_REQUEUE,
+                    ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
+                  ],
+                  allowedRetestQuestionTypes: Object.values(
+                    QuestionType,
+                  ).filter((candidate) => candidate !== question.questionType),
+                  allowedRetestAfterItems: [2, 3, 4, 5].filter(
+                    (offset): offset is ReviewRetestAfterItems =>
+                      offset <= pendingItemsAfterCurrent.length,
+                  ),
+                },
+              },
+              vocabulary: this.toQuestionSnapshot(vocabulary),
+              originalQuestionType: question.questionType,
+              fallbackRetestQuestionType: retryQuestion.questionType,
+              fallbackRetestAfterItems,
+              attemptNumber,
+            }
+          : undefined;
+
       return {
         answerId: answer.id,
         isCorrect: grading.isCorrect,
@@ -1029,6 +1281,7 @@ export class ReviewsRepository {
         willReturnLater: shouldRetry,
         sessionCompleted,
         ...(completionSummary ? { completionSummary } : {}),
+        ...(diagnosisSnapshot ? { diagnosisSnapshot } : {}),
         ...state,
       };
     });
@@ -1675,10 +1928,150 @@ export class ReviewsRepository {
     });
   }
 
+  private async movePendingItemAfter(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    itemId: string,
+    afterItems: ReviewRetestAfterItems,
+  ): Promise<void> {
+    const pending = await tx.reviewSessionItem.findMany({
+      where: {
+        reviewSessionId: sessionId,
+        status: ReviewSessionItemStatus.PENDING,
+      },
+      orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+      select: { id: true, sequenceNumber: true },
+    });
+    const currentIndex = pending.findIndex(({ id }) => id === itemId);
+    const otherItems = pending.filter(({ id }) => id !== itemId);
+    if (currentIndex < 0 || otherItems.length < afterItems) {
+      throw new ReviewAgentDecisionConflictError();
+    }
+    const reordered = [...otherItems];
+    const current = pending[currentIndex];
+    reordered.splice(afterItems, 0, current);
+    if (reordered.every((item, index) => item.id === pending[index]?.id)) {
+      return;
+    }
+
+    const sequenceNumbers = pending.map(({ sequenceNumber }) => sequenceNumber);
+    await tx.reviewSessionItem.update({
+      where: { id: itemId },
+      data: { sequenceNumber: 0 },
+      select: { id: true },
+    });
+    if (currentIndex > afterItems) {
+      for (let index = currentIndex - 1; index >= afterItems; index -= 1) {
+        await tx.reviewSessionItem.update({
+          where: { id: pending[index].id },
+          data: { sequenceNumber: sequenceNumbers[index + 1] },
+          select: { id: true },
+        });
+      }
+    } else {
+      for (let index = currentIndex + 1; index <= afterItems; index += 1) {
+        await tx.reviewSessionItem.update({
+          where: { id: pending[index].id },
+          data: { sequenceNumber: sequenceNumbers[index - 1] },
+          select: { id: true },
+        });
+      }
+    }
+    await tx.reviewSessionItem.update({
+      where: { id: itemId },
+      data: { sequenceNumber: sequenceNumbers[afterItems] },
+      select: { id: true },
+    });
+  }
+
+  private readRetestDecision(payload: unknown): {
+    questionType: QuestionType;
+    afterItems: ReviewRetestAfterItems;
+  } | null {
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      Array.isArray(payload)
+    ) {
+      return null;
+    }
+    const retest = 'retest' in payload ? payload.retest : null;
+    if (
+      typeof retest !== 'object' ||
+      retest === null ||
+      Array.isArray(retest)
+    ) {
+      return null;
+    }
+    const questionType =
+      'questionType' in retest ? retest.questionType : undefined;
+    const afterItems = 'afterItems' in retest ? retest.afterItems : undefined;
+    if (
+      !this.isQuestionType(questionType) ||
+      !this.isRetestOffset(afterItems)
+    ) {
+      return null;
+    }
+    return {
+      questionType,
+      afterItems,
+    };
+  }
+
+  private isQuestionType(value: unknown): value is QuestionType {
+    return (
+      typeof value === 'string' &&
+      Object.values(QuestionType).some((candidate) => candidate === value)
+    );
+  }
+
+  private isRetestOffset(value: unknown): value is ReviewRetestAfterItems {
+    return value === 2 || value === 3 || value === 4 || value === 5;
+  }
+
+  private defaultRetestOffset(availableItems: number): ReviewRetestAfterItems {
+    return availableItems >= DEFAULT_RETEST_AFTER_ITEMS ? 3 : 2;
+  }
+
+  private toAgentFeedback(decision: {
+    source: ReviewDecisionSource;
+    action: ReviewAgentAction | null;
+    skillDimension: ReviewSkillDimension | null;
+    errorType: ReviewErrorType | null;
+    decisionPayload: unknown;
+  }) {
+    const retest = this.readRetestDecision(decision.decisionPayload);
+    const payload =
+      typeof decision.decisionPayload === 'object' &&
+      decision.decisionPayload !== null &&
+      !Array.isArray(decision.decisionPayload)
+        ? decision.decisionPayload
+        : null;
+    const lesson =
+      payload && 'microLesson' in payload ? payload.microLesson : null;
+    const microLesson =
+      typeof lesson === 'object' && lesson !== null && !Array.isArray(lesson)
+        ? {
+            title: String('title' in lesson ? lesson.title : ''),
+            explanation: String(
+              'explanation' in lesson ? lesson.explanation : '',
+            ),
+            example: String('example' in lesson ? lesson.example : ''),
+          }
+        : null;
+    return {
+      source: decision.source,
+      action: decision.action,
+      skillDimension: decision.skillDimension,
+      errorType: decision.errorType,
+      ...(microLesson ? { microLesson } : {}),
+      ...(retest ? { retestAfterItems: retest.afterItems } : {}),
+    };
+  }
+
   private async assignRetryQuestion(
     tx: Prisma.TransactionClient,
     vocabulary: ReviewVocabulary | null,
-    previousQuestionId: string,
     previousType: QuestionType,
     quizId: string | null,
   ) {
@@ -1716,14 +2109,7 @@ export class ReviewsRepository {
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
       select: { id: true, articleSentenceTermId: true, questionType: true },
     });
-    const selected = this.selectExistingQuestion(cached, preferredTypes);
-    return (
-      selected ?? {
-        id: previousQuestionId,
-        articleSentenceTermId: vocabulary.articleSentenceTermId,
-        questionType: previousType,
-      }
-    );
+    return this.selectExistingQuestion(cached, preferredTypes) ?? null;
   }
 
   private toQuestionSnapshot(
@@ -1875,37 +2261,57 @@ export class ReviewsRepository {
       completedAt: Date | null;
     },
   ) {
-    const [totalQuestions, answeredCount, next] = await Promise.all([
-      client.reviewSessionItem.count({
-        where: { reviewSessionId: session.id },
-      }),
-      client.reviewSessionItem.count({
-        where: {
-          reviewSessionId: session.id,
-          status: {
-            in: [
-              ReviewSessionItemStatus.COMPLETED,
-              ReviewSessionItemStatus.SKIPPED,
-            ],
+    const [totalQuestions, answeredCount, next, feedbackDecision] =
+      await Promise.all([
+        client.reviewSessionItem.count({
+          where: { reviewSessionId: session.id },
+        }),
+        client.reviewSessionItem.count({
+          where: {
+            reviewSessionId: session.id,
+            status: {
+              in: [
+                ReviewSessionItemStatus.COMPLETED,
+                ReviewSessionItemStatus.SKIPPED,
+              ],
+            },
           },
-        },
-      }),
-      session.status === ReviewSessionStatus.IN_PROGRESS
-        ? client.reviewSessionItem.findFirst({
-            where: {
-              reviewSessionId: session.id,
-              status: ReviewSessionItemStatus.PENDING,
-            },
-            orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
-            select: {
-              id: true,
-              userVocabularyId: true,
-              retryCount: true,
-              quizQuestion: { select: safeQuestionSelect },
-            },
-          })
-        : Promise.resolve(null),
-    ]);
+        }),
+        session.status === ReviewSessionStatus.IN_PROGRESS
+          ? client.reviewSessionItem.findFirst({
+              where: {
+                reviewSessionId: session.id,
+                status: ReviewSessionItemStatus.PENDING,
+              },
+              orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+              select: {
+                id: true,
+                userVocabularyId: true,
+                retryCount: true,
+                quizQuestion: { select: safeQuestionSelect },
+              },
+            })
+          : Promise.resolve(null),
+        session.status === ReviewSessionStatus.IN_PROGRESS
+          ? client.reviewAgentDecision.findFirst({
+              where: {
+                reviewSessionId: session.id,
+                kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+                reviewSessionItem: {
+                  is: { status: ReviewSessionItemStatus.PENDING },
+                },
+              },
+              orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+              select: {
+                source: true,
+                action: true,
+                skillDimension: true,
+                errorType: true,
+                decisionPayload: true,
+              },
+            })
+          : Promise.resolve(null),
+      ]);
     return {
       session,
       answeredCount,
@@ -1918,6 +2324,9 @@ export class ReviewsRepository {
             question: this.mapSafeQuestion(next.quizQuestion),
           }
         : undefined,
+      ...(feedbackDecision
+        ? { agentFeedback: this.toAgentFeedback(feedbackDecision) }
+        : {}),
     };
   }
 

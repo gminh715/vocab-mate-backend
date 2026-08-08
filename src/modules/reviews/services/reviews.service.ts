@@ -13,16 +13,22 @@ import type {
   SubmitReviewAnswerDto,
 } from '../dto/review-request.dto';
 import {
+  InvalidReviewAgentDecisionRelationshipError,
   InvalidAnswerRelationshipError,
   InvalidAnswerShapeError,
   InvalidReviewSourceShapeError,
   NoUsableReviewQuestionError,
   ReviewConcurrencyConflictError,
+  ReviewAgentDecisionConflictError,
   ReviewResourceNotFoundError,
   ReviewsRepository,
   ReviewSessionStateConflictError,
   ReviewSubmissionConflictError,
+  type PersistReviewAgentDecisionInput,
+  type PostAnswerDiagnosisSnapshot,
+  type PreparedAiReviewQuestion,
 } from '../reviews.repository';
+import { QuestionType } from '../../../../generated/prisma/enums';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 import {
   type AnswerDiagnosisDecisionRequest,
@@ -100,11 +106,64 @@ export class ReviewsService {
     dto: SubmitReviewAnswerDto,
   ) {
     try {
-      const result = await this.reviewsRepository.submitAnswer(
+      const initialResult = await this.reviewsRepository.submitAnswer(
         userId,
         sessionId,
         dto,
       );
+      const { diagnosisSnapshot, ...committedResult } = initialResult;
+      let result = committedResult;
+
+      if (diagnosisSnapshot) {
+        const decision = await this.reviewAgent.diagnoseAnswer({
+          userId,
+          reviewSessionId: sessionId,
+          ...diagnosisSnapshot.request,
+        });
+        const requestedRetestType = this.readRetestQuestionType(decision);
+        let preparedRetestQuestion: PreparedAiReviewQuestion | null = null;
+        let applicableDecision = decision;
+        if (
+          requestedRetestType &&
+          requestedRetestType !== diagnosisSnapshot.fallbackRetestQuestionType
+        ) {
+          preparedRetestQuestion =
+            await this.aiQuestionGenerator.prepareRetestQuestion(
+              diagnosisSnapshot.vocabulary,
+              requestedRetestType,
+            );
+          if (!preparedRetestQuestion) {
+            applicableDecision = this.useFallbackRetest(
+              decision,
+              diagnosisSnapshot,
+            );
+          }
+        } else if (!requestedRetestType) {
+          applicableDecision = this.useFallbackRetest(
+            decision,
+            diagnosisSnapshot,
+          );
+        }
+
+        try {
+          const enhancedState =
+            await this.reviewsRepository.applyAnswerAgentDecision(userId, {
+              decision: applicableDecision,
+              originalQuestionType: diagnosisSnapshot.originalQuestionType,
+              expectedAttemptNumber: diagnosisSnapshot.attemptNumber,
+              preparedRetestQuestion,
+            });
+          result = { ...committedResult, ...enhancedState };
+        } catch (error: unknown) {
+          if (
+            !(error instanceof ReviewAgentDecisionConflictError) &&
+            !(error instanceof InvalidReviewAgentDecisionRelationshipError) &&
+            !(error instanceof ReviewConcurrencyConflictError)
+          ) {
+            throw error;
+          }
+        }
+      }
       const { session, answeredCount, totalQuestions, nextItem, ...feedback } =
         result;
       const state = this.formatState({
@@ -121,6 +180,42 @@ export class ReviewsService {
     } catch (error: unknown) {
       this.mapError(error);
     }
+  }
+
+  private readRetestQuestionType(
+    decision: PersistReviewAgentDecisionInput,
+  ): QuestionType | null {
+    const retest = decision.decisionPayload.retest;
+    if (
+      typeof retest !== 'object' ||
+      retest === null ||
+      Array.isArray(retest)
+    ) {
+      return null;
+    }
+    const questionType = retest.questionType;
+    if (typeof questionType !== 'string') return null;
+    return (
+      Object.values(QuestionType).find(
+        (candidate) => candidate === questionType,
+      ) ?? null
+    );
+  }
+
+  private useFallbackRetest(
+    decision: PersistReviewAgentDecisionInput,
+    snapshot: PostAnswerDiagnosisSnapshot,
+  ): PersistReviewAgentDecisionInput {
+    return {
+      ...decision,
+      decisionPayload: {
+        ...decision.decisionPayload,
+        retest: {
+          questionType: snapshot.fallbackRetestQuestionType,
+          afterItems: snapshot.fallbackRetestAfterItems,
+        },
+      },
+    };
   }
 
   async skipItem(
@@ -246,6 +341,7 @@ export class ReviewsService {
       answeredCount: number;
       totalQuestions: number;
       nextItem?: unknown;
+      agentFeedback?: unknown;
     },
   >(state: T) {
     const remainingCount = Math.max(
@@ -266,6 +362,7 @@ export class ReviewsService {
               ) / 100,
       },
       ...(state.nextItem ? { nextItem: state.nextItem } : {}),
+      ...(state.agentFeedback ? { agentFeedback: state.agentFeedback } : {}),
     };
   }
 }

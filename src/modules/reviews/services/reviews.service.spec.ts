@@ -5,22 +5,116 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
+  QuestionType,
+  ReviewAgentAction,
+  ReviewDecisionKind,
+  ReviewDecisionSource,
+  ReviewErrorType,
   ReviewSessionStatus,
   ReviewSessionType,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import {
   InvalidReviewSourceShapeError,
   NoUsableReviewQuestionError,
+  ReviewAgentDecisionConflictError,
   ReviewsRepository,
 } from '../reviews.repository';
 import { ReviewsService } from './reviews.service';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 import { ReviewAgentService } from './review-agent.service';
 
+const diagnosisSnapshot = {
+  request: {
+    reviewSessionItemId: 'item',
+    reviewAnswerId: 'answer',
+    isCorrect: false as const,
+    wasSkipped: false as const,
+    lapseCount: 2,
+    input: {
+      targetCefr: 'B1' as const,
+      wordOrPhrase: 'economic',
+      lemma: 'economic',
+      partOfSpeech: 'adjective',
+      contextualMeaningVi: 'thuoc kinh te',
+      originalSentence: 'The country faces economic pressure.',
+      questionType: QuestionType.SELECT_MEANING,
+      learnerAnswer: 'economical',
+      correctAnswer: 'economic',
+      responseTimeMs: 4_200,
+      hintsUsed: 0,
+      attemptNumber: 1,
+      recentAttempts: [],
+      skillAggregates: [],
+      allowedSkillDimensions: [
+        ReviewSkillDimension.RECOGNITION,
+        ReviewSkillDimension.CONTEXT,
+      ],
+      allowedActions: [
+        ReviewAgentAction.CONTINUE,
+        ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
+        ReviewAgentAction.TEACH_AND_REQUEUE,
+        ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
+      ],
+      allowedRetestQuestionTypes: [
+        QuestionType.SELECT_WORD,
+        QuestionType.FILL_BLANK,
+      ],
+      allowedRetestAfterItems: [2, 3, 4, 5] as const,
+    },
+  },
+  vocabulary: {
+    id: 'vocabulary',
+    articleSentenceTermId: 'term',
+    savedWordDisplay: 'economic',
+    savedLemma: 'economic',
+    savedPartOfSpeech: 'adjective',
+    savedCefrLevel: 'B1' as const,
+    savedContextSentence: 'The country faces economic pressure.',
+    savedMeaningVi: 'thuoc kinh te',
+    savedExplanation: null,
+    categoryId: 'category',
+  },
+  originalQuestionType: QuestionType.SELECT_MEANING,
+  fallbackRetestQuestionType: QuestionType.SELECT_WORD,
+  fallbackRetestAfterItems: 3 as const,
+  attemptNumber: 1,
+};
+
+const aiDecision = {
+  reviewSessionId: 'session',
+  reviewSessionItemId: 'item',
+  reviewAnswerId: 'answer',
+  kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+  source: ReviewDecisionSource.AI,
+  action: ReviewAgentAction.TEACH_AND_REQUEUE,
+  skillDimension: ReviewSkillDimension.CONTEXT,
+  errorType: ReviewErrorType.CONFUSABLE_WORD,
+  confidence: 0.9,
+  reasonCode: 'CONFUSABLE_CONTEXT',
+  stateSnapshot: {},
+  decisionPayload: {
+    action: ReviewAgentAction.TEACH_AND_REQUEUE,
+    microLesson: {
+      title: 'Economic or economical?',
+      explanation: 'Economic relates to the economy.',
+      example: 'The country faces economic pressure.',
+    },
+    retest: { questionType: QuestionType.FILL_BLANK, afterItems: 4 },
+  },
+  provider: 'GEMINI',
+  model: 'gemini-model',
+  promptVersion: 'review-answer-diagnosis-v1',
+  latencyMs: 100,
+};
+
 describe('ReviewsService', () => {
   let service: ReviewsService;
   let repository: Record<string, jest.Mock>;
-  let aiQuestionGenerator: { warmCache: jest.Mock };
+  let aiQuestionGenerator: {
+    warmCache: jest.Mock;
+    prepareRetestQuestion: jest.Mock;
+  };
   let reviewAgent: {
     planSession: jest.Mock;
     diagnoseAnswer: jest.Mock;
@@ -38,8 +132,12 @@ describe('ReviewsService', () => {
       getCompletedResult: jest.fn(),
       getDueRecommendations: jest.fn(),
       persistAgentDecision: jest.fn(),
+      applyAnswerAgentDecision: jest.fn(),
     };
-    aiQuestionGenerator = { warmCache: jest.fn().mockResolvedValue([]) };
+    aiQuestionGenerator = {
+      warmCache: jest.fn().mockResolvedValue([]),
+      prepareRetestQuestion: jest.fn().mockResolvedValue(null),
+    };
     reviewAgent = {
       planSession: jest.fn(),
       diagnoseAnswer: jest.fn(),
@@ -278,6 +376,239 @@ describe('ReviewsService', () => {
       nextQuestion: { id: 'other-item' },
     });
     expect(aiQuestionGenerator.warmCache).not.toHaveBeenCalled();
+    expect(reviewAgent.diagnoseAnswer).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke the review agent for a correct answer', async () => {
+    repository.submitAnswer.mockResolvedValue({
+      answerId: 'answer',
+      isCorrect: true,
+      correctAnswer: 'economic',
+      explanation: 'Correct.',
+      earnedPoints: 1,
+      inferredReviewScore: 4,
+      willReturnLater: false,
+      sessionCompleted: false,
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 1,
+      totalQuestions: 4,
+      nextItem: { id: 'next-item' },
+    });
+
+    await service.submitAnswer('user', 'session', {
+      reviewSessionItemId: 'item',
+      quizQuestionId: 'question',
+      selectedOptionId: 'correct-option',
+    });
+
+    expect(reviewAgent.diagnoseAnswer).not.toHaveBeenCalled();
+    expect(repository.applyAnswerAgentDecision).not.toHaveBeenCalled();
+  });
+
+  it('commits grading before diagnosis and applies diagnosis, lesson, and retest afterward', async () => {
+    const callOrder: string[] = [];
+    repository.submitAnswer.mockImplementation(() => {
+      callOrder.push('grading-transaction-committed');
+      return Promise.resolve({
+        answerId: 'answer',
+        isCorrect: false,
+        correctAnswer: 'economic',
+        explanation: 'Economic relates to the economy.',
+        earnedPoints: 0,
+        inferredReviewScore: 0,
+        willReturnLater: true,
+        sessionCompleted: false,
+        session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+        answeredCount: 0,
+        totalQuestions: 5,
+        nextItem: { id: 'next-1' },
+        diagnosisSnapshot,
+      });
+    });
+    reviewAgent.diagnoseAnswer.mockImplementation(() => {
+      callOrder.push('diagnosis-provider-complete');
+      return Promise.resolve(aiDecision);
+    });
+    const preparedRetestQuestion = {
+      userVocabularyId: 'vocabulary',
+      quizQuestionId: 'ai-retest',
+      articleSentenceTermId: 'term',
+      difficultyCefr: 'B1',
+      questionType: QuestionType.FILL_BLANK,
+    };
+    aiQuestionGenerator.prepareRetestQuestion.mockImplementation(() => {
+      callOrder.push('retest-provider-complete');
+      return Promise.resolve(preparedRetestQuestion);
+    });
+    repository.applyAnswerAgentDecision.mockImplementation(() => {
+      callOrder.push('enhancement-transaction');
+      return Promise.resolve({
+        session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+        answeredCount: 0,
+        totalQuestions: 5,
+        nextItem: { id: 'next-1' },
+        agentFeedback: {
+          source: ReviewDecisionSource.AI,
+          action: ReviewAgentAction.TEACH_AND_REQUEUE,
+          skillDimension: ReviewSkillDimension.CONTEXT,
+          errorType: ReviewErrorType.CONFUSABLE_WORD,
+          microLesson: aiDecision.decisionPayload.microLesson,
+          retestAfterItems: 4,
+        },
+      });
+    });
+
+    await expect(
+      service.submitAnswer('user', 'session', {
+        reviewSessionItemId: 'item',
+        quizQuestionId: 'question',
+        selectedOptionId: 'wrong-option',
+      }),
+    ).resolves.toMatchObject({
+      isCorrect: false,
+      willReturnLater: true,
+      agentFeedback: {
+        source: ReviewDecisionSource.AI,
+        errorType: ReviewErrorType.CONFUSABLE_WORD,
+        microLesson: aiDecision.decisionPayload.microLesson,
+        retestAfterItems: 4,
+      },
+    });
+    expect(callOrder).toEqual([
+      'grading-transaction-committed',
+      'diagnosis-provider-complete',
+      'retest-provider-complete',
+      'enhancement-transaction',
+    ]);
+    expect(reviewAgent.diagnoseAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user',
+        reviewSessionId: 'session',
+        reviewAnswerId: 'answer',
+      }),
+    );
+    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith(
+      'user',
+      expect.objectContaining({
+        decision: aiDecision,
+        originalQuestionType: QuestionType.SELECT_MEANING,
+        expectedAttemptNumber: 1,
+        preparedRetestQuestion,
+      }),
+    );
+  });
+
+  it('keeps the committed transition when the enhancement transaction conflicts', async () => {
+    repository.submitAnswer.mockResolvedValue({
+      answerId: 'answer',
+      isCorrect: false,
+      correctAnswer: 'economic',
+      explanation: 'Economic relates to the economy.',
+      earnedPoints: 0,
+      inferredReviewScore: 0,
+      willReturnLater: true,
+      sessionCompleted: false,
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      diagnosisSnapshot,
+    });
+    reviewAgent.diagnoseAnswer.mockResolvedValue({
+      ...aiDecision,
+      decisionPayload: {
+        ...aiDecision.decisionPayload,
+        retest: {
+          questionType: QuestionType.SELECT_WORD,
+          afterItems: 3,
+        },
+      },
+    });
+    repository.applyAnswerAgentDecision.mockRejectedValue(
+      new ReviewAgentDecisionConflictError(),
+    );
+
+    await expect(
+      service.submitAnswer('user', 'session', {
+        reviewSessionItemId: 'item',
+        quizQuestionId: 'question',
+        selectedOptionId: 'wrong-option',
+      }),
+    ).resolves.toMatchObject({
+      isCorrect: false,
+      willReturnLater: true,
+      nextQuestion: { id: 'deterministic-next' },
+    });
+  });
+
+  it('continues with persisted RULE feedback when diagnosis providers are unavailable', async () => {
+    repository.submitAnswer.mockResolvedValue({
+      answerId: 'answer',
+      isCorrect: false,
+      correctAnswer: 'economic',
+      explanation: 'Economic relates to the economy.',
+      earnedPoints: 0,
+      inferredReviewScore: 0,
+      willReturnLater: true,
+      sessionCompleted: false,
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      diagnosisSnapshot,
+    });
+    const ruleDecision = {
+      ...aiDecision,
+      source: ReviewDecisionSource.RULE,
+      action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
+      errorType: ReviewErrorType.UNKNOWN,
+      confidence: null,
+      reasonCode: 'AI_UNAVAILABLE',
+      provider: null,
+      model: null,
+      decisionPayload: {
+        action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
+        microLesson: null,
+        retest: {
+          questionType: QuestionType.SELECT_WORD,
+          afterItems: 3,
+        },
+      },
+    };
+    reviewAgent.diagnoseAnswer.mockResolvedValue(ruleDecision);
+    repository.applyAnswerAgentDecision.mockResolvedValue({
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      agentFeedback: {
+        source: ReviewDecisionSource.RULE,
+        action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
+        skillDimension: ReviewSkillDimension.CONTEXT,
+        errorType: ReviewErrorType.UNKNOWN,
+        retestAfterItems: 3,
+      },
+    });
+
+    await expect(
+      service.submitAnswer('user', 'session', {
+        reviewSessionItemId: 'item',
+        quizQuestionId: 'question',
+        selectedOptionId: 'wrong-option',
+      }),
+    ).resolves.toMatchObject({
+      isCorrect: false,
+      sessionCompleted: false,
+      agentFeedback: {
+        source: ReviewDecisionSource.RULE,
+        retestAfterItems: 3,
+      },
+    });
+    expect(aiQuestionGenerator.prepareRetestQuestion).not.toHaveBeenCalled();
+    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith(
+      'user',
+      expect.objectContaining({ decision: ruleDecision }),
+    );
   });
 
   it('returns skip progress and completion summary without creating an answer', async () => {
@@ -301,6 +632,7 @@ describe('ReviewsService', () => {
       progress: { remainingCount: 0, progressPercent: 100 },
       completionSummary: { accuracy: 0 },
     });
+    expect(reviewAgent.diagnoseAnswer).not.toHaveBeenCalled();
   });
 
   it('rejects an inverted history date range before querying', async () => {
