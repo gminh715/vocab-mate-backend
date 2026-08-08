@@ -44,6 +44,37 @@ export class ReviewSubmissionConflictError extends Error {}
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
+const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
+  LearningStatus.NEW,
+  LearningStatus.LEARNING,
+  LearningStatus.REVIEWING,
+];
+
+const reviewEligibilityWhere = (
+  userId: string,
+  now: Date,
+  sourceWhere: Prisma.UserVocabularyWhereInput,
+): Prisma.UserVocabularyWhereInput => ({
+  userId,
+  learningStatus: { in: REVIEW_ELIGIBLE_LEARNING_STATUSES },
+  OR: [{ nextReviewAt: { lte: now } }, { nextReviewAt: null }],
+  ...sourceWhere,
+});
+
+const reviewEligibilitySql = (userId: string, now: Date) => Prisma.sql`
+  uv.user_id = ${userId}::uuid
+  AND uv.learning_status IN (
+    ${Prisma.join(
+      REVIEW_ELIGIBLE_LEARNING_STATUSES.map(
+        (status) => Prisma.sql`${status}::learning_status`,
+      ),
+    )}
+  )
+  AND (
+    uv.next_review_at <= ${now}
+    OR uv.next_review_at IS NULL
+  )
+`;
 
 const sessionSelect = {
   id: true,
@@ -898,21 +929,7 @@ export class ReviewsRepository {
     const quizArticleFilter = query.articleId
       ? Prisma.sql`AND quiz.article_id = ${query.articleId}::uuid`
       : Prisma.empty;
-    const duePredicate = Prisma.sql`
-      uv.user_id = ${userId}::uuid
-      AND uv.learning_status IN (
-        ${LearningStatus.NEW}::learning_status,
-        ${LearningStatus.LEARNING}::learning_status,
-        ${LearningStatus.REVIEWING}::learning_status
-      )
-      AND (
-        uv.next_review_at <= ${now}
-        OR (
-          uv.learning_status = ${LearningStatus.NEW}::learning_status
-          AND uv.next_review_at IS NULL
-        )
-      )
-    `;
+    const duePredicate = reviewEligibilitySql(userId, now);
     const [countRows, recommendedQuizzes] = await Promise.all([
       this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
         SELECT COUNT(DISTINCT uv.id)::int AS count
@@ -1092,17 +1109,7 @@ export class ReviewsRepository {
                 collectionItems: { some: { collectionId: dto.collectionId! } },
               }
             : {};
-    const commonWhere: Prisma.UserVocabularyWhereInput = {
-      userId,
-      learningStatus: {
-        in: [
-          LearningStatus.NEW,
-          LearningStatus.LEARNING,
-          LearningStatus.REVIEWING,
-        ],
-      },
-      ...sourceWhere,
-    };
+    const commonWhere = reviewEligibilityWhere(userId, now, sourceWhere);
     const selected: ReviewVocabulary[] = [];
     const take = async (
       where: Prisma.UserVocabularyWhereInput,

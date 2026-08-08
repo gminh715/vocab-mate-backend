@@ -416,7 +416,21 @@ describe('ReviewsRepository', () => {
     );
 
     expect(vocabularyFindMany.mock.calls[0][0].where).toEqual(
-      expect.objectContaining({ nextReviewAt: { lte: expect.any(Date) } }),
+      expect.objectContaining({
+        userId: 'user',
+        learningStatus: {
+          in: [
+            LearningStatus.NEW,
+            LearningStatus.LEARNING,
+            LearningStatus.REVIEWING,
+          ],
+        },
+        OR: [
+          { nextReviewAt: { lte: new Date('2026-08-03T00:00:00Z') } },
+          { nextReviewAt: null },
+        ],
+        nextReviewAt: { lte: new Date('2026-08-03T00:00:00Z') },
+      }),
     );
     expect(vocabularyFindMany.mock.calls[0][0].orderBy).toEqual([
       { lapseCount: 'desc' },
@@ -449,6 +463,74 @@ describe('ReviewsRepository', () => {
       }),
       expect.objectContaining({ userVocabularyId: 'new', sequenceNumber: 3 }),
     ]);
+  });
+
+  it.each([LearningStatus.LEARNING, LearningStatus.REVIEWING])(
+    'includes unscheduled %s vocabulary in daily review and respects the item limit',
+    async (learningStatus) => {
+      sessionFindFirst.mockResolvedValue(null);
+      vocabularyFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        {
+          ...reviewVocabulary,
+          id: `unscheduled-${learningStatus.toLowerCase()}`,
+          learningStatus,
+          nextReviewAt: null,
+        },
+      ]);
+
+      const candidates = await repository.getAiQuestionGenerationCandidates(
+        'owner',
+        { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 1 },
+        new Date('2026-08-03T00:00:00Z'),
+      );
+
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0].vocabulary.id).toBe(
+        `unscheduled-${learningStatus.toLowerCase()}`,
+      );
+      expect(vocabularyFindMany).toHaveBeenCalledTimes(2);
+      expect(vocabularyFindMany.mock.calls[1][0]).toEqual(
+        expect.objectContaining({
+          take: 1,
+          where: expect.objectContaining({
+            userId: 'owner',
+            OR: [
+              { nextReviewAt: { lte: new Date('2026-08-03T00:00:00Z') } },
+              { nextReviewAt: null },
+            ],
+            nextReviewAt: null,
+            learningStatus: {
+              in: [LearningStatus.LEARNING, LearningStatus.REVIEWING],
+            },
+          }),
+        }),
+      );
+    },
+  );
+
+  it('uses the same owner-scoped past-or-null eligibility for today due count', async () => {
+    query.mockResolvedValueOnce([{ count: 4 }]).mockResolvedValueOnce([]);
+    const now = new Date('2026-08-03T00:00:00Z');
+
+    await expect(
+      repository.getDueRecommendations('owner', { limit: 2 }, now),
+    ).resolves.toEqual({ dueVocabularyCount: 4, recommendedQuizzes: [] });
+
+    expect(query).toHaveBeenCalledTimes(2);
+    const countQuery = query.mock.calls[0][0] as Prisma.Sql;
+    expect(countQuery.sql).toContain('uv.user_id = ?::uuid');
+    expect(countQuery.sql).toContain('uv.next_review_at <= ?');
+    expect(countQuery.sql).toContain('OR uv.next_review_at IS NULL');
+    expect(countQuery.sql).not.toContain('uv.learning_status =');
+    expect(countQuery.values).toEqual(
+      expect.arrayContaining([
+        'owner',
+        LearningStatus.NEW,
+        LearningStatus.LEARNING,
+        LearningStatus.REVIEWING,
+        now,
+      ]),
+    );
   });
 
   it('selects collection review vocabulary only through that owned collection', async () => {
