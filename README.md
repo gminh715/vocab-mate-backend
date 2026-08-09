@@ -240,12 +240,6 @@ The seed creates deterministic content and an admin row with a deliberately unus
 | `npm run test:e2e` | Run E2E tests in `test/e2e/` |
 | `npm run prisma:verify-review-migrations` | Verify migrations in a disposable PostgreSQL schema |
 
-## ⚠️ Operational notes
-
-- Import, parsing, AI enrichment, and review AI calls run synchronously. There is no queue, scheduler, or automatic publication.
-- Guardian throttling is process-local.
-- `HealthModule` has no HTTP health-check handler.
-- No Dockerfile or deployment manifest is included.
 
 ## 📄 License
 
