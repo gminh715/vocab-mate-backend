@@ -6,7 +6,9 @@ import {
   LearningStatus,
   QuestionType,
   ReadingStatus,
+  ReviewDecisionSource,
   ReviewSessionStatus,
+  ReviewSkillDimension,
   UserStatus,
 } from '../../../generated/prisma/enums';
 import { APP_CONFIG } from '../../config/config.module';
@@ -401,6 +403,161 @@ describe('AnalyticsService', () => {
     for (const [sql] of queryRaw.mock.calls) {
       expect((sql as { values: unknown[] }).values).toContain('owner-id');
     }
+  });
+
+  it('evaluates owner-scoped review learning signals with stable zero categories', async () => {
+    queryRaw
+      .mockResolvedValueOnce([
+        {
+          targetDurationMinutes: 10,
+          status: ReviewSessionStatus.COMPLETED,
+          count: 3n,
+        },
+        {
+          targetDurationMinutes: 10,
+          status: ReviewSessionStatus.ABANDONED,
+          count: 1n,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          skillDimension: ReviewSkillDimension.RECALL,
+          attempts: 5n,
+          correct: 3n,
+          timedAttempts: 4n,
+          responseTimeTotalMs: 12_000n,
+          hintsUsed: 2n,
+          retestAttempts: 2n,
+          correctRetests: 1n,
+        },
+        {
+          skillDimension: null,
+          attempts: 1n,
+          correct: 1n,
+          timedAttempts: 0n,
+          responseTimeTotalMs: 0n,
+          hintsUsed: 0n,
+          retestAttempts: 0n,
+          correctRetests: 0n,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          source: ReviewDecisionSource.AI,
+          interventions: 2n,
+          retestAttempts: 2n,
+          successfulRetests: 1n,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { horizon: 'NEXT_DAY', followUps: 2n, correct: 1n },
+        { horizon: 'SEVEN_DAY', followUps: 0n, correct: 0n },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucket: '2026-07-10',
+          answers: 3n,
+          correctAnswers: 2n,
+          timedAnswers: 2n,
+          responseTimeTotalMs: 7000n,
+          hintsUsed: 1n,
+        },
+      ]);
+
+    const result = await service.getReviewAnalytics('owner-id', {
+      from: '2026-07-01T00:00:00Z',
+      to: '2026-07-31T00:00:00Z',
+    });
+
+    expect(result).toMatchObject({
+      sessionsStarted: 4,
+      sessionsCompleted: 3,
+      sessionsAbandoned: 1,
+      completionRate: 0.75,
+      answers: 6,
+      correctAnswers: 4,
+      accuracy: 0.6667,
+      averageResponseTimeMs: 3000,
+      hintsUsed: 2,
+      sameSessionRetest: { attempts: 2, correct: 1, successRate: 0.5 },
+      bySkill: [
+        {
+          skillDimension: ReviewSkillDimension.RECALL,
+          attempts: 5,
+          correct: 3,
+          accuracy: 0.6,
+          averageResponseTimeMs: 3000,
+          hintsUsed: 2,
+        },
+      ],
+      byDecisionSource: [
+        {
+          source: ReviewDecisionSource.AI,
+          interventions: 2,
+          retestAttempts: 2,
+          successfulRetests: 1,
+          retestSuccessRate: 0.5,
+        },
+        {
+          source: ReviewDecisionSource.RULE,
+          interventions: 0,
+          retestAttempts: 0,
+          successfulRetests: 0,
+          retestSuccessRate: 0,
+        },
+      ],
+      retention: {
+        nextDay: { followUps: 2, correct: 1, accuracy: 0.5 },
+        sevenDay: { followUps: 0, correct: 0, accuracy: 0 },
+      },
+    });
+    expect(result.trend).toContainEqual({
+      bucket: '2026-07-10',
+      answers: 3,
+      correctAnswers: 2,
+      accuracy: 0.6667,
+      averageResponseTimeMs: 3500,
+      hintsUsed: 1,
+    });
+    expect(result.trend).toContainEqual({
+      bucket: '2026-07-01',
+      answers: 0,
+      correctAnswers: 0,
+      accuracy: 0,
+      averageResponseTimeMs: null,
+      hintsUsed: 0,
+    });
+    expect(result.byDuration).toEqual([
+      {
+        targetDurationMinutes: 5,
+        started: 0,
+        completed: 0,
+        completionRate: 0,
+      },
+      {
+        targetDurationMinutes: 10,
+        started: 4,
+        completed: 3,
+        completionRate: 0.75,
+      },
+      {
+        targetDurationMinutes: 15,
+        started: 0,
+        completed: 0,
+        completionRate: 0,
+      },
+    ]);
+    expect(queryRaw).toHaveBeenCalledTimes(5);
+    for (const [sql] of queryRaw.mock.calls) {
+      const query = sql as { strings: string[]; values: unknown[] };
+      expect(query.values).toContain('owner-id');
+      expect(query.values).toContainEqual(new Date('2026-07-31T00:00:00Z'));
+      expect(query.strings.join(' ')).not.toContain('provider');
+    }
+    const retentionSql = (
+      queryRaw.mock.calls[3][0] as { strings: string[] }
+    ).strings.join(' ');
+    expect(retentionSql.match(/::timestamptz - INTERVAL/g)).toHaveLength(2);
   });
 
   it('returns aggregate-only admin overview metrics with a distinct activity union', async () => {

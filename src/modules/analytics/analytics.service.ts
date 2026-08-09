@@ -6,7 +6,9 @@ import {
   LearningStatus,
   QuestionType,
   ReadingStatus,
+  ReviewDecisionSource,
   ReviewSessionStatus,
+  ReviewSkillDimension,
   type UserStatus,
 } from '../../../generated/prisma/enums';
 import type { ReturnTypeOfAppConfig } from '../../config/app.config';
@@ -47,6 +49,11 @@ const QUESTION_TYPES = [
   QuestionType.SELECT_CORRECT_CONTEXT,
   QuestionType.FILL_BLANK,
 ] as const;
+const REVIEW_TARGET_DURATIONS = [5, 10, 15] as const;
+const REVIEW_DECISION_SOURCES = [
+  ReviewDecisionSource.AI,
+  ReviewDecisionSource.RULE,
+] as const;
 
 type NumericValue = Prisma.Decimal | bigint | number | string;
 interface CountTrendRow {
@@ -77,6 +84,40 @@ interface QuestionTypeRow {
 interface QuizTrendRow extends QuizAggregateRow {
   bucket: string;
   sessions: NumericValue;
+}
+interface ReviewSessionEvaluationRow {
+  targetDurationMinutes: number | null;
+  status: ReviewSessionStatus;
+  count: NumericValue;
+}
+interface ReviewSkillEvaluationRow {
+  skillDimension: ReviewSkillDimension | null;
+  attempts: NumericValue;
+  correct: NumericValue;
+  timedAttempts: NumericValue;
+  responseTimeTotalMs: NumericValue;
+  hintsUsed: NumericValue;
+  retestAttempts: NumericValue;
+  correctRetests: NumericValue;
+}
+interface ReviewDecisionEvaluationRow {
+  source: ReviewDecisionSource;
+  interventions: NumericValue;
+  retestAttempts: NumericValue;
+  successfulRetests: NumericValue;
+}
+interface ReviewRetentionEvaluationRow {
+  horizon: 'NEXT_DAY' | 'SEVEN_DAY';
+  followUps: NumericValue;
+  correct: NumericValue;
+}
+interface ReviewTrendEvaluationRow {
+  bucket: string;
+  answers: NumericValue;
+  correctAnswers: NumericValue;
+  timedAnswers: NumericValue;
+  responseTimeTotalMs: NumericValue;
+  hintsUsed: NumericValue;
 }
 interface SingleCountRow {
   count: NumericValue;
@@ -410,6 +451,194 @@ export class AnalyticsService {
     };
   }
 
+  async getReviewAnalytics(
+    userId: string,
+    query: AnalyticsDateRangeQueryDto,
+    requestTime = new Date(),
+  ) {
+    const range = resolveAnalyticsDateRange(query, requestTime);
+    const groupBy = resolveAnalyticsGroupBy(range);
+    const [sessionRows, skillRows, decisionRows, retentionRows, trendRows] =
+      await Promise.all([
+        this.queryReviewSessionEvaluation(userId, range.from, range.to),
+        this.queryReviewSkillEvaluation(userId, range.from, range.to),
+        this.queryReviewDecisionEvaluation(userId, range.from, range.to),
+        this.queryReviewRetentionEvaluation(userId, range.from, range.to),
+        this.queryReviewTrend(userId, range.from, range.to, groupBy),
+      ]);
+    const sessionsStarted = sessionRows.reduce(
+      (sum, row) => sum + toSafeCount(row.count),
+      0,
+    );
+    const sessionsCompleted = sessionRows
+      .filter(({ status }) => status === ReviewSessionStatus.COMPLETED)
+      .reduce((sum, row) => sum + toSafeCount(row.count), 0);
+    const sessionsAbandoned = sessionRows
+      .filter(({ status }) => status === ReviewSessionStatus.ABANDONED)
+      .reduce((sum, row) => sum + toSafeCount(row.count), 0);
+    const answerTotals = skillRows.reduce(
+      (totals, row) => ({
+        attempts: totals.attempts + toSafeCount(row.attempts),
+        correct: totals.correct + toSafeCount(row.correct),
+        timedAttempts: totals.timedAttempts + toSafeCount(row.timedAttempts),
+        responseTimeTotalMs:
+          totals.responseTimeTotalMs + toSafeCount(row.responseTimeTotalMs),
+        hintsUsed: totals.hintsUsed + toSafeCount(row.hintsUsed),
+        retestAttempts: totals.retestAttempts + toSafeCount(row.retestAttempts),
+        correctRetests: totals.correctRetests + toSafeCount(row.correctRetests),
+      }),
+      {
+        attempts: 0,
+        correct: 0,
+        timedAttempts: 0,
+        responseTimeTotalMs: 0,
+        hintsUsed: 0,
+        retestAttempts: 0,
+        correctRetests: 0,
+      },
+    );
+    const durationCounts = new Map(
+      REVIEW_TARGET_DURATIONS.map((duration) => [
+        duration,
+        { started: 0, completed: 0 },
+      ]),
+    );
+    for (const row of sessionRows) {
+      if (
+        row.targetDurationMinutes === null ||
+        !REVIEW_TARGET_DURATIONS.includes(
+          row.targetDurationMinutes as (typeof REVIEW_TARGET_DURATIONS)[number],
+        )
+      ) {
+        continue;
+      }
+      const duration =
+        row.targetDurationMinutes as (typeof REVIEW_TARGET_DURATIONS)[number];
+      const counts = durationCounts.get(duration);
+      if (!counts) continue;
+      const count = toSafeCount(row.count);
+      counts.started += count;
+      if (row.status === ReviewSessionStatus.COMPLETED) {
+        counts.completed += count;
+      }
+    }
+    const sourceCounts = new Map(decisionRows.map((row) => [row.source, row]));
+    const retentionCounts = new Map(
+      retentionRows.map((row) => [row.horizon, row]),
+    );
+    const retentionWindow = (horizon: 'NEXT_DAY' | 'SEVEN_DAY') => {
+      const row = retentionCounts.get(horizon);
+      const followUps = row ? toSafeCount(row.followUps) : 0;
+      const correct = row ? toSafeCount(row.correct) : 0;
+      return { followUps, correct, accuracy: roundRatio(correct, followUps) };
+    };
+    return {
+      sessionsStarted,
+      sessionsCompleted,
+      sessionsAbandoned,
+      completionRate: roundRatio(sessionsCompleted, sessionsStarted),
+      answers: answerTotals.attempts,
+      correctAnswers: answerTotals.correct,
+      accuracy: roundRatio(answerTotals.correct, answerTotals.attempts),
+      averageResponseTimeMs:
+        answerTotals.timedAttempts === 0
+          ? null
+          : Math.round(
+              answerTotals.responseTimeTotalMs / answerTotals.timedAttempts,
+            ),
+      hintsUsed: answerTotals.hintsUsed,
+      sameSessionRetest: {
+        attempts: answerTotals.retestAttempts,
+        correct: answerTotals.correctRetests,
+        successRate: roundRatio(
+          answerTotals.correctRetests,
+          answerTotals.retestAttempts,
+        ),
+      },
+      bySkill: skillRows.flatMap((row) => {
+        if (row.skillDimension === null) return [];
+        const attempts = toSafeCount(row.attempts);
+        const correct = toSafeCount(row.correct);
+        const timedAttempts = toSafeCount(row.timedAttempts);
+        return [
+          {
+            skillDimension: row.skillDimension,
+            attempts,
+            correct,
+            accuracy: roundRatio(correct, attempts),
+            averageResponseTimeMs:
+              timedAttempts === 0
+                ? null
+                : Math.round(
+                    toSafeCount(row.responseTimeTotalMs) / timedAttempts,
+                  ),
+            hintsUsed: toSafeCount(row.hintsUsed),
+          },
+        ];
+      }),
+      byDuration: REVIEW_TARGET_DURATIONS.map((targetDurationMinutes) => {
+        const counts = durationCounts.get(targetDurationMinutes) ?? {
+          started: 0,
+          completed: 0,
+        };
+        return {
+          targetDurationMinutes,
+          ...counts,
+          completionRate: roundRatio(counts.completed, counts.started),
+        };
+      }),
+      byDecisionSource: REVIEW_DECISION_SOURCES.map((source) => {
+        const row = sourceCounts.get(source);
+        const interventions = row ? toSafeCount(row.interventions) : 0;
+        const retestAttempts = row ? toSafeCount(row.retestAttempts) : 0;
+        const successfulRetests = row ? toSafeCount(row.successfulRetests) : 0;
+        return {
+          source,
+          interventions,
+          retestAttempts,
+          successfulRetests,
+          retestSuccessRate: roundRatio(successfulRetests, retestAttempts),
+        };
+      }),
+      retention: {
+        nextDay: retentionWindow('NEXT_DAY'),
+        sevenDay: retentionWindow('SEVEN_DAY'),
+      },
+      trend: this.fillMissingBuckets(
+        trendRows,
+        range.from,
+        range.to,
+        groupBy,
+        (row) => {
+          const answers = toSafeCount(row.answers);
+          const correctAnswers = toSafeCount(row.correctAnswers);
+          const timedAnswers = toSafeCount(row.timedAnswers);
+          return {
+            bucket: row.bucket,
+            answers,
+            correctAnswers,
+            accuracy: roundRatio(correctAnswers, answers),
+            averageResponseTimeMs:
+              timedAnswers === 0
+                ? null
+                : Math.round(
+                    toSafeCount(row.responseTimeTotalMs) / timedAnswers,
+                  ),
+            hintsUsed: toSafeCount(row.hintsUsed),
+          };
+        },
+        (bucket) => ({
+          bucket,
+          answers: 0,
+          correctAnswers: 0,
+          accuracy: 0,
+          averageResponseTimeMs: null,
+          hintsUsed: 0,
+        }),
+      ),
+    };
+  }
+
   async getAdminOverview(
     query: AnalyticsDateRangeQueryDto,
     requestTime = new Date(),
@@ -562,6 +791,175 @@ export class AnalyticsService {
         multiActivity: toSafeCount(distribution.multiActivity),
       },
     };
+  }
+
+  private queryReviewSessionEvaluation(userId: string, from: Date, to: Date) {
+    return this.prisma.$queryRaw<ReviewSessionEvaluationRow[]>(Prisma.sql`
+      SELECT
+        rs.target_duration_minutes AS "targetDurationMinutes",
+        rs.status,
+        COUNT(*)::bigint AS count
+      FROM review_sessions rs
+      WHERE rs.user_id = ${userId}::uuid
+        AND rs.started_at >= ${from}
+        AND rs.started_at < ${to}
+      GROUP BY rs.target_duration_minutes, rs.status
+      ORDER BY rs.target_duration_minutes NULLS LAST, rs.status
+    `);
+  }
+
+  private queryReviewSkillEvaluation(userId: string, from: Date, to: Date) {
+    return this.prisma.$queryRaw<ReviewSkillEvaluationRow[]>(Prisma.sql`
+      SELECT
+        ra.skill_dimension AS "skillDimension",
+        COUNT(*)::bigint AS attempts,
+        COUNT(*) FILTER (WHERE ra.is_correct = TRUE)::bigint AS correct,
+        COUNT(ra.response_time_ms)::bigint AS "timedAttempts",
+        COALESCE(SUM(ra.response_time_ms), 0)::bigint AS "responseTimeTotalMs",
+        COALESCE(SUM(ra.hints_used), 0)::bigint AS "hintsUsed",
+        COUNT(*) FILTER (WHERE ra.attempt_number > 1)::bigint AS "retestAttempts",
+        COUNT(*) FILTER (
+          WHERE ra.attempt_number > 1 AND ra.is_correct = TRUE
+        )::bigint AS "correctRetests"
+      FROM review_answers ra
+      INNER JOIN review_session_items rsi
+        ON rsi.id = ra.review_session_item_id
+      INNER JOIN review_sessions rs
+        ON rs.id = rsi.review_session_id
+      WHERE rs.user_id = ${userId}::uuid
+        AND ra.answered_at >= ${from}
+        AND ra.answered_at < ${to}
+      GROUP BY ra.skill_dimension
+      ORDER BY ra.skill_dimension NULLS LAST
+    `);
+  }
+
+  private queryReviewDecisionEvaluation(userId: string, from: Date, to: Date) {
+    return this.prisma.$queryRaw<ReviewDecisionEvaluationRow[]>(Prisma.sql`
+      SELECT
+        rad.source,
+        COUNT(*)::bigint AS interventions,
+        COUNT(retest.is_correct)::bigint AS "retestAttempts",
+        COUNT(*) FILTER (WHERE retest.is_correct = TRUE)::bigint
+          AS "successfulRetests"
+      FROM review_agent_decisions rad
+      INNER JOIN review_sessions rs
+        ON rs.id = rad.review_session_id
+      INNER JOIN review_answers original_answer
+        ON original_answer.id = rad.review_answer_id
+      LEFT JOIN LATERAL (
+        SELECT candidate.is_correct
+        FROM review_answers candidate
+        WHERE candidate.review_session_item_id =
+          original_answer.review_session_item_id
+          AND candidate.attempt_number > original_answer.attempt_number
+        ORDER BY candidate.attempt_number, candidate.answered_at, candidate.id
+        LIMIT 1
+      ) retest ON TRUE
+      WHERE rs.user_id = ${userId}::uuid
+        AND rad.kind = 'ANSWER_INTERVENTION'::review_decision_kind
+        AND rad.created_at >= ${from}
+        AND rad.created_at < ${to}
+      GROUP BY rad.source
+      ORDER BY rad.source
+    `);
+  }
+
+  private queryReviewRetentionEvaluation(userId: string, from: Date, to: Date) {
+    return this.prisma.$queryRaw<ReviewRetentionEvaluationRow[]>(Prisma.sql`
+      WITH interventions AS (
+        SELECT
+          rad.id,
+          rad.created_at,
+          rsi.user_vocabulary_id
+        FROM review_agent_decisions rad
+        INNER JOIN review_sessions rs
+          ON rs.id = rad.review_session_id
+        INNER JOIN review_answers original_answer
+          ON original_answer.id = rad.review_answer_id
+        INNER JOIN review_session_items rsi
+          ON rsi.id = original_answer.review_session_item_id
+        WHERE rs.user_id = ${userId}::uuid
+          AND rad.kind = 'ANSWER_INTERVENTION'::review_decision_kind
+          AND rad.created_at >= ${from}
+          AND rad.created_at < ${to}
+          AND rsi.user_vocabulary_id IS NOT NULL
+      )
+      SELECT
+        'NEXT_DAY'::text AS horizon,
+        COUNT(follow_up.is_correct)::bigint AS "followUps",
+        COUNT(*) FILTER (WHERE follow_up.is_correct = TRUE)::bigint AS correct
+      FROM interventions intervention
+      LEFT JOIN LATERAL (
+        SELECT later_answer.is_correct
+        FROM review_answers later_answer
+        INNER JOIN review_session_items later_item
+          ON later_item.id = later_answer.review_session_item_id
+        INNER JOIN review_sessions later_session
+          ON later_session.id = later_item.review_session_id
+        WHERE later_session.user_id = ${userId}::uuid
+          AND later_item.user_vocabulary_id = intervention.user_vocabulary_id
+          AND later_answer.answered_at >= intervention.created_at + INTERVAL '1 day'
+          AND later_answer.answered_at < intervention.created_at + INTERVAL '2 days'
+          AND later_answer.answered_at < ${to}
+        ORDER BY later_answer.answered_at, later_answer.id
+        LIMIT 1
+      ) follow_up ON TRUE
+      WHERE intervention.created_at <= ${to}::timestamptz - INTERVAL '2 days'
+
+      UNION ALL
+
+      SELECT
+        'SEVEN_DAY'::text AS horizon,
+        COUNT(follow_up.is_correct)::bigint AS "followUps",
+        COUNT(*) FILTER (WHERE follow_up.is_correct = TRUE)::bigint AS correct
+      FROM interventions intervention
+      LEFT JOIN LATERAL (
+        SELECT later_answer.is_correct
+        FROM review_answers later_answer
+        INNER JOIN review_session_items later_item
+          ON later_item.id = later_answer.review_session_item_id
+        INNER JOIN review_sessions later_session
+          ON later_session.id = later_item.review_session_id
+        WHERE later_session.user_id = ${userId}::uuid
+          AND later_item.user_vocabulary_id = intervention.user_vocabulary_id
+          AND later_answer.answered_at >= intervention.created_at + INTERVAL '7 days'
+          AND later_answer.answered_at < intervention.created_at + INTERVAL '8 days'
+          AND later_answer.answered_at < ${to}
+        ORDER BY later_answer.answered_at, later_answer.id
+        LIMIT 1
+      ) follow_up ON TRUE
+      WHERE intervention.created_at <= ${to}::timestamptz - INTERVAL '8 days'
+    `);
+  }
+
+  private queryReviewTrend(
+    userId: string,
+    from: Date,
+    to: Date,
+    groupBy: AnalyticsGroupBy,
+  ) {
+    return this.prisma.$queryRaw<ReviewTrendEvaluationRow[]>(Prisma.sql`
+      SELECT ${this.bucketExpression(Prisma.sql`ra.answered_at`, groupBy)}
+          AS bucket,
+        COUNT(*)::bigint AS answers,
+        COUNT(*) FILTER (WHERE ra.is_correct = TRUE)::bigint
+          AS "correctAnswers",
+        COUNT(ra.response_time_ms)::bigint AS "timedAnswers",
+        COALESCE(SUM(ra.response_time_ms), 0)::bigint
+          AS "responseTimeTotalMs",
+        COALESCE(SUM(ra.hints_used), 0)::bigint AS "hintsUsed"
+      FROM review_answers ra
+      INNER JOIN review_session_items rsi
+        ON rsi.id = ra.review_session_item_id
+      INNER JOIN review_sessions rs
+        ON rs.id = rsi.review_session_id
+      WHERE rs.user_id = ${userId}::uuid
+        AND ra.answered_at >= ${from}
+        AND ra.answered_at < ${to}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `);
   }
 
   private queryReadingCategories(userId: string, from: Date, to: Date) {

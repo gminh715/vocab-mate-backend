@@ -3,8 +3,13 @@ import {
   ArticleStatus,
   QuestionType,
   QuizStatus,
+  ReviewAgentAction,
+  ReviewDecisionSource,
+  ReviewErrorType,
+  ReviewGoal,
   ReviewSessionStatus,
   ReviewSessionType,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 
 export class ReviewSessionDto {
@@ -18,6 +23,19 @@ export class ReviewSessionDto {
   articleId!: string | null;
   @ApiProperty({ format: 'uuid', nullable: true })
   collectionId!: string | null;
+  @ApiPropertyOptional({ enum: [5, 10, 15], nullable: true })
+  targetDurationMinutes!: number | null;
+  @ApiPropertyOptional({ enum: ReviewGoal, nullable: true })
+  reviewGoal!: ReviewGoal | null;
+  @ApiPropertyOptional({ nullable: true, minimum: 1 })
+  plannedItemCount!: number | null;
+  @ApiProperty({
+    nullable: true,
+    example: 'Review recall first, then reinforce meaning in context.',
+    description:
+      'Persisted learner-facing session plan. Null for legacy or unplanned sessions.',
+  })
+  planSummary!: string | null;
   @ApiProperty({ enum: ReviewSessionStatus })
   status!: ReviewSessionStatus;
   @ApiProperty({ format: 'date-time' })
@@ -77,6 +95,30 @@ export class SessionReviewItemDto {
   question!: SessionQuestionDto;
 }
 
+export class ReviewAgentMicroLessonDto {
+  @ApiProperty()
+  title!: string;
+  @ApiProperty()
+  explanation!: string;
+  @ApiProperty()
+  example!: string;
+}
+
+export class ReviewAgentFeedbackDto {
+  @ApiProperty({ enum: ReviewDecisionSource })
+  source!: ReviewDecisionSource;
+  @ApiProperty({ enum: ReviewAgentAction })
+  action!: ReviewAgentAction;
+  @ApiProperty({ enum: ReviewSkillDimension })
+  skillDimension!: ReviewSkillDimension;
+  @ApiProperty({ enum: ReviewErrorType })
+  errorType!: ReviewErrorType;
+  @ApiPropertyOptional({ type: ReviewAgentMicroLessonDto })
+  microLesson?: ReviewAgentMicroLessonDto;
+  @ApiPropertyOptional({ minimum: 2, maximum: 5 })
+  retestAfterItems?: number;
+}
+
 export class StartReviewSessionDataDto {
   @ApiProperty({ type: ReviewSessionDto })
   session!: ReviewSessionDto;
@@ -84,6 +126,8 @@ export class StartReviewSessionDataDto {
   progress!: ReviewProgressDto;
   @ApiPropertyOptional({ type: SessionReviewItemDto })
   nextItem?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewAgentFeedbackDto })
+  agentFeedback?: ReviewAgentFeedbackDto;
 }
 
 export class ReviewSessionStateDataDto {
@@ -93,6 +137,8 @@ export class ReviewSessionStateDataDto {
   progress!: ReviewProgressDto;
   @ApiPropertyOptional({ type: SessionReviewItemDto })
   nextItem?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewAgentFeedbackDto })
+  agentFeedback?: ReviewAgentFeedbackDto;
 }
 
 export class ReviewResultDto {
@@ -142,6 +188,8 @@ export class SubmittedReviewAnswerDataDto {
   progress!: ReviewProgressDto;
   @ApiPropertyOptional({ type: SessionReviewItemDto })
   nextQuestion?: SessionReviewItemDto;
+  @ApiPropertyOptional({ type: ReviewAgentFeedbackDto })
+  agentFeedback?: ReviewAgentFeedbackDto;
   @ApiPropertyOptional({ type: ReviewResultDto })
   completionSummary?: ReviewResultDto;
 }
@@ -258,11 +306,59 @@ export class ReviewResultAnswerDto {
   answeredAt!: Date;
 }
 
+export class ReviewSkillBreakdownDto {
+  @ApiProperty({ enum: ReviewSkillDimension })
+  skillDimension!: ReviewSkillDimension;
+  @ApiProperty({ minimum: 1 })
+  attempts!: number;
+  @ApiProperty({ minimum: 0 })
+  correct!: number;
+  @ApiProperty({ minimum: 0, maximum: 1, example: 0.75 })
+  accuracy!: number;
+}
+
+export class ReviewCoachSummaryDto {
+  @ApiProperty({ type: [String], enum: ReviewSkillDimension })
+  strengths!: ReviewSkillDimension[];
+  @ApiProperty({ type: [String], enum: ReviewSkillDimension })
+  focusNext!: ReviewSkillDimension[];
+  @ApiProperty()
+  message!: string;
+  @ApiProperty({ enum: ReviewDecisionSource })
+  source!: ReviewDecisionSource;
+}
+
+export class ReviewWordToRevisitDto {
+  @ApiProperty({ format: 'uuid', nullable: true })
+  userVocabularyId!: string | null;
+  @ApiProperty()
+  wordOrPhrase!: string;
+  @ApiProperty({ nullable: true })
+  meaningVi!: string | null;
+  @ApiProperty({ enum: ReviewSkillDimension, nullable: true })
+  skillDimension!: ReviewSkillDimension | null;
+  @ApiProperty({ enum: ReviewErrorType, nullable: true })
+  errorType!: ReviewErrorType | null;
+  @ApiProperty({ nullable: true })
+  explanation!: string | null;
+  @ApiProperty({
+    description:
+      'True when a later attempt for the same session item was correct.',
+  })
+  recoveredInSession!: boolean;
+}
+
 export class CompletedReviewResultDataDto {
   @ApiProperty({ type: ReviewResultDto })
   result!: ReviewResultDto;
   @ApiProperty({ type: [ReviewResultAnswerDto] })
   answers!: ReviewResultAnswerDto[];
+  @ApiProperty({ type: [ReviewSkillBreakdownDto] })
+  skillBreakdown!: ReviewSkillBreakdownDto[];
+  @ApiProperty({ type: ReviewCoachSummaryDto })
+  coachSummary!: ReviewCoachSummaryDto;
+  @ApiProperty({ type: [ReviewWordToRevisitDto] })
+  wordsToRevisit!: ReviewWordToRevisitDto[];
 }
 
 export class DueReviewArticleDto {
@@ -298,8 +394,33 @@ export class RecommendedQuizDto {
 export class DueReviewsDataDto {
   @ApiProperty()
   dueVocabularyCount!: number;
+  @ApiProperty({ type: () => [DailyReviewEstimateDto] })
+  dailyReviewEstimates!: DailyReviewEstimateDto[];
   @ApiProperty({ type: [RecommendedQuizDto] })
   recommendedQuizzes!: RecommendedQuizDto[];
+}
+
+export class DailyReviewEstimateDto {
+  @ApiProperty({ enum: [5, 10, 15] })
+  targetDurationMinutes!: number;
+  @ApiProperty({
+    minimum: 0,
+    description: 'Backward-compatible estimate for the BALANCED review goal.',
+  })
+  estimatedItemCount!: number;
+  @ApiProperty({
+    type: () => [DailyReviewGoalEstimateDto],
+    description:
+      'Goal-specific estimates ordered as BALANCED, RECALL, SPELLING, CONTEXT.',
+  })
+  goalEstimates!: DailyReviewGoalEstimateDto[];
+}
+
+export class DailyReviewGoalEstimateDto {
+  @ApiProperty({ enum: ReviewGoal })
+  reviewGoal!: ReviewGoal;
+  @ApiProperty({ minimum: 0 })
+  estimatedItemCount!: number;
 }
 
 const successResponse = <T>(dataType: new () => T) => {

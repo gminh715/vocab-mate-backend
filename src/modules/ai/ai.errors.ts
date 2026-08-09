@@ -5,6 +5,7 @@ export class AiError extends Error {
   constructor(
     readonly code: AiErrorCode,
     message: string,
+    readonly providerFailureReason?: ProviderFailureReason,
   ) {
     super(message);
     this.name = 'AiError';

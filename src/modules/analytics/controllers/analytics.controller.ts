@@ -36,6 +36,7 @@ import {
   AnalyticsOverviewSuccessResponseDto,
   QuizAnalyticsSuccessResponseDto,
   ReadingAnalyticsSuccessResponseDto,
+  ReviewAnalyticsSuccessResponseDto,
   VocabularyAnalyticsSuccessResponseDto,
 } from '../dto/analytics-response.dto';
 
@@ -127,5 +128,24 @@ export class AnalyticsController {
     @Query() query: QuizAnalyticsQueryDto,
   ) {
     return this.analyticsService.getQuizAnalytics(user.id, query);
+  }
+
+  @Get('me/reviews')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'getMyReviewAnalytics',
+    summary: 'Get the authenticated learner adaptive-review evaluation',
+    description:
+      'Uses owner-scoped persisted sessions, answers, and bounded review decisions in the requested half-open range. Retest and retention outcomes are deterministic aggregates; provider metadata and raw model output are never returned.',
+  })
+  @ApiOkResponse({ type: ReviewAnalyticsSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  getReviewAnalytics(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: AnalyticsDateRangeQueryDto,
+  ) {
+    return this.analyticsService.getReviewAnalytics(user.id, query);
   }
 }

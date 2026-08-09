@@ -1,21 +1,29 @@
 model ReviewSession {
-  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String              @map("user_id") @db.Uuid
-  sessionType  ReviewSessionType   @map("session_type")
-  quizId       String?             @map("quiz_id") @db.Uuid
-  articleId    String?             @map("article_id") @db.Uuid
-  collectionId String?             @map("collection_id") @db.Uuid
-  status       ReviewSessionStatus @default(IN_PROGRESS)
-  startedAt    DateTime            @default(now()) @map("started_at") @db.Timestamptz(6)
-  completedAt  DateTime?           @map("completed_at") @db.Timestamptz(6)
-  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String              @map("user_id") @db.Uuid
+  sessionType           ReviewSessionType   @map("session_type")
+  quizId                String?             @map("quiz_id") @db.Uuid
+  articleId             String?             @map("article_id") @db.Uuid
+  collectionId          String?             @map("collection_id") @db.Uuid
+  status                ReviewSessionStatus @default(IN_PROGRESS)
+  targetDurationMinutes Int?                @map("target_duration_minutes") @db.SmallInt
+  reviewGoal            ReviewGoal?         @map("review_goal")
+  plannedItemCount      Int?                @map("planned_item_count") @db.SmallInt
+  planSummary           String?             @map("plan_summary") @db.Text
+  aiCallCount           Int                 @default(0) @map("ai_call_count") @db.SmallInt
+  aiDiagnosisCallCount  Int                 @default(0) @map("ai_diagnosis_call_count") @db.SmallInt
+  agentVersion          String?             @map("agent_version") @db.VarChar(50)
+  startedAt             DateTime            @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt           DateTime?           @map("completed_at") @db.Timestamptz(6)
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  user       User                  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_user")
-  quiz       Quiz?                 @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_quiz")
-  article    Article?              @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_article")
-  collection VocabularyCollection? @relation(fields: [collectionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_collection")
-  items      ReviewSessionItem[]
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_user")
+  quiz           Quiz?                 @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_quiz")
+  article        Article?              @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_article")
+  collection     VocabularyCollection? @relation(fields: [collectionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_collection")
+  items          ReviewSessionItem[]
+  agentDecisions ReviewAgentDecision[]
 
   @@unique([userId], map: "uq_review_sessions_active_daily", where: raw("status = 'IN_PROGRESS' AND session_type = 'DAILY_REVIEW'"))
   @@unique([userId, quizId], map: "uq_review_sessions_active_quiz", where: raw("status = 'IN_PROGRESS' AND session_type = 'QUIZ'"))
@@ -41,10 +49,11 @@ model ReviewSessionItem {
   createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  reviewSession  ReviewSession   @relation(fields: [reviewSessionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_session")
-  userVocabulary UserVocabulary? @relation(fields: [userVocabularyId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_user_vocabulary")
-  quizQuestion   QuizQuestion    @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_quiz_question")
+  reviewSession  ReviewSession         @relation(fields: [reviewSessionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_session")
+  userVocabulary UserVocabulary?       @relation(fields: [userVocabularyId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_user_vocabulary")
+  quizQuestion   QuizQuestion          @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_quiz_question")
   answers        ReviewAnswer[]
+  agentDecisions ReviewAgentDecision[]
 
   @@unique([reviewSessionId, sequenceNumber], map: "uq_review_session_items_sequence")
   @@unique([reviewSessionId, quizQuestionId], map: "uq_review_session_items_question")
@@ -54,25 +63,58 @@ model ReviewSessionItem {
 }
 
 model ReviewAnswer {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reviewSessionItemId String   @map("review_session_item_id") @db.Uuid
-  quizQuestionId      String   @map("quiz_question_id") @db.Uuid
-  selectedOptionId    String?  @map("selected_option_id") @db.Uuid
-  userAnswerText      String?  @map("user_answer_text") @db.Text
-  isCorrect           Boolean? @map("is_correct")
-  responseTimeMs      Int?     @map("response_time_ms")
-  attemptNumber       Int      @default(1) @map("attempt_number")
-  hintsUsed           Int      @default(0) @map("hints_used") @db.SmallInt
-  inferredReviewScore Int?     @map("inferred_review_score") @db.SmallInt
-  answeredAt          DateTime @default(now()) @map("answered_at") @db.Timestamptz(6)
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reviewSessionItemId String                @map("review_session_item_id") @db.Uuid
+  quizQuestionId      String                @map("quiz_question_id") @db.Uuid
+  selectedOptionId    String?               @map("selected_option_id") @db.Uuid
+  userAnswerText      String?               @map("user_answer_text") @db.Text
+  isCorrect           Boolean?              @map("is_correct")
+  responseTimeMs      Int?                  @map("response_time_ms")
+  attemptNumber       Int                   @default(1) @map("attempt_number")
+  hintsUsed           Int                   @default(0) @map("hints_used") @db.SmallInt
+  inferredReviewScore Int?                  @map("inferred_review_score") @db.SmallInt
+  skillDimension      ReviewSkillDimension? @map("skill_dimension")
+  errorType           ReviewErrorType?      @map("error_type")
+  answeredAt          DateTime              @default(now()) @map("answered_at") @db.Timestamptz(6)
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  reviewSessionItem ReviewSessionItem @relation(fields: [reviewSessionItemId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_session_item")
-  quizQuestion      QuizQuestion      @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_quiz_question")
-  selectedOption    QuestionOption?   @relation(fields: [selectedOptionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_selected_option")
+  reviewSessionItem ReviewSessionItem     @relation(fields: [reviewSessionItemId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_session_item")
+  quizQuestion      QuizQuestion          @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_quiz_question")
+  selectedOption    QuestionOption?       @relation(fields: [selectedOptionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_selected_option")
+  agentDecisions    ReviewAgentDecision[]
 
   @@unique([reviewSessionItemId, attemptNumber], map: "uq_review_answers_item_attempt")
   @@index([reviewSessionItemId, answeredAt(sort: Desc)], map: "idx_review_answers_item_history")
   @@index([quizQuestionId], map: "idx_review_answers_quiz_question")
   @@map("review_answers")
+}
+
+model ReviewAgentDecision {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reviewSessionId     String                @map("review_session_id") @db.Uuid
+  reviewSessionItemId String?               @map("review_session_item_id") @db.Uuid
+  reviewAnswerId      String?               @map("review_answer_id") @db.Uuid
+  kind                ReviewDecisionKind
+  source              ReviewDecisionSource
+  action              ReviewAgentAction?
+  skillDimension      ReviewSkillDimension? @map("skill_dimension")
+  errorType           ReviewErrorType?      @map("error_type")
+  confidence          Float?
+  reasonCode          String                @map("reason_code") @db.VarChar(80)
+  stateSnapshot       Json                  @map("state_snapshot") @db.JsonB
+  decisionPayload     Json                  @map("decision_payload") @db.JsonB
+  provider            String?               @db.VarChar(30)
+  model               String?               @db.VarChar(100)
+  promptVersion       String                @map("prompt_version") @db.VarChar(50)
+  latencyMs           Int?                  @map("latency_ms")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reviewSession     ReviewSession      @relation(fields: [reviewSessionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_agent_decisions_session")
+  reviewSessionItem ReviewSessionItem? @relation(fields: [reviewSessionItemId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_agent_decisions_item")
+  reviewAnswer      ReviewAnswer?      @relation(fields: [reviewAnswerId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_agent_decisions_answer")
+
+  @@unique([reviewAnswerId, kind], map: "uq_agent_decision_answer_kind")
+  @@index([reviewSessionId, kind, createdAt(sort: Desc)], map: "idx_agent_decisions_session_kind")
+  @@index([reviewSessionItemId, createdAt(sort: Desc)], map: "idx_agent_decisions_item")
+  @@map("review_agent_decisions")
 }

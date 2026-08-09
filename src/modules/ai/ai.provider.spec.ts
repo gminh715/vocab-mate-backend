@@ -8,8 +8,34 @@ import {
 
 const groqCreate = jest.fn();
 const mockGroqConstructor = jest.fn();
-const mockGeminiGenerate = jest.fn();
-const mockGeminiConstructor = jest.fn();
+
+interface GeminiGenerateRequest {
+  model: string;
+  config: {
+    thinkingConfig: { thinkingLevel: string };
+    responseMimeType: string;
+    responseJsonSchema: Record<string, unknown>;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+  };
+}
+
+interface GeminiConstructorOptions {
+  httpOptions?: {
+    timeout?: number;
+    retryOptions?: {
+      attempts?: number;
+      httpStatusCodes?: number[];
+    };
+  };
+}
+
+const mockGeminiGenerate = jest.fn<
+  Promise<{ text: string }>,
+  [GeminiGenerateRequest]
+>();
+const mockGeminiConstructor = jest.fn<void, [GeminiConstructorOptions]>();
 
 jest.mock('@google/genai', () => ({
   ApiError: class extends Error {},
@@ -19,7 +45,7 @@ jest.mock('@google/genai', () => ({
       generateContent: mockGeminiGenerate,
     };
 
-    constructor(options: unknown) {
+    constructor(options: GeminiConstructorOptions) {
       mockGeminiConstructor(options);
     }
   },
@@ -62,8 +88,12 @@ const config: AiConfig = {
   groqApiKey: 'groq-test-key',
   groqModel: 'llama-3.3-70b-versatile',
   requestTimeoutMs: 5000,
-  maxArticleCharacters: 50000,
-  maxTermsPerArticle: 25,
+  reviewAgentEnabled: true,
+  reviewMaxCallsPerSession: 6,
+  reviewMaxDiagnosisCalls: 4,
+  reviewMinConfidence: 0.65,
+  reviewPromptVersion: 'review-agent-test-v2',
+  reviewQuestionWarmLimit: 2,
 };
 
 const request: StructuredAiRequest = {
@@ -265,35 +295,28 @@ describe('GeminiAiProvider', () => {
       '{"ok":true}',
     );
 
-    expect(mockGeminiConstructor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        httpOptions: {
-          timeout: 30000,
-          retryOptions: expect.objectContaining({
-            attempts: 2,
-            httpStatusCodes: [408, 429, 500, 502, 503, 504],
-          }),
+    const constructorOptions = mockGeminiConstructor.mock.calls[0]?.[0];
+    expect(constructorOptions).toMatchObject({
+      httpOptions: {
+        timeout: 30000,
+        retryOptions: {
+          attempts: 2,
+          httpStatusCodes: [408, 429, 500, 502, 503, 504],
         },
-      }),
-    );
-    expect(mockGeminiGenerate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'gemini-3.5-flash-lite',
-        config: expect.objectContaining({
-          thinkingConfig: { thinkingLevel: 'MINIMAL' },
-          responseMimeType: 'application/json',
-          responseJsonSchema: request.schema,
-        }),
-      }),
-    );
-    expect(mockGeminiGenerate.mock.calls[0][0].config).not.toHaveProperty(
-      'temperature',
-    );
-    expect(mockGeminiGenerate.mock.calls[0][0].config).not.toHaveProperty(
-      'topP',
-    );
-    expect(mockGeminiGenerate.mock.calls[0][0].config).not.toHaveProperty(
-      'topK',
-    );
+      },
+    });
+
+    const generateRequest = mockGeminiGenerate.mock.calls[0]?.[0];
+    expect(generateRequest).toMatchObject({
+      model: 'gemini-3.5-flash-lite',
+      config: {
+        thinkingConfig: { thinkingLevel: 'MINIMAL' },
+        responseMimeType: 'application/json',
+        responseJsonSchema: request.schema,
+      },
+    });
+    expect(generateRequest?.config).not.toHaveProperty('temperature');
+    expect(generateRequest?.config).not.toHaveProperty('topP');
+    expect(generateRequest?.config).not.toHaveProperty('topK');
   });
 });

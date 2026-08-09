@@ -3,6 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
   IsDefined,
+  IsIn,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -16,9 +17,14 @@ import {
   ValidateIf,
 } from 'class-validator';
 import {
+  ReviewGoal,
   ReviewSessionStatus,
   ReviewSessionType,
 } from '../../../../generated/prisma/enums';
+import {
+  REVIEW_TARGET_DURATIONS,
+  type ReviewTargetDuration,
+} from '../../ai/ai.contracts';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_ANSWER_LENGTH = 2_000;
@@ -94,6 +100,28 @@ export class StartReviewSessionDto {
   @Min(1)
   @Max(MAX_PAGE_SIZE)
   limit = 20;
+
+  @ApiPropertyOptional({
+    enum: REVIEW_TARGET_DURATIONS,
+    default: 10,
+    example: 10,
+    description:
+      'Target duration for a DAILY_REVIEW. The server uses it to bound the planned item count.',
+  })
+  @IsOptional()
+  @IsInt()
+  @IsIn(REVIEW_TARGET_DURATIONS)
+  targetDurationMinutes?: ReviewTargetDuration;
+
+  @ApiPropertyOptional({
+    enum: ReviewGoal,
+    default: ReviewGoal.BALANCED,
+    example: ReviewGoal.RECALL,
+    description: 'Learning focus for a DAILY_REVIEW.',
+  })
+  @IsOptional()
+  @IsEnum(ReviewGoal)
+  reviewGoal?: ReviewGoal;
 }
 
 export class ReviewSessionParamsDto {

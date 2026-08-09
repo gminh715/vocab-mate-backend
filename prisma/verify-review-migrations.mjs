@@ -68,11 +68,12 @@ try {
           'question_options',
           'review_sessions',
           'review_session_items',
-          'review_answers'
+          'review_answers',
+          'review_agent_decisions'
         )`,
     [schemaName],
   );
-  assert(reviewTables.count === 6, 'Expected review tables were not created');
+  assert(reviewTables.count === 7, 'Expected review tables were not created');
 
   const requiredColumns = await queryValue(
     `SELECT COUNT(*)::int AS count
@@ -83,16 +84,103 @@ try {
           ('user_vocabularies', 'lapse_count'),
           ('user_vocabularies', 'last_review_score'),
           ('quiz_questions', 'generation_source'),
+          ('quiz_questions', 'generation_version'),
           ('question_options', 'generation_source'),
           ('review_sessions', 'collection_id'),
+          ('review_sessions', 'target_duration_minutes'),
+          ('review_sessions', 'review_goal'),
+          ('review_sessions', 'planned_item_count'),
+          ('review_sessions', 'plan_summary'),
+          ('review_sessions', 'ai_call_count'),
+          ('review_sessions', 'ai_diagnosis_call_count'),
+          ('review_sessions', 'agent_version'),
           ('review_answers', 'review_session_item_id'),
-          ('review_answers', 'inferred_review_score')
+          ('review_answers', 'inferred_review_score'),
+          ('review_answers', 'skill_dimension'),
+          ('review_answers', 'error_type')
         )`,
     [schemaName],
   );
   assert(
-    requiredColumns.count === 8,
+    requiredColumns.count === 18,
     'Review migration columns are incomplete',
+  );
+
+  const backwardCompatibleQuestionColumns = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.columns
+      WHERE table_schema = $1
+        AND table_name = 'quiz_questions'
+        AND column_name = 'generation_version'
+        AND is_nullable = 'YES'`,
+    [schemaName],
+  );
+  assert(
+    backwardCompatibleQuestionColumns.count === 1,
+    'Review question prompt version is not backward compatible',
+  );
+
+  const backwardCompatibleColumns = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.columns
+      WHERE table_schema = $1
+        AND table_name = 'review_sessions'
+        AND (
+          (column_name IN (
+            'target_duration_minutes',
+            'review_goal',
+            'planned_item_count',
+            'plan_summary',
+            'agent_version'
+          ) AND is_nullable = 'YES')
+          OR (
+            column_name = 'ai_call_count'
+            AND is_nullable = 'NO'
+            AND column_default LIKE '0%'
+          )
+          OR (
+            column_name = 'ai_diagnosis_call_count'
+            AND is_nullable = 'NO'
+            AND column_default LIKE '0%'
+          )
+        )`,
+    [schemaName],
+  );
+  assert(
+    backwardCompatibleColumns.count === 7,
+    'Review planning columns are not backward compatible',
+  );
+
+  const backwardCompatibleAnswerColumns = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.columns
+      WHERE table_schema = $1
+        AND table_name = 'review_answers'
+        AND column_name IN ('skill_dimension', 'error_type')
+        AND is_nullable = 'YES'`,
+    [schemaName],
+  );
+  assert(
+    backwardCompatibleAnswerColumns.count === 2,
+    'Review answer signals are not backward compatible',
+  );
+
+  const decisionForeignKeys = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.table_constraints
+      WHERE constraint_schema = $1
+        AND table_name = 'review_agent_decisions'
+        AND constraint_type = 'FOREIGN KEY'
+        AND constraint_name IN (
+          'fk_review_agent_decisions_session',
+          'fk_review_agent_decisions_item',
+          'fk_review_agent_decisions_answer'
+        )`,
+    [schemaName],
+  );
+  assert(
+    decisionForeignKeys.count === 3,
+    'Agent decision relations are incomplete',
   );
 
   const legacyColumns = await queryValue(
@@ -125,11 +213,14 @@ try {
           'uq_review_sessions_active_article',
           'uq_review_sessions_active_collection',
           'uq_quiz_questions_ai_cache',
-          'uq_review_answers_item_attempt'
+          'uq_review_answers_item_attempt',
+          'uq_agent_decision_answer_kind',
+          'idx_agent_decisions_session_kind',
+          'idx_agent_decisions_item'
         )`,
     [schemaName],
   );
-  assert(indexes.count === 6, 'Review uniqueness indexes are incomplete');
+  assert(indexes.count === 9, 'Review indexes are incomplete');
 
   const sessionTypes = await client.query(
     `SELECT enumlabel
@@ -146,6 +237,23 @@ try {
     ),
     'Review session source enum is incomplete',
   );
+
+  const agentEnumTypes = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM pg_type
+       JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+      WHERE pg_namespace.nspname = $1
+        AND pg_type.typname IN (
+          'review_goal',
+          'review_skill_dimension',
+          'review_error_type',
+          'review_agent_action',
+          'review_decision_kind',
+          'review_decision_source'
+        )`,
+    [schemaName],
+  );
+  assert(agentEnumTypes.count === 6, 'Agentic review enums are incomplete');
 
   const obsoleteEnum = await queryValue(
     `SELECT COUNT(*)::int AS count

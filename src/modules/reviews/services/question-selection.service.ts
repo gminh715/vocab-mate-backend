@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import {
   LearningStatus,
   QuestionType,
+  ReviewGoal,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 
 export const RECENT_ACCURACY_WINDOW = 5;
@@ -27,12 +29,30 @@ const ALL_TYPES = [
   QuestionType.FILL_BLANK,
 ] as const;
 
+const QUESTION_SKILL_DIMENSIONS: Record<QuestionType, ReviewSkillDimension> = {
+  [QuestionType.SELECT_MEANING]: ReviewSkillDimension.RECOGNITION,
+  [QuestionType.SELECT_WORD]: ReviewSkillDimension.RECALL,
+  [QuestionType.SELECT_CORRECT_CONTEXT]: ReviewSkillDimension.CONTEXT,
+  [QuestionType.FILL_BLANK]: ReviewSkillDimension.SPELLING,
+};
+
+const GOAL_QUESTION_TYPES: Partial<Record<ReviewGoal, QuestionType>> = {
+  [ReviewGoal.RECALL]: QuestionType.SELECT_WORD,
+  [ReviewGoal.SPELLING]: QuestionType.FILL_BLANK,
+  [ReviewGoal.CONTEXT]: QuestionType.SELECT_CORRECT_CONTEXT,
+};
+
 @Injectable()
 export class QuestionSelectionService {
+  skillDimensionFor(questionType: QuestionType): ReviewSkillDimension {
+    return QUESTION_SKILL_DIMENSIONS[questionType];
+  }
+
   preferredTypes(
     vocabulary: QuestionSelectionVocabulary,
     attempts: RecentQuestionAttempt[],
     excludedType?: QuestionType,
+    reviewGoal?: ReviewGoal,
   ): QuestionType[] {
     const recent = attempts.slice(0, RECENT_ACCURACY_WINDOW);
     const accuracy =
@@ -86,8 +106,37 @@ export class QuestionSelectionService {
       preferred = [...ALL_TYPES];
     }
 
+    const goalType = reviewGoal ? GOAL_QUESTION_TYPES[reviewGoal] : undefined;
+    const goalAdjusted = goalType
+      ? [goalType, ...preferred.filter((type) => type !== goalType)]
+      : preferred;
     return excludedType === undefined
-      ? preferred
-      : preferred.filter((questionType) => questionType !== excludedType);
+      ? goalAdjusted
+      : goalAdjusted.filter((questionType) => questionType !== excludedType);
+  }
+
+  selectSessionTypes(
+    preferences: QuestionType[][],
+    reviewGoal?: ReviewGoal,
+  ): QuestionType[] {
+    const goalType = reviewGoal ? GOAL_QUESTION_TYPES[reviewGoal] : undefined;
+    if (goalType) {
+      return preferences.map((preferredTypes) =>
+        preferredTypes.includes(goalType) ? goalType : preferredTypes[0],
+      );
+    }
+
+    const usage = new Map<QuestionType, number>(
+      ALL_TYPES.map((questionType) => [questionType, 0]),
+    );
+    return preferences.map((preferredTypes) => {
+      const selected = preferredTypes.reduce((best, questionType) =>
+        (usage.get(questionType) ?? 0) < (usage.get(best) ?? 0)
+          ? questionType
+          : best,
+      );
+      usage.set(selected, (usage.get(selected) ?? 0) + 1);
+      return selected;
+    });
   }
 }

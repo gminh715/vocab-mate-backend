@@ -58,9 +58,13 @@ user_vocabularies
 - `QuestionSelectionService` varies question type by learning state and recent
   attempts. A failed word is requeued once near the end with its failed type
   excluded; a second failure schedules it for the following day.
-- `AiAssistedQuestionGeneratorService` warms a context/CEFR/type cache. An AI
-  error is swallowed at this boundary and session creation continues with
-  deterministic rule-based questions.
+- `AiAssistedQuestionGeneratorService` prefers context/CEFR/type-cached AI
+  questions and synchronously generates only up to the configured warm limit.
+  Failed candidates are omitted when no compatible cache exists; session
+  creation returns `503 Service Unavailable` only when no usable question
+  remains. It never falls back to rule-based question generation. Reserved
+  warm calls seed the session counter, so planning, diagnosis, and retest
+  generation all consume the same atomic per-session AI budget.
 
 Sessions can be `DAILY_REVIEW`, `ARTICLE_REVIEW`, `COLLECTION_REVIEW`, or a
 fixed published `QUIZ`. Daily review includes due, unscheduled learning, and

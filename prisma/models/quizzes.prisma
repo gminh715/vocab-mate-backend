@@ -26,6 +26,7 @@ model QuizQuestion {
   articleSentenceTermId String                   @map("article_sentence_term_id") @db.Uuid
   questionType          QuestionType             @map("question_type")
   generationSource      QuestionGenerationSource @default(ADMIN) @map("generation_source")
+  generationVersion     String?                  @map("generation_version") @db.VarChar(50)
   difficultyCefr        CefrLevel                @map("difficulty_cefr")
   prompt                String                   @db.Text
   blankSentence         String?                  @map("blank_sentence") @db.Text
@@ -49,9 +50,9 @@ model QuizQuestion {
   reviewAnswers       ReviewAnswer[]
 
   @@unique([quizId, displayOrder], map: "uq_quiz_questions_display_order")
-  @@unique([articleSentenceTermId, difficultyCefr, questionType], map: "uq_quiz_questions_ai_cache", where: raw("quiz_id IS NULL AND is_active = true AND generation_source = 'AI'"))
+  @@unique([articleSentenceTermId, difficultyCefr, questionType, generationVersion], map: "uq_quiz_questions_ai_cache", where: raw("quiz_id IS NULL AND is_active = true AND generation_source = 'AI'"))
   @@index([articleSentenceTermId], map: "idx_quiz_questions_sentence_term")
-  @@index([articleSentenceTermId, generationSource, difficultyCefr, questionType], map: "idx_quiz_questions_cached", where: raw("quiz_id IS NULL AND is_active = true"))
+  @@index([articleSentenceTermId, generationSource, difficultyCefr, questionType, generationVersion], map: "idx_quiz_questions_cached", where: raw("quiz_id IS NULL AND is_active = true"))
   @@map("quiz_questions")
 }
 
