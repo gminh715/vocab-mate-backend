@@ -19,6 +19,7 @@ import {
   ReviewSkillDimension,
 } from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
+import { REVIEW_QUESTION_PROMPT_VERSION } from '../ai/ai.contracts';
 import { AnswerGradingService } from './services/answer-grading.service';
 import { InvisibleReviewScoringService } from './services/invisible-review-scoring.service';
 import { QuestionSelectionService } from './services/question-selection.service';
@@ -194,6 +195,134 @@ describe('ReviewsRepository', () => {
     repository = module.get(ReviewsRepository);
   });
 
+  it('loads bounded recent response-time evidence for daily planning', async () => {
+    query.mockResolvedValueOnce([
+      { attemptCount: 6, averageResponseTimeMs: 31_500 },
+    ]);
+
+    await expect(
+      repository.getRecentReviewTimingStats(
+        '11111111-1111-4111-8111-111111111111',
+        new Date('2026-08-09T00:00:00Z'),
+      ),
+    ).resolves.toEqual({
+      attemptCount: 6,
+      averageResponseTimeMs: 31_500,
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('filters recent response-time evidence by the requested skill dimension', async () => {
+    query.mockResolvedValueOnce([
+      { attemptCount: 4, averageResponseTimeMs: 44_000 },
+    ]);
+
+    await expect(
+      repository.getRecentReviewTimingStats(
+        '11111111-1111-4111-8111-111111111111',
+        new Date('2026-08-09T00:00:00Z'),
+        ReviewSkillDimension.SPELLING,
+      ),
+    ).resolves.toEqual({
+      attemptCount: 4,
+      averageResponseTimeMs: 44_000,
+    });
+    const statement = query.mock.calls[0][0] as Prisma.Sql;
+    expect(statement.strings.join(' ')).toContain('answer.skill_dimension');
+    expect(statement.values).toContain(ReviewSkillDimension.SPELLING);
+  });
+
+  it('builds a deterministic completed summary from every persisted skill attempt', async () => {
+    const completedAt = new Date('2026-08-09T02:00:00Z');
+    const question = {
+      id: 'question',
+      articleSentenceTermId: 'term',
+      questionType: QuestionType.FILL_BLANK,
+      prompt: 'Complete the sentence.',
+      correctAnswerText: 'economical',
+      answerExplanation: 'Economical means avoiding waste.',
+      isCaseSensitive: false,
+      points: 1,
+      displayOrder: 1,
+      options: [],
+    };
+    sessionFindFirst.mockResolvedValue({
+      id: 'session',
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      quizId: null,
+      articleId: null,
+      collectionId: null,
+      targetDurationMinutes: 10,
+      reviewGoal: ReviewGoal.RECALL,
+      plannedItemCount: 1,
+      planSummary: 'Practice recall.',
+      status: ReviewSessionStatus.COMPLETED,
+      startedAt: new Date('2026-08-09T01:55:00Z'),
+      completedAt,
+      items: [
+        {
+          userVocabulary: {
+            id: 'vocabulary',
+            savedWordDisplay: 'economical',
+            savedMeaningVi: 'tiết kiệm',
+            savedExplanation: 'Uses resources carefully.',
+          },
+          quizQuestion: question,
+          answers: [
+            {
+              selectedOptionId: null,
+              userAnswerText: 'economical',
+              isCorrect: true,
+              skillDimension: ReviewSkillDimension.RECALL,
+              errorType: null,
+              answeredAt: completedAt,
+              quizQuestion: question,
+            },
+            {
+              selectedOptionId: null,
+              userAnswerText: 'economic',
+              isCorrect: false,
+              skillDimension: ReviewSkillDimension.RECALL,
+              errorType: ReviewErrorType.CONFUSABLE_WORD,
+              answeredAt: new Date('2026-08-09T01:58:00Z'),
+              quizQuestion: question,
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      repository.getCompletedResult('owner', 'session'),
+    ).resolves.toMatchObject({
+      result: { accuracy: 1, correctCount: 1 },
+      answers: [{ isCorrect: true, correctAnswer: 'economical' }],
+      skillBreakdown: [
+        {
+          skillDimension: ReviewSkillDimension.RECALL,
+          attempts: 2,
+          correct: 1,
+          accuracy: 0.5,
+        },
+      ],
+      coachSummary: {
+        strengths: [],
+        focusNext: [ReviewSkillDimension.RECALL],
+        source: ReviewDecisionSource.RULE,
+      },
+      wordsToRevisit: [
+        {
+          userVocabularyId: 'vocabulary',
+          wordOrPhrase: 'economical',
+          meaningVi: 'tiết kiệm',
+          skillDimension: ReviewSkillDimension.RECALL,
+          errorType: ReviewErrorType.CONFUSABLE_WORD,
+          recoveredInSession: true,
+        },
+      ],
+    });
+  });
+
   it('persists an AI question and its options atomically with AI provenance', async () => {
     questionCreate.mockResolvedValue({ id: 'created-ai' });
 
@@ -203,6 +332,7 @@ describe('ReviewsRepository', () => {
         articleSentenceTermId: 'term',
         questionType: QuestionType.SELECT_MEANING,
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Choose the contextual meaning.',
         blankSentence: null,
@@ -262,6 +392,7 @@ describe('ReviewsRepository', () => {
         articleSentenceTermId: 'term',
         questionType: QuestionType.FILL_BLANK,
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Complete the sentence.',
         blankSentence: 'A ___ here.',
@@ -546,6 +677,61 @@ describe('ReviewsRepository', () => {
       );
     },
   );
+
+  it('balances generated question types and only accepts the current prompt cache', async () => {
+    const vocabularies = Array.from({ length: 4 }, (_, index) => ({
+      ...reviewVocabulary,
+      id: `new-${index + 1}`,
+      articleSentenceTermId: `term-${index + 1}`,
+      learningStatus: LearningStatus.NEW,
+      nextReviewAt: null,
+      consecutiveCorrectReviews: 0,
+      lastReviewScore: null,
+    }));
+    sessionFindFirst.mockResolvedValue(null);
+    vocabularyFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(vocabularies);
+    questionFindMany.mockResolvedValue(
+      vocabularies.map((vocabulary, index) => ({
+        id: `meaning-cache-${index + 1}`,
+        articleSentenceTermId: vocabulary.articleSentenceTermId,
+        difficultyCefr: CefrLevel.B1,
+        questionType: QuestionType.SELECT_MEANING,
+      })),
+    );
+
+    const candidates = await repository.getAiQuestionGenerationCandidates(
+      'owner',
+      {
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        limit: 4,
+        reviewGoal: ReviewGoal.BALANCED,
+      },
+      new Date('2026-08-03T00:00:00Z'),
+    );
+
+    expect(candidates.map(({ questionType }) => questionType)).toEqual([
+      QuestionType.SELECT_MEANING,
+      QuestionType.SELECT_WORD,
+      QuestionType.FILL_BLANK,
+      QuestionType.SELECT_CORRECT_CONTEXT,
+    ]);
+    expect(
+      candidates.map(
+        ({ cachedQuestion }) => cachedQuestion?.quizQuestionId ?? null,
+      ),
+    ).toEqual(['meaning-cache-1', null, null, null]);
+    expect(questionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          generationSource: QuestionGenerationSource.AI,
+          generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
+        }),
+      }),
+    );
+  });
 
   it('uses the same owner-scoped past-or-null eligibility for today due count', async () => {
     query.mockResolvedValueOnce([{ count: 4 }]).mockResolvedValueOnce([]);

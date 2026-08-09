@@ -7,7 +7,14 @@ import {
 } from '../../../../generated/prisma/enums';
 import type {
   ReviewQuestionGenerationInput,
+  ReviewQuestionGenerationResult,
+  ReviewQuestionPromptStyle,
   ReviewQuestionType,
+} from '../../ai/ai.contracts';
+import {
+  REVIEW_QUESTION_BATCH_MAX_SIZE,
+  REVIEW_QUESTION_PROMPT_STYLES,
+  REVIEW_QUESTION_PROMPT_VERSION,
 } from '../../ai/ai.contracts';
 import { AiError } from '../../ai/ai.errors';
 import { AiService } from '../../ai/ai.service';
@@ -21,10 +28,19 @@ import type { StartReviewSessionDto } from '../dto/review-request.dto';
 
 class ReviewAiCallBudgetExhaustedError extends Error {}
 
+interface IndexedGenerationCandidate {
+  candidate: AiQuestionGenerationCandidate;
+  index: number;
+}
+
 @Injectable()
 export class AiAssistedQuestionGeneratorService {
   private readonly logger = new Logger(AiAssistedQuestionGeneratorService.name);
   private readonly inFlight = new Map<string, Promise<{ id: string }>>();
+  private readonly batchInFlight = new Map<
+    string,
+    Promise<Array<{ id: string }>>
+  >();
 
   constructor(
     @Inject(AI_CONFIG) private readonly config: AiConfig,
@@ -45,36 +61,83 @@ export class AiAssistedQuestionGeneratorService {
         now,
       );
     const prepared = candidates.map(({ cachedQuestion }) => cachedQuestion);
-    let generationAttempts = 0;
-    const generationLimit = Math.min(
+    let generatedBatchCount = 0;
+    const batchLimit = Math.min(
       this.config.reviewQuestionWarmLimit,
       this.config.reviewMaxCallsPerSession,
     );
+    const missing = candidates.flatMap((candidate, index) =>
+      prepared[index] ? [] : [{ candidate, index }],
+    );
 
-    for (const [index, candidate] of candidates.entries()) {
-      if (prepared[index]) continue;
-      if (generationAttempts >= generationLimit) continue;
-      generationAttempts += 1;
-      onAiCallReserved();
-
-      try {
-        const question = await this.ensureCached(
-          candidate,
-          candidate.questionType,
-        );
-        prepared[index] = this.toPreparedQuestion(candidate, question.id);
-      } catch (error: unknown) {
-        if (!(error instanceof AiError)) throw error;
-        this.logger.warn(
-          `AI review question unavailable; omitting candidate without a compatible cache (${error.code})`,
-        );
-        prepared[index] =
-          await this.reviewsRepository.findPreferredCachedAiQuestion(
-            candidate.vocabulary.id,
+    for (
+      let offset = 0;
+      offset < missing.length;
+      offset += REVIEW_QUESTION_BATCH_MAX_SIZE
+    ) {
+      const batch = missing.slice(
+        offset,
+        offset + REVIEW_QUESTION_BATCH_MAX_SIZE,
+      );
+      const latestCached = await Promise.all(
+        batch.map(({ candidate }) =>
+          this.reviewsRepository.findCachedAiQuestion(
             candidate.vocabulary.articleSentenceTermId,
             candidate.vocabulary.savedCefrLevel,
-            candidate.preferredQuestionTypes,
-          );
+            candidate.questionType,
+          ),
+        ),
+      );
+      const unresolved = batch.filter(({ candidate, index }, batchIndex) => {
+        const cached = latestCached[batchIndex];
+        if (!cached) return true;
+        prepared[index] = this.toPreparedQuestion(candidate, cached.id);
+        return false;
+      });
+      if (unresolved.length === 0) continue;
+
+      const batchKey = unresolved
+        .map(({ candidate }) =>
+          this.cacheKey(candidate, candidate.questionType),
+        )
+        .join('|');
+      let generation = this.batchInFlight.get(batchKey);
+      if (!generation) {
+        if (generatedBatchCount >= batchLimit) continue;
+        generatedBatchCount += 1;
+        onAiCallReserved();
+        generation = this.generateAndCacheBatch(unresolved).finally(() =>
+          this.batchInFlight.delete(batchKey),
+        );
+        this.batchInFlight.set(batchKey, generation);
+      }
+      try {
+        const questions = await generation;
+        unresolved.forEach(({ candidate, index }, questionIndex) => {
+          const question = questions[questionIndex];
+          if (question) {
+            prepared[index] = this.toPreparedQuestion(candidate, question.id);
+          }
+        });
+      } catch (error: unknown) {
+        if (!(error instanceof AiError)) throw error;
+        const failureReason = error.providerFailureReason ?? 'unknown';
+        this.logger.warn(
+          `AI review question batch unavailable; omitting candidates without a compatible cache (${error.code}: ${failureReason})`,
+        );
+        const fallbacks = await Promise.all(
+          unresolved.map(({ candidate }) =>
+            this.reviewsRepository.findPreferredCachedAiQuestion(
+              candidate.vocabulary.id,
+              candidate.vocabulary.articleSentenceTermId,
+              candidate.vocabulary.savedCefrLevel,
+              candidate.preferredQuestionTypes,
+            ),
+          ),
+        );
+        unresolved.forEach(({ index }, fallbackIndex) => {
+          prepared[index] = fallbacks[fallbackIndex];
+        });
       }
     }
 
@@ -130,11 +193,7 @@ export class AiAssistedQuestionGeneratorService {
     questionType: QuestionType,
     reserveProviderCall?: () => Promise<boolean>,
   ): Promise<{ id: string }> {
-    const key = [
-      candidate.vocabulary.articleSentenceTermId,
-      candidate.vocabulary.savedCefrLevel,
-      questionType,
-    ].join(':');
+    const key = this.cacheKey(candidate, questionType);
     const pending = this.inFlight.get(key);
     if (pending) return pending;
 
@@ -161,8 +220,52 @@ export class AiAssistedQuestionGeneratorService {
     candidate: AiQuestionGenerationCandidate,
     questionType: QuestionType,
   ): Promise<{ id: string }> {
+    const input = this.toGenerationInput(
+      candidate,
+      questionType,
+      this.promptStyleForSeed(this.cacheKey(candidate, questionType)),
+    );
+    const generated = await this.aiService.generateReviewQuestion(input);
+    return this.reviewsRepository.cacheAiQuestion(
+      this.toQuestionSpec(candidate, questionType, generated),
+    );
+  }
+
+  private async generateAndCacheBatch(
+    batch: IndexedGenerationCandidate[],
+  ): Promise<Array<{ id: string }>> {
+    const inputs = batch.map(({ candidate, index }) =>
+      this.toGenerationInput(
+        candidate,
+        candidate.questionType,
+        this.promptStyleAt(index),
+      ),
+    );
+    const generated = await this.aiService.generateReviewQuestions(inputs);
+    return Promise.all(
+      generated.map((question, index) => {
+        const entry = batch[index];
+        if (!entry) {
+          throw new Error('AI review question batch order is invalid');
+        }
+        return this.reviewsRepository.cacheAiQuestion(
+          this.toQuestionSpec(
+            entry.candidate,
+            entry.candidate.questionType,
+            question,
+          ),
+        );
+      }),
+    );
+  }
+
+  private toGenerationInput(
+    candidate: AiQuestionGenerationCandidate,
+    questionType: QuestionType,
+    promptStyle: ReviewQuestionPromptStyle,
+  ): ReviewQuestionGenerationInput {
     const vocabulary = candidate.vocabulary;
-    const input: ReviewQuestionGenerationInput = {
+    return {
       wordOrPhrase: vocabulary.savedWordDisplay,
       lemma: vocabulary.savedLemma,
       partOfSpeech: vocabulary.savedPartOfSpeech,
@@ -173,13 +276,22 @@ export class AiAssistedQuestionGeneratorService {
         : {}),
       targetCefr: vocabulary.savedCefrLevel,
       requestedQuestionType: this.toAiQuestionType(questionType),
+      promptStyle,
     };
-    const generated = await this.aiService.generateReviewQuestion(input);
-    const spec: GeneratedAiQuestionSpec = {
+  }
+
+  private toQuestionSpec(
+    candidate: AiQuestionGenerationCandidate,
+    questionType: QuestionType,
+    generated: ReviewQuestionGenerationResult,
+  ): GeneratedAiQuestionSpec {
+    const vocabulary = candidate.vocabulary;
+    return {
       quizId: null,
       articleSentenceTermId: vocabulary.articleSentenceTermId,
       questionType,
       generationSource: QuestionGenerationSource.AI,
+      generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
       difficultyCefr: vocabulary.savedCefrLevel,
       prompt: generated.prompt,
       blankSentence: generated.blankSentence,
@@ -196,7 +308,34 @@ export class AiAssistedQuestionGeneratorService {
         displayOrder: index + 1,
       })),
     };
-    return this.reviewsRepository.cacheAiQuestion(spec);
+  }
+
+  private cacheKey(
+    candidate: AiQuestionGenerationCandidate,
+    questionType: QuestionType,
+  ): string {
+    return [
+      candidate.vocabulary.articleSentenceTermId,
+      candidate.vocabulary.savedCefrLevel,
+      questionType,
+      REVIEW_QUESTION_PROMPT_VERSION,
+    ].join(':');
+  }
+
+  private promptStyleAt(index: number): ReviewQuestionPromptStyle {
+    return (
+      REVIEW_QUESTION_PROMPT_STYLES[
+        index % REVIEW_QUESTION_PROMPT_STYLES.length
+      ] ?? REVIEW_QUESTION_PROMPT_STYLES[0]
+    );
+  }
+
+  private promptStyleForSeed(seed: string): ReviewQuestionPromptStyle {
+    let hash = 0;
+    for (const character of seed) {
+      hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
+    }
+    return this.promptStyleAt(hash);
   }
 
   private toPreparedQuestion(

@@ -9,18 +9,19 @@ import {
   QuizStatus,
   ReviewAgentAction,
   ReviewDecisionKind,
+  ReviewDecisionSource,
   type ReviewGoal,
-  type ReviewDecisionSource,
   type ReviewErrorType,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
   ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../generated/prisma/enums';
-import type {
-  DiagnoseReviewAnswerInput,
-  ReviewRetestAfterItems,
-  ReviewTargetDuration,
+import {
+  REVIEW_QUESTION_PROMPT_VERSION,
+  type DiagnoseReviewAnswerInput,
+  type ReviewRetestAfterItems,
+  type ReviewTargetDuration,
 } from '../ai/ai.contracts';
 import { PrismaService } from '../../database/prisma.service';
 import type {
@@ -62,6 +63,13 @@ const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
   LearningStatus.LEARNING,
   LearningStatus.REVIEWING,
 ];
+const REVIEW_SKILL_LABELS: Record<ReviewSkillDimension, string> = {
+  [ReviewSkillDimension.RECOGNITION]: 'recognition',
+  [ReviewSkillDimension.RECALL]: 'recall',
+  [ReviewSkillDimension.SPELLING]: 'spelling',
+  [ReviewSkillDimension.CONTEXT]: 'context',
+  [ReviewSkillDimension.PRODUCTION]: 'production',
+};
 
 const reviewEligibilityWhere = (
   userId: string,
@@ -95,6 +103,9 @@ const sessionSelect = {
   quizId: true,
   articleId: true,
   collectionId: true,
+  targetDurationMinutes: true,
+  reviewGoal: true,
+  plannedItemCount: true,
   planSummary: true,
   status: true,
   startedAt: true,
@@ -247,6 +258,7 @@ export interface GeneratedAiQuestionSpec {
   articleSentenceTermId: string;
   questionType: QuestionType;
   generationSource: typeof QuestionGenerationSource.AI;
+  generationVersion: string;
   difficultyCefr: CefrLevel;
   prompt: string;
   blankSentence: string | null;
@@ -411,6 +423,11 @@ interface RecentAttemptSnapshotRow {
   answeredAt: Date;
 }
 
+interface RawReviewTimingStats {
+  attemptCount: number;
+  averageResponseTimeMs: number | null;
+}
+
 @Injectable()
 export class ReviewsRepository {
   constructor(
@@ -419,6 +436,40 @@ export class ReviewsRepository {
     private readonly reviewScoringService: InvisibleReviewScoringService,
     private readonly questionSelectionService: QuestionSelectionService,
   ) {}
+
+  async getRecentReviewTimingStats(
+    userId: string,
+    now: Date,
+    skillDimension?: ReviewSkillDimension,
+    windowDays = 14,
+  ): Promise<RawReviewTimingStats> {
+    if (!Number.isInteger(windowDays) || windowDays < 1 || windowDays > 90) {
+      throw new RangeError('windowDays must be between 1 and 90');
+    }
+    const windowStart = new Date(
+      now.getTime() - windowDays * 24 * 60 * 60 * 1_000,
+    );
+    const rows = await this.prisma.$queryRaw<RawReviewTimingStats[]>(Prisma.sql`
+      SELECT
+        COUNT(answer.response_time_ms)::int AS "attemptCount",
+        AVG(answer.response_time_ms)::float8 AS "averageResponseTimeMs"
+      FROM review_answers answer
+      JOIN review_session_items item
+        ON item.id = answer.review_session_item_id
+      JOIN review_sessions session
+        ON session.id = item.review_session_id
+      WHERE session.user_id = ${userId}::uuid
+        AND answer.response_time_ms IS NOT NULL
+        ${
+          skillDimension
+            ? Prisma.sql`AND answer.skill_dimension = ${skillDimension}::review_skill_dimension`
+            : Prisma.empty
+        }
+        AND answer.answered_at >= ${windowStart}
+        AND answer.answered_at <= ${now}
+    `);
+    return rows[0] ?? { attemptCount: 0, averageResponseTimeMs: null };
+  }
 
   async getLearnerSnapshot(
     userId: string,
@@ -857,6 +908,7 @@ export class ReviewsRepository {
               difficultyCefr: prepared.difficultyCefr,
               questionType: retest.questionType,
               generationSource: QuestionGenerationSource.AI,
+              generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
               isActive: true,
             },
             select: { id: true },
@@ -949,6 +1001,7 @@ export class ReviewsRepository {
                   ),
                 },
                 generationSource: QuestionGenerationSource.AI,
+                generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
                 isActive: true,
               },
               orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
@@ -960,26 +1013,43 @@ export class ReviewsRepository {
               },
             });
 
-      return vocabularies.map((vocabulary) => {
-        const preferredTypes = this.questionSelectionService.preferredTypes(
+      const preferences = vocabularies.map((vocabulary) =>
+        this.questionSelectionService.preferredTypes(
           vocabulary,
           history.get(vocabulary.id) ?? [],
+          undefined,
+          dto.reviewGoal,
+        ),
+      );
+      const selectedTypes = this.questionSelectionService.selectSessionTypes(
+        preferences,
+        dto.reviewGoal,
+      );
+
+      return vocabularies.map((vocabulary, index) => {
+        const basePreferences = preferences[index];
+        const selectedType = selectedTypes[index] ?? basePreferences[0];
+        const preferredTypes = [
+          selectedType,
+          ...basePreferences.filter(
+            (questionType) => questionType !== selectedType,
+          ),
+        ];
+        const cached = cachedQuestions.find(
+          (question) =>
+            question.articleSentenceTermId ===
+              vocabulary.articleSentenceTermId &&
+            question.difficultyCefr === vocabulary.savedCefrLevel &&
+            question.questionType === selectedType,
         );
-        const cachedQuestion = preferredTypes.flatMap((questionType) => {
-          const match = cachedQuestions.find(
-            (question) =>
-              question.articleSentenceTermId ===
-                vocabulary.articleSentenceTermId &&
-              question.difficultyCefr === vocabulary.savedCefrLevel &&
-              question.questionType === questionType,
-          );
-          return match ? [this.toPreparedAiQuestion(vocabulary.id, match)] : [];
-        })[0];
+        const cachedQuestion = cached
+          ? this.toPreparedAiQuestion(vocabulary.id, cached)
+          : null;
         return {
           vocabulary: this.toQuestionSnapshot(vocabulary),
-          questionType: cachedQuestion?.questionType ?? preferredTypes[0],
+          questionType: selectedType,
           preferredQuestionTypes: preferredTypes,
-          cachedQuestion: cachedQuestion ?? null,
+          cachedQuestion,
         };
       });
     });
@@ -997,6 +1067,7 @@ export class ReviewsRepository {
         difficultyCefr,
         questionType,
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         isActive: true,
       },
       select: { id: true },
@@ -1016,6 +1087,7 @@ export class ReviewsRepository {
         difficultyCefr,
         questionType: { in: preferredQuestionTypes },
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         isActive: true,
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
@@ -1047,6 +1119,7 @@ export class ReviewsRepository {
             difficultyCefr: spec.difficultyCefr,
             questionType: spec.questionType,
             generationSource: QuestionGenerationSource.AI,
+            generationVersion: spec.generationVersion,
             isActive: true,
           },
           select: { id: true },
@@ -1125,6 +1198,7 @@ export class ReviewsRepository {
         vocabularies,
         source.quizId,
         preparedAiQuestions,
+        dto.reviewGoal,
       );
       if (assignedQuestions.length === 0) {
         throw new NoUsableReviewQuestionError();
@@ -1686,6 +1760,9 @@ export class ReviewsRepository {
             quizId: row.quizId,
             articleId: row.articleId,
             collectionId: row.collectionId,
+            targetDurationMinutes: row.targetDurationMinutes,
+            reviewGoal: row.reviewGoal,
+            plannedItemCount: row.plannedItemCount,
             planSummary: row.planSummary,
             status: row.status,
             startedAt: row.startedAt,
@@ -1714,6 +1791,14 @@ export class ReviewsRepository {
         items: {
           orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
           select: {
+            userVocabulary: {
+              select: {
+                id: true,
+                savedWordDisplay: true,
+                savedMeaningVi: true,
+                savedExplanation: true,
+              },
+            },
             quizQuestion: {
               select: {
                 ...gradingQuestionSelect,
@@ -1737,11 +1822,12 @@ export class ReviewsRepository {
                 { answeredAt: 'desc' },
                 { id: 'asc' },
               ],
-              take: 1,
               select: {
                 selectedOptionId: true,
                 userAnswerText: true,
                 isCorrect: true,
+                skillDimension: true,
+                errorType: true,
                 answeredAt: true,
                 quizQuestion: {
                   select: {
@@ -1775,9 +1861,9 @@ export class ReviewsRepository {
     }
     const resultQuestions = session.items.map(({ quizQuestion, answers }) => ({
       points: answers[0]?.quizQuestion.points ?? quizQuestion.points,
-      reviewAnswers: answers.map(({ isCorrect }) => ({
-        isCorrect,
-      })),
+      reviewAnswers: answers
+        .slice(0, 1)
+        .map(({ isCorrect }) => ({ isCorrect })),
     }));
     const answers = session.items.flatMap(({ answers }) => {
       const answer = answers[0];
@@ -1809,9 +1895,123 @@ export class ReviewsRepository {
         },
       ];
     });
+    const skillBreakdown = this.buildSessionSkillBreakdown(
+      session.items.flatMap(({ answers: itemAnswers }) => itemAnswers),
+    );
+    const wordsToRevisit = session.items.flatMap(
+      ({ userVocabulary, answers: itemAnswers }) => {
+        const incorrectAnswer = itemAnswers.find(
+          ({ isCorrect }) => isCorrect === false,
+        );
+        if (!incorrectAnswer) return [];
+        const selectedOption =
+          incorrectAnswer.quizQuestion.options.find(
+            ({ id }) => id === incorrectAnswer.selectedOptionId,
+          ) ?? null;
+        return [
+          {
+            userVocabularyId: userVocabulary?.id ?? null,
+            wordOrPhrase:
+              userVocabulary?.savedWordDisplay ??
+              this.answerGradingService.correctAnswer(
+                incorrectAnswer.quizQuestion,
+              ),
+            meaningVi: userVocabulary?.savedMeaningVi ?? null,
+            skillDimension: incorrectAnswer.skillDimension,
+            errorType: incorrectAnswer.errorType,
+            explanation:
+              incorrectAnswer.quizQuestion.answerExplanation ??
+              selectedOption?.explanation ??
+              userVocabulary?.savedExplanation ??
+              null,
+            recoveredInSession: itemAnswers[0]?.isCorrect === true,
+          },
+        ];
+      },
+    );
     return {
       result: this.calculateResult(resultQuestions, session.completedAt),
       answers,
+      skillBreakdown,
+      coachSummary: this.buildCoachSummary(skillBreakdown),
+      wordsToRevisit,
+    };
+  }
+
+  private buildSessionSkillBreakdown(
+    answers: Array<{
+      skillDimension: ReviewSkillDimension | null;
+      isCorrect: boolean | null;
+    }>,
+  ) {
+    const aggregates = new Map<
+      ReviewSkillDimension,
+      { attempts: number; correct: number }
+    >();
+    for (const answer of answers) {
+      if (answer.skillDimension === null || answer.isCorrect === null) continue;
+      const aggregate = aggregates.get(answer.skillDimension) ?? {
+        attempts: 0,
+        correct: 0,
+      };
+      aggregate.attempts += 1;
+      if (answer.isCorrect) aggregate.correct += 1;
+      aggregates.set(answer.skillDimension, aggregate);
+    }
+    return [...aggregates.entries()]
+      .map(([skillDimension, aggregate]) => ({
+        skillDimension,
+        ...aggregate,
+        accuracy:
+          Math.round((aggregate.correct / aggregate.attempts) * 10_000) /
+          10_000,
+      }))
+      .sort(
+        (left, right) =>
+          right.attempts - left.attempts ||
+          left.skillDimension.localeCompare(right.skillDimension),
+      );
+  }
+
+  private buildCoachSummary(
+    breakdown: Array<{
+      skillDimension: ReviewSkillDimension;
+      attempts: number;
+      correct: number;
+      accuracy: number;
+    }>,
+  ) {
+    const strengths = [...breakdown]
+      .filter(({ accuracy }) => accuracy >= 0.75)
+      .sort(
+        (left, right) =>
+          right.accuracy - left.accuracy || right.attempts - left.attempts,
+      )
+      .slice(0, 2)
+      .map(({ skillDimension }) => skillDimension);
+    const focusNext = [...breakdown]
+      .filter(({ accuracy }) => accuracy < 0.75)
+      .sort(
+        (left, right) =>
+          left.accuracy - right.accuracy || right.attempts - left.attempts,
+      )
+      .slice(0, 2)
+      .map(({ skillDimension }) => skillDimension);
+    const strengthLabels = strengths.map((skill) => REVIEW_SKILL_LABELS[skill]);
+    const focusLabels = focusNext.map((skill) => REVIEW_SKILL_LABELS[skill]);
+    const message =
+      breakdown.length === 0
+        ? 'Complete another review to build a clearer skill picture.'
+        : focusLabels.length > 0 && strengthLabels.length > 0
+          ? `You were strongest in ${strengthLabels.join(' and ')}. Focus next on ${focusLabels.join(' and ')}.`
+          : focusLabels.length > 0
+            ? `Focus next on ${focusLabels.join(' and ')} in a short follow-up review.`
+            : `You showed reliable ${strengthLabels.join(' and ')}. Keep reinforcing it in context.`;
+    return {
+      strengths,
+      focusNext,
+      message,
+      source: ReviewDecisionSource.RULE,
     };
   }
 
@@ -1980,7 +2180,10 @@ export class ReviewsRepository {
         !dto.articleId) ||
       (dto.sessionType === ReviewSessionType.COLLECTION_REVIEW &&
         !dto.collectionId);
-    if (hasUnexpectedSource || missingSource) {
+    const hasUnexpectedDailyPlan =
+      dto.sessionType !== ReviewSessionType.DAILY_REVIEW &&
+      (dto.targetDurationMinutes != null || dto.reviewGoal != null);
+    if (hasUnexpectedSource || missingSource || hasUnexpectedDailyPlan) {
       throw new InvalidReviewSourceShapeError();
     }
   }
@@ -2052,6 +2255,7 @@ export class ReviewsRepository {
     vocabularies: ReviewVocabulary[],
     quizId: string | null,
     preparedAiQuestions: PreparedAiReviewQuestion[],
+    reviewGoal?: ReviewGoal,
   ) {
     const history = await this.loadRecentAttemptHistory(tx, vocabularies);
     const preferences = vocabularies.map((vocabulary) => ({
@@ -2059,6 +2263,8 @@ export class ReviewsRepository {
       preferredTypes: this.questionSelectionService.preferredTypes(
         vocabulary,
         history.get(vocabulary.id) ?? [],
+        undefined,
+        reviewGoal,
       ),
     }));
 
@@ -2108,6 +2314,7 @@ export class ReviewsRepository {
         },
         quizId: null,
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         isActive: true,
       },
       select: {
@@ -2330,6 +2537,7 @@ export class ReviewsRepository {
         difficultyCefr: vocabulary.savedCefrLevel,
         questionType: { in: preferredTypes },
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         isActive: true,
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
@@ -2575,6 +2783,9 @@ export class ReviewsRepository {
       quizId: string | null;
       articleId: string | null;
       collectionId: string | null;
+      targetDurationMinutes: number | null;
+      reviewGoal: ReviewGoal | null;
+      plannedItemCount: number | null;
       planSummary: string | null;
       status: ReviewSessionStatus;
       startedAt: Date;

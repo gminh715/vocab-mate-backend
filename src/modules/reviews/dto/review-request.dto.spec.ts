@@ -5,7 +5,10 @@ import {
   StartReviewSessionDto,
   SubmitReviewAnswerDto,
 } from './review-request.dto';
-import { ReviewSessionType } from '../../../../generated/prisma/enums';
+import {
+  ReviewGoal,
+  ReviewSessionType,
+} from '../../../../generated/prisma/enums';
 
 const QUESTION_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -42,6 +45,31 @@ describe('Review request DTOs', () => {
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
+  });
+
+  it.each([5, 10, 15])(
+    'accepts the %i-minute daily plan contract',
+    async (targetDurationMinutes) => {
+      const dto = plainToInstance(StartReviewSessionDto, {
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        targetDurationMinutes,
+        reviewGoal: ReviewGoal.SPELLING,
+      });
+
+      await expect(validate(dto)).resolves.toHaveLength(0);
+    },
+  );
+
+  it('rejects unsupported duration and goal values', async () => {
+    const dto = plainToInstance(StartReviewSessionDto, {
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      targetDurationMinutes: 7,
+      reviewGoal: 'GRAMMAR',
+    });
+
+    expect((await validate(dto)).map(({ property }) => property)).toEqual(
+      expect.arrayContaining(['targetDurationMinutes', 'reviewGoal']),
+    );
   });
 
   it('parses pagination and accepts offset-aware ISO timestamps', async () => {

@@ -118,6 +118,6 @@ export const aiConfig = (): AiConfig => ({
   reviewQuestionWarmLimit: boundedPositiveInteger(
     'AI_REVIEW_QUESTION_WARM_LIMIT',
     1,
-    4,
+    5,
   ),
 });

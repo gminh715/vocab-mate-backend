@@ -4,6 +4,7 @@ import {
   type DiagnoseReviewAnswerInput,
   type PlanReviewSessionInput,
   type ReviewQuestionGenerationInput,
+  type ReviewQuestionPromptStyle,
 } from './ai.contracts';
 
 type JsonSchema = Record<string, unknown>;
@@ -86,38 +87,76 @@ export const termEnrichmentSchema: JsonSchema = strictObject({
   ),
 });
 
-export const reviewQuestionGenerationSchema = (
-  input: ReviewQuestionGenerationInput,
-): JsonSchema => {
-  const optionInstruction =
-    input.requestedQuestionType === 'SELECT_MEANING'
-      ? 'The one correct option must exactly copy contextualMeaningVi from the supplied input.'
-      : input.requestedQuestionType === 'SELECT_WORD'
-        ? 'The one correct option must exactly copy wordOrPhrase from the supplied input.'
-        : input.requestedQuestionType === 'SELECT_CORRECT_CONTEXT'
-          ? 'The one correct option must exactly copy originalSentence from the supplied input.'
-          : 'Must be empty.';
+const promptStyleGuidance = (style: ReviewQuestionPromptStyle): string => {
+  switch (style) {
+    case 'QUICK_MATCH':
+      return 'Frame the task as a quick, direct match.';
+    case 'CONTEXT_CLUE':
+      return 'Invite the learner to use a concise contextual clue.';
+    case 'MINI_CHALLENGE':
+      return 'Frame the task as a short, friendly challenge.';
+    case 'REAL_WORLD_USE':
+      return 'Use a practical everyday-use framing without inventing facts.';
+  }
+};
 
-  return strictObject({
-    prompt: requiredString(
-      `A concise learner-facing prompt no harder than ${input.targetCefr}.`,
-    ),
+const questionTypePromptGuidance = (
+  input: ReviewQuestionGenerationInput,
+): string => {
+  switch (input.requestedQuestionType) {
+    case 'SELECT_MEANING':
+      return 'Ask the learner to choose the saved Vietnamese meaning using the supplied sentence as evidence; the prompt may name wordOrPhrase but must not reveal contextualMeaningVi.';
+    case 'SELECT_WORD':
+      return 'Ask the learner to identify the saved word or phrase from its meaning or use; do not include wordOrPhrase in the prompt.';
+    case 'SELECT_CORRECT_CONTEXT':
+      return 'Ask which option uses wordOrPhrase with the supplied meaning; do not copy originalSentence into the prompt.';
+    case 'FILL_BLANK':
+      return 'Invite the learner to complete a fresh natural sentence; do not include wordOrPhrase in the prompt or outside the blank.';
+  }
+};
+
+const optionInstruction = (input: ReviewQuestionGenerationInput): string =>
+  input.requestedQuestionType === 'SELECT_MEANING'
+    ? 'The one correct option must exactly copy contextualMeaningVi from the supplied input.'
+    : input.requestedQuestionType === 'SELECT_WORD'
+      ? 'The one correct option must exactly copy wordOrPhrase from the supplied input.'
+      : input.requestedQuestionType === 'SELECT_CORRECT_CONTEXT'
+        ? 'The one correct option must exactly copy originalSentence from the supplied input.'
+        : 'Must be empty.';
+
+const promptDescription = (input: ReviewQuestionGenerationInput): string =>
+  [
+    `One engaging learner-facing sentence no harder than ${input.targetCefr}.`,
+    `Follow promptStyle ${input.promptStyle}.`,
+    promptStyleGuidance(input.promptStyle),
+    questionTypePromptGuidance(input),
+    'Do not use raw Markdown.',
+    'Do not use generic What is/does ... mean/meaning wording, in the context of the sentence, or provided context.',
+  ].join(' ');
+
+const reviewQuestionProperties = (
+  input: ReviewQuestionGenerationInput,
+): Record<string, JsonSchema> => {
+  const answerOptionInstruction = optionInstruction(input);
+
+  return {
+    prompt: requiredString(promptDescription(input)),
     blankSentence: {
       type: input.requestedQuestionType === 'FILL_BLANK' ? 'string' : 'null',
       description:
         input.requestedQuestionType === 'FILL_BLANK'
-          ? 'One natural target-level example sentence with exactly one ___ blank.'
+          ? 'One fresh, natural target-level example sentence with exactly one ___ blank and no other copy of wordOrPhrase.'
           : 'Must be null for an option-based question.',
     },
     correctAnswerText: {
       type: input.requestedQuestionType === 'FILL_BLANK' ? 'string' : 'null',
       description:
         input.requestedQuestionType === 'FILL_BLANK'
-          ? 'The one unambiguous text answer.'
+          ? 'Must exactly copy wordOrPhrase from the supplied input.'
           : 'Must be null for an option-based question.',
     },
     answerExplanation: requiredString(
-      'Exactly two or three short sentences explaining the correct answer.',
+      'Exactly two or three short plain-text sentences explaining the correct answer, with no Markdown.',
     ),
     options: {
       type: 'array',
@@ -125,10 +164,10 @@ export const reviewQuestionGenerationSchema = (
       description:
         input.requestedQuestionType === 'FILL_BLANK'
           ? 'Must be empty.'
-          : `Three or four distinct options with exactly one correct answer. ${optionInstruction}`,
+          : `Three or four distinct plain-text options with exactly one correct answer. ${answerOptionInstruction}`,
       items: strictObject({
         optionText: requiredString(
-          `One distinct answer option. ${optionInstruction}`,
+          `One distinct plain-text answer option. ${answerOptionInstruction}`,
         ),
         isCorrect: {
           type: 'boolean',
@@ -136,8 +175,65 @@ export const reviewQuestionGenerationSchema = (
         },
       }),
     },
-  });
+  };
 };
+
+export const reviewQuestionGenerationSchema = (
+  input: ReviewQuestionGenerationInput,
+): JsonSchema => strictObject(reviewQuestionProperties(input));
+
+export const reviewQuestionBatchGenerationSchema = (
+  inputs: ReviewQuestionGenerationInput[],
+): JsonSchema =>
+  strictObject({
+    questions: {
+      type: 'array',
+      minItems: inputs.length,
+      maxItems: inputs.length,
+      description:
+        'Exactly one question for every supplied input, in the same order. inputIndex must equal the zero-based array position.',
+      items: strictObject({
+        inputIndex: {
+          type: 'integer',
+          minimum: 0,
+          maximum: Math.max(0, inputs.length - 1),
+          description:
+            'The zero-based position of the matching input; items must remain in exact input order.',
+        },
+        prompt: requiredString(
+          'One engaging plain-text prompt that follows the matching input promptStyle, requestedQuestionType and targetCefr. Do not use generic What is/does ... mean/meaning wording, in the context of the sentence, or provided context. Never reveal the matching correct answer.',
+        ),
+        blankSentence: {
+          type: ['string', 'null'],
+          description:
+            'For FILL_BLANK, one fresh sentence with exactly one ___ blank; otherwise null.',
+        },
+        correctAnswerText: {
+          type: ['string', 'null'],
+          description:
+            'For FILL_BLANK, exactly copy wordOrPhrase; otherwise null.',
+        },
+        answerExplanation: requiredString(
+          'Exactly two or three short plain-text sentences explaining the correct answer.',
+        ),
+        options: {
+          type: 'array',
+          maxItems: 4,
+          description:
+            'For an option question, three or four distinct plain-text options with exactly one correct answer copied from the authoritative matching input field; for FILL_BLANK, empty.',
+          items: strictObject({
+            optionText: requiredString(
+              'One distinct plain-text answer option.',
+            ),
+            isCorrect: {
+              type: 'boolean',
+              description: 'True for exactly one option.',
+            },
+          }),
+        },
+      }),
+    },
+  });
 
 export const reviewSessionPlanSchema = (
   input: PlanReviewSessionInput,

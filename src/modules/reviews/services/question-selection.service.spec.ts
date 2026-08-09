@@ -1,6 +1,7 @@
 import {
   LearningStatus,
   QuestionType,
+  ReviewGoal,
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import { QuestionSelectionService } from './question-selection.service';
@@ -75,4 +76,53 @@ describe('QuestionSelectionService', () => {
     expect(types).not.toContain(QuestionType.SELECT_MEANING);
     expect(types).toHaveLength(3);
   });
+
+  it.each([
+    [ReviewGoal.RECALL, QuestionType.SELECT_WORD],
+    [ReviewGoal.SPELLING, QuestionType.FILL_BLANK],
+    [ReviewGoal.CONTEXT, QuestionType.SELECT_CORRECT_CONTEXT],
+  ])('moves the %s goal activity to the front', (goal, questionType) => {
+    expect(service.preferredTypes(vocabulary, [], undefined, goal)[0]).toBe(
+      questionType,
+    );
+  });
+
+  it('balances question types across one session instead of repeating the first preference', () => {
+    const preferences = Array.from({ length: 8 }, () =>
+      service.preferredTypes(
+        { ...vocabulary, learningStatus: LearningStatus.NEW },
+        [],
+      ),
+    );
+
+    expect(
+      service.selectSessionTypes(preferences, ReviewGoal.BALANCED),
+    ).toEqual([
+      QuestionType.SELECT_MEANING,
+      QuestionType.SELECT_WORD,
+      QuestionType.FILL_BLANK,
+      QuestionType.SELECT_CORRECT_CONTEXT,
+      QuestionType.SELECT_MEANING,
+      QuestionType.SELECT_WORD,
+      QuestionType.FILL_BLANK,
+      QuestionType.SELECT_CORRECT_CONTEXT,
+    ]);
+  });
+
+  it.each([
+    [ReviewGoal.RECALL, QuestionType.SELECT_WORD],
+    [ReviewGoal.SPELLING, QuestionType.FILL_BLANK],
+    [ReviewGoal.CONTEXT, QuestionType.SELECT_CORRECT_CONTEXT],
+  ])(
+    'pins every session question to the %s goal type',
+    (goal, questionType) => {
+      const preferences = Array.from({ length: 4 }, () =>
+        service.preferredTypes(vocabulary, [], undefined, goal),
+      );
+
+      expect(service.selectSessionTypes(preferences, goal)).toEqual(
+        Array.from({ length: 4 }, () => questionType),
+      );
+    },
+  );
 });

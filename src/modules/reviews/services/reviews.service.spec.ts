@@ -135,6 +135,10 @@ describe('ReviewsService', () => {
       listHistory: jest.fn(),
       getCompletedResult: jest.fn(),
       getDueRecommendations: jest.fn(),
+      getRecentReviewTimingStats: jest.fn().mockResolvedValue({
+        attemptCount: 0,
+        averageResponseTimeMs: null,
+      }),
       persistAgentDecision: jest.fn(),
       getSessionPlanningSnapshot: jest.fn().mockResolvedValue(null),
       applySessionPlanDecision: jest.fn(),
@@ -239,6 +243,57 @@ describe('ReviewsService', () => {
       progress: { answeredCount: 1, remainingCount: 2 },
       nextItem: { id: 'next-item' },
     });
+  });
+
+  it('bounds a daily session from personal timing and preserves the selected goal', async () => {
+    repository.getRecentReviewTimingStats.mockResolvedValue({
+      attemptCount: 8,
+      averageResponseTimeMs: 25_000,
+    });
+    repository.startSession.mockResolvedValue({
+      session: {
+        id: 'session',
+        planSummary: 'Five minutes of spelling practice.',
+        status: ReviewSessionStatus.IN_PROGRESS,
+      },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'item' },
+    });
+
+    await service.startSession('user', {
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      limit: 20,
+      targetDurationMinutes: 5,
+      reviewGoal: ReviewGoal.SPELLING,
+    });
+
+    expect(aiQuestionGenerator.warmCache).toHaveBeenCalledWith(
+      'user',
+      expect.objectContaining({
+        limit: 8,
+        targetDurationMinutes: 5,
+        reviewGoal: ReviewGoal.SPELLING,
+      }),
+      expect.any(Date),
+      expect.any(Function),
+    );
+    expect(repository.startSession).toHaveBeenCalledWith(
+      'user',
+      expect.objectContaining({
+        limit: 8,
+        targetDurationMinutes: 5,
+        reviewGoal: ReviewGoal.SPELLING,
+      }),
+      expect.any(Date),
+      expect.any(Array),
+      0,
+    );
+    expect(repository.getRecentReviewTimingStats).toHaveBeenCalledWith(
+      'user',
+      expect.any(Date),
+      ReviewSkillDimension.SPELLING,
+    );
   });
 
   it('finishes AI preparation before entering the session transaction', async () => {
@@ -367,6 +422,14 @@ describe('ReviewsService', () => {
         expect(JSON.stringify(request.input)).not.toContain('item-');
         expect(JSON.stringify(request.input)).not.toContain('vocabulary-');
         expect(JSON.stringify(request.input)).not.toContain('user');
+        expect(request.input).toMatchObject({
+          reviewGoal: ReviewGoal.CONTEXT,
+          targetDurationMinutes: 15,
+        });
+        expect(request.input.allowedFocusDimensions.slice(0, 2)).toEqual([
+          ReviewSkillDimension.CONTEXT,
+          ReviewSkillDimension.RECALL,
+        ]);
         return Promise.resolve({
           reviewSessionId: 'session',
           reviewSessionItemId: null,
@@ -399,6 +462,8 @@ describe('ReviewsService', () => {
       service.startSession('user', {
         sessionType: ReviewSessionType.DAILY_REVIEW,
         limit: 20,
+        targetDurationMinutes: 15,
+        reviewGoal: ReviewGoal.CONTEXT,
       }),
     ).resolves.toMatchObject({
       session: { planSummary: 'Prioritize the overdue item.' },
@@ -413,8 +478,8 @@ describe('ReviewsService', () => {
     expect(repository.applySessionPlanDecision).toHaveBeenCalledWith(
       'user',
       expect.objectContaining({
-        targetDurationMinutes: 10,
-        reviewGoal: ReviewGoal.BALANCED,
+        targetDurationMinutes: 15,
+        reviewGoal: ReviewGoal.CONTEXT,
         plannedItemCount: 2,
         agentVersion: 'review-agent-test-v2',
         orderedSessionItemIds: ['item-2', 'item-1'],
@@ -446,6 +511,99 @@ describe('ReviewsService', () => {
       session: { id: 'session', planSummary: null },
       nextItem: { id: 'item-1' },
     });
+  });
+
+  it('returns bounded 5, 10, and 15 minute estimates for the Dashboard', async () => {
+    repository.getDueRecommendations.mockResolvedValue({
+      dueVocabularyCount: 8,
+      recommendedQuizzes: [],
+    });
+
+    await expect(
+      service.getToday('user', { limit: 10 }),
+    ).resolves.toMatchObject({
+      dueVocabularyCount: 8,
+      dailyReviewEstimates: [
+        {
+          targetDurationMinutes: 5,
+          estimatedItemCount: 6,
+          goalEstimates: [
+            { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 6 },
+            { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 7 },
+            { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 5 },
+            { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 5 },
+          ],
+        },
+        {
+          targetDurationMinutes: 10,
+          estimatedItemCount: 8,
+          goalEstimates: [
+            { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 8 },
+            { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 8 },
+            { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 8 },
+            { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 8 },
+          ],
+        },
+        {
+          targetDurationMinutes: 15,
+          estimatedItemCount: 8,
+          goalEstimates: [
+            { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 8 },
+            { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 8 },
+            { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 8 },
+            { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 8 },
+          ],
+        },
+      ],
+    });
+    expect(repository.getRecentReviewTimingStats.mock.calls).toEqual([
+      ['user', expect.any(Date), undefined],
+      ['user', expect.any(Date), ReviewSkillDimension.RECALL],
+      ['user', expect.any(Date), ReviewSkillDimension.SPELLING],
+      ['user', expect.any(Date), ReviewSkillDimension.CONTEXT],
+    ]);
+  });
+
+  it('uses goal-specific fallback interaction times before the due-count cap', async () => {
+    repository.getDueRecommendations.mockResolvedValue({
+      dueVocabularyCount: 100,
+      recommendedQuizzes: [],
+    });
+
+    const result = await service.getToday('user', { limit: 10 });
+
+    expect(result.dailyReviewEstimates).toEqual([
+      {
+        targetDurationMinutes: 5,
+        estimatedItemCount: 6,
+        goalEstimates: [
+          { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 6 },
+          { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 7 },
+          { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 5 },
+          { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 5 },
+        ],
+      },
+      {
+        targetDurationMinutes: 10,
+        estimatedItemCount: 13,
+        goalEstimates: [
+          { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 13 },
+          { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 15 },
+          { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 10 },
+          { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 10 },
+        ],
+      },
+      {
+        targetDurationMinutes: 15,
+        estimatedItemCount: 20,
+        goalEstimates: [
+          { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 20 },
+          { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 20 },
+          { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 15 },
+          { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 16 },
+        ],
+      },
+    ]);
   });
 
   it('returns a retryable 503 when eligible vocabulary has no usable AI question', async () => {

@@ -4,6 +4,8 @@ import {
   CefrLevel,
   LearningStatus,
   QuestionType,
+  ReviewDecisionSource,
+  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 
 export class AnalyticsOverviewDataDto {
@@ -188,6 +190,122 @@ export class QuizAnalyticsDataDto {
 
 export class QuizAnalyticsSuccessResponseDto extends successResponse(
   QuizAnalyticsDataDto,
+) {}
+
+export class ReviewRetestAnalyticsDto {
+  @ApiProperty()
+  attempts!: number;
+  @ApiProperty()
+  correct!: number;
+  @ApiProperty(ratioProperty)
+  successRate!: number;
+}
+
+export class ReviewSkillAnalyticsDto {
+  @ApiProperty({ enum: ReviewSkillDimension })
+  skillDimension!: ReviewSkillDimension;
+  @ApiProperty()
+  attempts!: number;
+  @ApiProperty()
+  correct!: number;
+  @ApiProperty(ratioProperty)
+  accuracy!: number;
+  @ApiProperty({ nullable: true, example: 3200 })
+  averageResponseTimeMs!: number | null;
+  @ApiProperty()
+  hintsUsed!: number;
+}
+
+export class ReviewDurationAnalyticsDto {
+  @ApiProperty({ enum: [5, 10, 15] })
+  targetDurationMinutes!: number;
+  @ApiProperty()
+  started!: number;
+  @ApiProperty()
+  completed!: number;
+  @ApiProperty(ratioProperty)
+  completionRate!: number;
+}
+
+export class ReviewDecisionSourceAnalyticsDto {
+  @ApiProperty({ enum: ReviewDecisionSource })
+  source!: ReviewDecisionSource;
+  @ApiProperty()
+  interventions!: number;
+  @ApiProperty()
+  retestAttempts!: number;
+  @ApiProperty()
+  successfulRetests!: number;
+  @ApiProperty(ratioProperty)
+  retestSuccessRate!: number;
+}
+
+export class ReviewRetentionWindowDto {
+  @ApiProperty()
+  followUps!: number;
+  @ApiProperty()
+  correct!: number;
+  @ApiProperty(ratioProperty)
+  accuracy!: number;
+}
+
+export class ReviewRetentionAnalyticsDto {
+  @ApiProperty({ type: ReviewRetentionWindowDto })
+  nextDay!: ReviewRetentionWindowDto;
+  @ApiProperty({ type: ReviewRetentionWindowDto })
+  sevenDay!: ReviewRetentionWindowDto;
+}
+
+export class ReviewTrendBucketDto {
+  @ApiProperty({ example: '2026-07-24' })
+  bucket!: string;
+  @ApiProperty()
+  answers!: number;
+  @ApiProperty()
+  correctAnswers!: number;
+  @ApiProperty(ratioProperty)
+  accuracy!: number;
+  @ApiProperty({ nullable: true, example: 3200 })
+  averageResponseTimeMs!: number | null;
+  @ApiProperty()
+  hintsUsed!: number;
+}
+
+export class ReviewAnalyticsDataDto {
+  @ApiProperty()
+  sessionsStarted!: number;
+  @ApiProperty()
+  sessionsCompleted!: number;
+  @ApiProperty()
+  sessionsAbandoned!: number;
+  @ApiProperty(ratioProperty)
+  completionRate!: number;
+  @ApiProperty()
+  answers!: number;
+  @ApiProperty()
+  correctAnswers!: number;
+  @ApiProperty(ratioProperty)
+  accuracy!: number;
+  @ApiProperty({ nullable: true, example: 3200 })
+  averageResponseTimeMs!: number | null;
+  @ApiProperty()
+  hintsUsed!: number;
+  @ApiProperty({ type: ReviewRetestAnalyticsDto })
+  sameSessionRetest!: ReviewRetestAnalyticsDto;
+  @ApiProperty({ type: [ReviewSkillAnalyticsDto] })
+  bySkill!: ReviewSkillAnalyticsDto[];
+  @ApiProperty({ type: [ReviewDurationAnalyticsDto] })
+  byDuration!: ReviewDurationAnalyticsDto[];
+  @ApiProperty({ type: [ReviewDecisionSourceAnalyticsDto] })
+  byDecisionSource!: ReviewDecisionSourceAnalyticsDto[];
+  @ApiProperty({ type: ReviewRetentionAnalyticsDto })
+  retention!: ReviewRetentionAnalyticsDto;
+  @ApiProperty({ type: [ReviewTrendBucketDto] })
+  trend!: ReviewTrendBucketDto[];
+}
+
+export class ReviewAnalyticsSuccessResponseDto extends successResponse(
+  ReviewAnalyticsDataDto,
 ) {}
 
 export class AdminAnalyticsOverviewDataDto {

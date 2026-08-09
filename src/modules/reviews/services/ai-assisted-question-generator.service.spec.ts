@@ -8,6 +8,10 @@ import {
   ReviewSessionType,
 } from '../../../../generated/prisma/enums';
 import type { ReviewQuestionGenerationResult } from '../../ai/ai.contracts';
+import {
+  REVIEW_QUESTION_PROMPT_STYLES,
+  REVIEW_QUESTION_PROMPT_VERSION,
+} from '../../ai/ai.contracts';
 import { AiError } from '../../ai/ai.errors';
 import { AiService } from '../../ai/ai.service';
 import {
@@ -25,14 +29,14 @@ describe('AiAssistedQuestionGeneratorService', () => {
     groqModel: 'groq-model',
     requestTimeoutMs: 30_000,
     reviewAgentEnabled: true,
-    reviewMaxCallsPerSession: 6,
+    reviewMaxCallsPerSession: 10,
     reviewMaxDiagnosisCalls: 4,
     reviewMinConfidence: 0.65,
     reviewPromptVersion: 'review-agent-test-v1',
-    reviewQuestionWarmLimit: 2,
+    reviewQuestionWarmLimit: 5,
   };
   const generated: ReviewQuestionGenerationResult = {
-    prompt: 'What does "engaging" mean here?',
+    prompt: 'Quick match: choose the best Vietnamese interpretation.',
     blankSentence: null,
     correctAnswerText: null,
     answerExplanation:
@@ -70,7 +74,10 @@ describe('AiAssistedQuestionGeneratorService', () => {
   });
 
   let service: AiAssistedQuestionGeneratorService;
-  let ai: { generateReviewQuestion: jest.Mock };
+  let ai: {
+    generateReviewQuestion: jest.Mock;
+    generateReviewQuestions: jest.Mock;
+  };
   let repository: {
     getAiQuestionGenerationCandidates: jest.Mock;
     findCachedAiQuestion: jest.Mock;
@@ -80,9 +87,16 @@ describe('AiAssistedQuestionGeneratorService', () => {
   };
 
   beforeEach(async () => {
-    config.reviewMaxCallsPerSession = 6;
-    config.reviewQuestionWarmLimit = 2;
-    ai = { generateReviewQuestion: jest.fn().mockResolvedValue(generated) };
+    config.reviewMaxCallsPerSession = 10;
+    config.reviewQuestionWarmLimit = 5;
+    ai = {
+      generateReviewQuestion: jest.fn().mockResolvedValue(generated),
+      generateReviewQuestions: jest
+        .fn()
+        .mockImplementation((inputs: unknown[]) =>
+          Promise.resolve(inputs.map(() => generated)),
+        ),
+    };
     repository = {
       getAiQuestionGenerationCandidates: jest
         .fn()
@@ -128,6 +142,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
     await expect(warmCache()).resolves.toEqual([cached]);
     expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
+    expect(ai.generateReviewQuestions).not.toHaveBeenCalled();
     expect(repository.findCachedAiQuestion).not.toHaveBeenCalled();
     expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
   });
@@ -135,22 +150,26 @@ describe('AiAssistedQuestionGeneratorService', () => {
   it('generates and caches only the question type selected for the candidate', async () => {
     const prepared = await warmCache();
 
-    expect(ai.generateReviewQuestion).toHaveBeenCalledWith({
-      wordOrPhrase: 'engaging',
-      lemma: 'engage',
-      partOfSpeech: 'adjective',
-      contextualMeaningVi: 'hap dan',
-      originalSentence: 'The lesson was engaging for everyone.',
-      articleTopic: 'Education',
-      targetCefr: CefrLevel.B1,
-      requestedQuestionType: QuestionType.SELECT_MEANING,
-    });
+    expect(ai.generateReviewQuestions).toHaveBeenCalledWith([
+      {
+        wordOrPhrase: 'engaging',
+        lemma: 'engage',
+        partOfSpeech: 'adjective',
+        contextualMeaningVi: 'hap dan',
+        originalSentence: 'The lesson was engaging for everyone.',
+        articleTopic: 'Education',
+        targetCefr: CefrLevel.B1,
+        requestedQuestionType: QuestionType.SELECT_MEANING,
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[0],
+      },
+    ]);
     expect(repository.cacheAiQuestion).toHaveBeenCalledWith(
       expect.objectContaining({
         articleSentenceTermId: 'term-1',
         questionType: QuestionType.SELECT_MEANING,
         difficultyCefr: CefrLevel.B1,
         generationSource: QuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
       }),
     );
     expect(prepared).toEqual([
@@ -165,7 +184,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
   it('deduplicates concurrent generation for the same cache key', async () => {
     await Promise.all([warmCache(), warmCache()]);
 
-    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(1);
+    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(1);
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
   });
 
@@ -177,7 +196,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
       difficultyCefr: CefrLevel.B1,
       questionType: QuestionType.SELECT_WORD,
     };
-    ai.generateReviewQuestion.mockRejectedValue(
+    ai.generateReviewQuestions.mockRejectedValue(
       new AiError(
         'PROVIDER_UNAVAILABLE',
         'AI service is temporarily unavailable',
@@ -191,24 +210,28 @@ describe('AiAssistedQuestionGeneratorService', () => {
     expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
   });
 
-  it('omits only the candidate that has no valid AI question', async () => {
+  it('omits a failed batch but continues with the next bounded batch', async () => {
+    config.reviewQuestionWarmLimit = 2;
     repository.getAiQuestionGenerationCandidates.mockResolvedValue([
       makeCandidate(1),
       makeCandidate(2),
+      makeCandidate(3),
+      makeCandidate(4),
+      makeCandidate(5),
     ]);
-    ai.generateReviewQuestion
+    ai.generateReviewQuestions
       .mockRejectedValueOnce(
         new AiError(
           'PROVIDER_UNAVAILABLE',
           'AI service is temporarily unavailable',
         ),
       )
-      .mockResolvedValueOnce(generated);
+      .mockResolvedValueOnce([generated]);
 
     await expect(warmCache()).resolves.toEqual([
-      expect.objectContaining({ userVocabularyId: 'vocabulary-2' }),
+      expect.objectContaining({ userVocabularyId: 'vocabulary-5' }),
     ]);
-    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(2);
+    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(2);
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
   });
 
@@ -225,10 +248,58 @@ describe('AiAssistedQuestionGeneratorService', () => {
       onAiCallReserved,
     );
 
-    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(2);
-    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(2);
-    expect(prepared).toHaveLength(2);
-    expect(onAiCallReserved).toHaveBeenCalledTimes(2);
+    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(5);
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(20);
+    expect(prepared).toHaveLength(20);
+    expect(onAiCallReserved).toHaveBeenCalledTimes(5);
+  });
+
+  it('keeps all cache hits while spending the batch budget only on cold questions', async () => {
+    config.reviewQuestionWarmLimit = 1;
+    const candidates = Array.from({ length: 20 }, (_, index) => {
+      const candidateNumber = index + 1;
+      const cached =
+        candidateNumber <= 16
+          ? {
+              userVocabularyId: `vocabulary-${candidateNumber}`,
+              quizQuestionId: `cached-${candidateNumber}`,
+              articleSentenceTermId: `term-${candidateNumber}`,
+              difficultyCefr: CefrLevel.B1,
+              questionType: QuestionType.SELECT_MEANING,
+            }
+          : null;
+      return makeCandidate(candidateNumber, cached);
+    });
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue(candidates);
+
+    const prepared = await warmCache();
+
+    expect(prepared).toHaveLength(20);
+    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(1);
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(4);
+  });
+
+  it('cycles engaging prompt styles within a generated batch', async () => {
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue(
+      Array.from({ length: 4 }, (_, index) => makeCandidate(index + 1)),
+    );
+
+    await warmCache();
+
+    expect(ai.generateReviewQuestions).toHaveBeenCalledWith([
+      expect.objectContaining({
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[0],
+      }),
+      expect.objectContaining({
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[1],
+      }),
+      expect.objectContaining({
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[2],
+      }),
+      expect.objectContaining({
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[3],
+      }),
+    ]);
   });
 
   it('caps warm reservations by the shared per-session AI budget', async () => {
@@ -239,7 +310,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     );
     const onAiCallReserved = jest.fn();
 
-    await service.warmCache(
+    const prepared = await service.warmCache(
       'user',
       { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
       new Date('2026-08-03T00:00:00Z'),
@@ -247,7 +318,8 @@ describe('AiAssistedQuestionGeneratorService', () => {
     );
 
     expect(onAiCallReserved).toHaveBeenCalledTimes(1);
-    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(1);
+    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(1);
+    expect(prepared).toHaveLength(4);
   });
 
   it('prepares a requested retest type through the same cache-first AI path', async () => {

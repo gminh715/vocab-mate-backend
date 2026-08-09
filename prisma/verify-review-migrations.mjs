@@ -84,6 +84,7 @@ try {
           ('user_vocabularies', 'lapse_count'),
           ('user_vocabularies', 'last_review_score'),
           ('quiz_questions', 'generation_source'),
+          ('quiz_questions', 'generation_version'),
           ('question_options', 'generation_source'),
           ('review_sessions', 'collection_id'),
           ('review_sessions', 'target_duration_minutes'),
@@ -101,8 +102,22 @@ try {
     [schemaName],
   );
   assert(
-    requiredColumns.count === 17,
+    requiredColumns.count === 18,
     'Review migration columns are incomplete',
+  );
+
+  const backwardCompatibleQuestionColumns = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.columns
+      WHERE table_schema = $1
+        AND table_name = 'quiz_questions'
+        AND column_name = 'generation_version'
+        AND is_nullable = 'YES'`,
+    [schemaName],
+  );
+  assert(
+    backwardCompatibleQuestionColumns.count === 1,
+    'Review question prompt version is not backward compatible',
   );
 
   const backwardCompatibleColumns = await queryValue(

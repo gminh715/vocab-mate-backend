@@ -143,6 +143,71 @@ class InMemoryAnalyticsService {
     };
   }
 
+  getReviewAnalytics(userId: string, query: AnalyticsDateRangeQueryDto) {
+    resolveAnalyticsDateRange(query, new Date('2026-07-24T00:00:00Z'));
+    this.calls.push({ operation: 'reviews', userId });
+    const hasData = userId !== 'empty-id';
+    return {
+      sessionsStarted: hasData ? 2 : 0,
+      sessionsCompleted: hasData ? 1 : 0,
+      sessionsAbandoned: hasData ? 1 : 0,
+      completionRate: hasData ? 0.5 : 0,
+      answers: hasData ? 4 : 0,
+      correctAnswers: hasData ? 3 : 0,
+      accuracy: hasData ? 0.75 : 0,
+      averageResponseTimeMs: hasData ? 3200 : null,
+      hintsUsed: hasData ? 1 : 0,
+      sameSessionRetest: {
+        attempts: hasData ? 1 : 0,
+        correct: hasData ? 1 : 0,
+        successRate: hasData ? 1 : 0,
+      },
+      bySkill: [
+        {
+          skillDimension: 'RECALL',
+          attempts: hasData ? 4 : 0,
+          correct: hasData ? 3 : 0,
+          accuracy: hasData ? 0.75 : 0,
+          averageResponseTimeMs: hasData ? 3200 : null,
+          hintsUsed: hasData ? 1 : 0,
+        },
+      ],
+      byDuration: [5, 10, 15].map((targetDurationMinutes) => ({
+        targetDurationMinutes,
+        started: targetDurationMinutes === 10 && hasData ? 2 : 0,
+        completed: targetDurationMinutes === 10 && hasData ? 1 : 0,
+        completionRate: targetDurationMinutes === 10 && hasData ? 0.5 : 0,
+      })),
+      byDecisionSource: ['AI', 'RULE'].map((source) => ({
+        source,
+        interventions: source === 'AI' && hasData ? 1 : 0,
+        retestAttempts: source === 'AI' && hasData ? 1 : 0,
+        successfulRetests: source === 'AI' && hasData ? 1 : 0,
+        retestSuccessRate: source === 'AI' && hasData ? 1 : 0,
+      })),
+      retention: {
+        nextDay: {
+          followUps: hasData ? 1 : 0,
+          correct: hasData ? 1 : 0,
+          accuracy: hasData ? 1 : 0,
+        },
+        sevenDay: { followUps: 0, correct: 0, accuracy: 0 },
+      },
+      trend: hasData
+        ? [
+            {
+              bucket: '2026-07-23',
+              answers: 4,
+              correctAnswers: 3,
+              accuracy: 0.75,
+              averageResponseTimeMs: 3200,
+              hintsUsed: 1,
+            },
+          ]
+        : [],
+    };
+  }
+
   getAdminOverview(query: AnalyticsDateRangeQueryDto) {
     resolveAnalyticsDateRange(query, new Date('2026-07-24T00:00:00Z'));
     return {
@@ -237,11 +302,13 @@ describe('Analytics APIs (e2e)', () => {
     const overview = swagger.paths['/api/v1/analytics/me/overview'].get;
     const vocabulary = swagger.paths['/api/v1/analytics/me/vocabulary'].get;
     const quizzes = swagger.paths['/api/v1/analytics/me/quizzes'].get;
+    const reviews = swagger.paths['/api/v1/analytics/me/reviews'].get;
     const adminOverview = swagger.paths['/api/v1/admin/analytics/overview'].get;
     const adminContent = swagger.paths['/api/v1/admin/analytics/content'].get;
 
     expect(overview.security).toContainEqual({ BearerAuth: [] });
     expect(vocabulary.security).toContainEqual({ BearerAuth: [] });
+    expect(reviews.security).toContainEqual({ BearerAuth: [] });
     expect(adminOverview.security).toContainEqual({ BearerAuth: [] });
     expect(Object.keys(adminOverview.responses)).toEqual(
       expect.arrayContaining(['200', '400', '401', '403']),
@@ -271,6 +338,25 @@ describe('Analytics APIs (e2e)', () => {
       'accuracy',
       'averageScore',
       'byQuestionType',
+      'trend',
+    ]);
+    expect(
+      Object.keys(swagger.components.schemas.ReviewAnalyticsDataDto.properties),
+    ).toEqual([
+      'sessionsStarted',
+      'sessionsCompleted',
+      'sessionsAbandoned',
+      'completionRate',
+      'answers',
+      'correctAnswers',
+      'accuracy',
+      'averageResponseTimeMs',
+      'hintsUsed',
+      'sameSessionRetest',
+      'bySkill',
+      'byDuration',
+      'byDecisionSource',
+      'retention',
       'trend',
     ]);
     expect(
@@ -315,6 +401,9 @@ describe('Analytics APIs (e2e)', () => {
       .expect(401);
     await request(app.getHttpServer())
       .get('/api/v1/analytics/me/quizzes')
+      .expect(401);
+    await request(app.getHttpServer())
+      .get('/api/v1/analytics/me/reviews')
       .expect(401);
     for (const path of [
       '/api/v1/admin/analytics/overview',
@@ -370,7 +459,7 @@ describe('Analytics APIs (e2e)', () => {
     );
   });
 
-  it('scopes reading and quiz analytics to the authenticated learner', async () => {
+  it('scopes reading, quiz, and review analytics to the authenticated learner', async () => {
     const reading = await request(app.getHttpServer())
       .get('/api/v1/analytics/me/reading')
       .set('Authorization', 'Bearer user-a')
@@ -387,17 +476,29 @@ describe('Analytics APIs (e2e)', () => {
       .get('/api/v1/analytics/me/quizzes')
       .set('Authorization', 'Bearer empty')
       .expect(200);
+    const reviews = await request(app.getHttpServer())
+      .get('/api/v1/analytics/me/reviews')
+      .set('Authorization', 'Bearer user-a')
+      .expect(200);
+    const emptyReviews = await request(app.getHttpServer())
+      .get('/api/v1/analytics/me/reviews')
+      .set('Authorization', 'Bearer empty')
+      .expect(200);
 
     expect(reading.body.data.opened).toBe(2);
     expect(emptyReading.body.data.opened).toBe(0);
     expect(quizzes.body.data.sessions).toBe(2);
     expect(emptyQuizzes.body.data.sessions).toBe(0);
+    expect(reviews.body.data.sameSessionRetest.successRate).toBe(1);
+    expect(emptyReviews.body.data.averageResponseTimeMs).toBeNull();
     expect(analytics.calls).toEqual(
       expect.arrayContaining([
         { operation: 'reading', userId: 'user-a-id' },
         { operation: 'reading', userId: 'empty-id' },
         { operation: 'quizzes', userId: 'user-a-id' },
         { operation: 'quizzes', userId: 'empty-id' },
+        { operation: 'reviews', userId: 'user-a-id' },
+        { operation: 'reviews', userId: 'empty-id' },
       ]),
     );
   });

@@ -6,6 +6,12 @@ export const REVIEW_QUESTION_TYPES = [
   'SELECT_CORRECT_CONTEXT',
   'FILL_BLANK',
 ] as const;
+export const REVIEW_QUESTION_PROMPT_STYLES = [
+  'QUICK_MATCH',
+  'CONTEXT_CLUE',
+  'MINI_CHALLENGE',
+  'REAL_WORLD_USE',
+] as const;
 export const REVIEW_GOALS = [
   'BALANCED',
   'RECALL',
@@ -50,10 +56,15 @@ export const REVIEW_SESSION_PLAN_PROMPT_VERSION =
   'review-session-plan-v1' as const;
 export const REVIEW_ANSWER_DIAGNOSIS_PROMPT_VERSION =
   'review-answer-diagnosis-v1' as const;
+export const REVIEW_QUESTION_PROMPT_VERSION =
+  'review-question-generation-v2' as const;
+export const REVIEW_QUESTION_BATCH_MAX_SIZE = 4;
 
 export type CefrLevel = (typeof CEFR_LEVELS)[number];
 export type LexicalUnitType = (typeof LEXICAL_UNIT_TYPES)[number];
 export type ReviewQuestionType = (typeof REVIEW_QUESTION_TYPES)[number];
+export type ReviewQuestionPromptStyle =
+  (typeof REVIEW_QUESTION_PROMPT_STYLES)[number];
 export type ReviewGoal = (typeof REVIEW_GOALS)[number];
 export type ReviewSkillDimension = (typeof REVIEW_SKILL_DIMENSIONS)[number];
 export type ReviewErrorType = (typeof REVIEW_ERROR_TYPES)[number];
@@ -105,6 +116,7 @@ export interface ReviewQuestionGenerationInput {
   articleTopic?: string;
   targetCefr: CefrLevel;
   requestedQuestionType: ReviewQuestionType;
+  promptStyle: ReviewQuestionPromptStyle;
 }
 
 export interface ReviewQuestionGenerationOption {
@@ -119,6 +131,9 @@ export interface ReviewQuestionGenerationResult {
   answerExplanation: string;
   options: ReviewQuestionGenerationOption[];
 }
+
+export type ReviewQuestionBatchGenerationResult =
+  ReviewQuestionGenerationResult[];
 
 export interface ReviewAttemptSnapshot {
   questionType: ReviewQuestionType;

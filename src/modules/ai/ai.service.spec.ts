@@ -13,6 +13,7 @@ import type {
 } from './ai.contracts';
 import {
   REVIEW_ANSWER_DIAGNOSIS_PROMPT_VERSION,
+  REVIEW_QUESTION_PROMPT_VERSION,
   REVIEW_SESSION_PLAN_PROMPT_VERSION,
 } from './ai.contracts';
 import { ProviderCallError } from './ai.errors';
@@ -83,10 +84,12 @@ const reviewQuestionInput: ReviewQuestionGenerationInput = {
   articleTopic: 'Education',
   targetCefr: 'B1',
   requestedQuestionType: 'SELECT_MEANING',
+  promptStyle: 'CONTEXT_CLUE',
 };
 
 const reviewQuestionResult: ReviewQuestionGenerationResult = {
-  prompt: 'What does "engaging" mean in this sentence?',
+  prompt:
+    'Use the lesson clue to pick the Vietnamese option that best fits "engaging".',
   blankSentence: null,
   correctAnswerText: null,
   answerExplanation:
@@ -96,6 +99,96 @@ const reviewQuestionResult: ReviewQuestionGenerationResult = {
     { optionText: 'kho hieu', isCorrect: false },
     { optionText: 'ngan gon', isCorrect: false },
   ],
+};
+
+const reviewQuestionBatchInputs: ReviewQuestionGenerationInput[] = [
+  reviewQuestionInput,
+  {
+    wordOrPhrase: 'ambitious',
+    lemma: 'ambitious',
+    partOfSpeech: 'adjective',
+    contextualMeaningVi: 'day tham vong',
+    originalSentence: 'They announced an ambitious transport plan.',
+    articleTopic: 'Transport',
+    targetCefr: 'B1',
+    requestedQuestionType: 'SELECT_WORD',
+    promptStyle: 'QUICK_MATCH',
+  },
+  {
+    wordOrPhrase: 'network',
+    lemma: 'network',
+    partOfSpeech: 'noun',
+    contextualMeaningVi: 'mang luoi',
+    originalSentence: 'The city expanded the network.',
+    articleTopic: 'Transport',
+    targetCefr: 'B1',
+    requestedQuestionType: 'SELECT_CORRECT_CONTEXT',
+    promptStyle: 'MINI_CHALLENGE',
+  },
+  {
+    wordOrPhrase: 'resilient',
+    lemma: 'resilient',
+    partOfSpeech: 'adjective',
+    contextualMeaningVi: 'kien cuong',
+    originalSentence: 'Small businesses remained resilient.',
+    targetCefr: 'B1',
+    requestedQuestionType: 'FILL_BLANK',
+    promptStyle: 'REAL_WORLD_USE',
+  },
+];
+
+const reviewQuestionBatchResult: ReviewQuestionGenerationResult[] = [
+  reviewQuestionResult,
+  {
+    prompt: 'Quick match: choose the saved English item for “day tham vong”.',
+    blankSentence: null,
+    correctAnswerText: null,
+    answerExplanation:
+      'Ambitious describes a goal that is difficult and important. It fits a plan that aims for a major result.',
+    options: [
+      { optionText: 'ambitious', isCorrect: true },
+      { optionText: 'ordinary', isCorrect: false },
+      { optionText: 'temporary', isCorrect: false },
+    ],
+  },
+  {
+    prompt:
+      'Mini challenge: spot the sentence where “network” keeps its article usage.',
+    blankSentence: null,
+    correctAnswerText: null,
+    answerExplanation:
+      'Network refers to a connected transport system here. The correct sentence keeps that same use.',
+    options: [
+      {
+        optionText: 'The city expanded the network.',
+        isCorrect: true,
+      },
+      {
+        optionText: 'She used a network to catch fish.',
+        isCorrect: false,
+      },
+      {
+        optionText: 'He networks with guests after work.',
+        isCorrect: false,
+      },
+    ],
+  },
+  {
+    prompt:
+      'Complete this everyday-use sentence with the saved vocabulary item.',
+    blankSentence: 'The small business stayed ___ after a difficult year.',
+    correctAnswerText: 'resilient',
+    answerExplanation:
+      'Resilient describes someone or something that recovers from difficulty. It completes this sentence naturally.',
+    options: [],
+  },
+];
+
+const reviewQuestionBatchProviderResult = {
+  questions: reviewQuestionBatchResult.map((question, inputIndex) => ({
+    inputIndex,
+    ...question,
+  })),
 };
 
 const planInput: PlanReviewSessionInput = {
@@ -256,12 +349,135 @@ describe('AiService', () => {
     expect(request.userContent).not.toContain('learningHistory');
     expect(request.systemInstruction).toContain('two or three short sentences');
     expect(request.systemInstruction).toContain('target CEFR');
+    expect(request.systemInstruction).toContain(REVIEW_QUESTION_PROMPT_VERSION);
+    expect(request.systemInstruction).toContain('promptStyle');
+    expect(request.systemInstruction).toContain(
+      'Never use generic What is/does ... mean/meaning wording',
+    );
+    expect(request.systemInstruction).toContain('never use Markdown');
     expect(request.systemInstruction).toContain(
       'copy contextualMeaningVi character-for-character',
     );
     expect(JSON.stringify(request.schema)).toContain(
       'exactly copy contextualMeaningVi',
     );
+    expect(JSON.stringify(request.schema)).toContain('CONTEXT_CLUE');
+  });
+
+  it('generates up to four mixed review questions in one exact-order provider call', async () => {
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(reviewQuestionBatchProviderResult),
+    );
+
+    await expect(
+      service.generateReviewQuestions(reviewQuestionBatchInputs),
+    ).resolves.toEqual(reviewQuestionBatchResult);
+    expect(gemini.generateStructured.mock.calls).toHaveLength(1);
+    expect(groq.generateStructured.mock.calls).toHaveLength(0);
+
+    const request = gemini.generateStructured.mock.calls[0][0];
+    expect(request.schemaName).toBe('review_question_batch_generation_v2');
+    expect(request.userContent).toBe(
+      JSON.stringify({ inputs: reviewQuestionBatchInputs }),
+    );
+    expect(request.maxOutputTokens).toBe(4096);
+    expect(request.systemInstruction).toContain(
+      'Keep questions in exact input order',
+    );
+    expect(JSON.stringify(request.schema)).toContain(
+      'inputIndex must equal the zero-based array position',
+    );
+  });
+
+  it('rejects a batch that does not preserve exact input order', async () => {
+    const invalidOrder = {
+      questions: reviewQuestionBatchProviderResult.questions.map(
+        (question, index) => ({
+          ...question,
+          inputIndex: index === 0 ? 1 : index === 1 ? 0 : index,
+        }),
+      ),
+    };
+    gemini.generateStructured.mockResolvedValue(JSON.stringify(invalidOrder));
+    groq.generateStructured.mockResolvedValue(JSON.stringify(invalidOrder));
+
+    await expect(
+      service.generateReviewQuestions(reviewQuestionBatchInputs),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
+  });
+
+  it.each([[[]], [[...reviewQuestionBatchInputs, reviewQuestionInput]]])(
+    'rejects an empty or over-limit review question batch before provider use',
+    async (inputs) => {
+      await expect(
+        service.generateReviewQuestions(inputs),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      expect(gemini.generateStructured.mock.calls).toHaveLength(0);
+      expect(groq.generateStructured.mock.calls).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    'What is the meaning of the word "engaging"?',
+    'What does "engaging" mean here?',
+    'Choose a meaning in the context of the sentence.',
+    'Pick the **best** Vietnamese option for "engaging".',
+    'Pick "HAP-DAN" for this clue.',
+  ])('rejects unsafe or generic review prompt output: %s', async (prompt) => {
+    const invalid = { ...reviewQuestionResult, prompt };
+    gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+    groq.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+
+    await expect(
+      service.generateReviewQuestion(reviewQuestionInput),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
+  });
+
+  it('does not apply answer-leak matching to normalized answers shorter than three characters', async () => {
+    const shortAnswerInput: ReviewQuestionGenerationInput = {
+      ...reviewQuestionInput,
+      wordOrPhrase: 'go',
+      lemma: 'go',
+      contextualMeaningVi: 'di',
+      originalSentence: 'They go to class together.',
+      requestedQuestionType: 'SELECT_WORD',
+      promptStyle: 'QUICK_MATCH',
+    };
+    const shortAnswerResult: ReviewQuestionGenerationResult = {
+      prompt: 'Quick match: choose “go” for the clue “di”.',
+      blankSentence: null,
+      correctAnswerText: null,
+      answerExplanation:
+        'Go describes moving from one place to another. It matches this short clue.',
+      options: [
+        { optionText: 'go', isCorrect: true },
+        { optionText: 'sit', isCorrect: false },
+        { optionText: 'wait', isCorrect: false },
+      ],
+    };
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(shortAnswerResult),
+    );
+
+    await expect(
+      service.generateReviewQuestion(shortAnswerInput),
+    ).resolves.toEqual(shortAnswerResult);
+  });
+
+  it('rejects a fill-blank sentence that leaks the normalized answer', async () => {
+    const fillInput = reviewQuestionBatchInputs[3];
+    const invalid = {
+      ...reviewQuestionBatchResult[3],
+      blankSentence: 'The resilient shop stayed ___ after a difficult year.',
+    };
+    gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+    groq.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+
+    await expect(
+      service.generateReviewQuestion(fillInput),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
   });
 
   it('rejects ambiguous or malformed review output from both providers', async () => {
@@ -325,6 +541,7 @@ describe('AiService', () => {
     ).rejects.toMatchObject({
       code: 'PROVIDER_UNAVAILABLE',
       message: 'AI service is temporarily unavailable',
+      providerFailureReason: 'network',
     });
     expect(gemini.generateStructured.mock.calls).toHaveLength(1);
     expect(groq.generateStructured.mock.calls).toHaveLength(1);

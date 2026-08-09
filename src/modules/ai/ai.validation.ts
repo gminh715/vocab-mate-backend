@@ -5,6 +5,8 @@ import {
   REVIEW_AGENT_ACTIONS,
   REVIEW_ERROR_TYPES,
   REVIEW_GOALS,
+  REVIEW_QUESTION_BATCH_MAX_SIZE,
+  REVIEW_QUESTION_PROMPT_STYLES,
   REVIEW_QUESTION_TYPES,
   REVIEW_RETEST_AFTER_ITEMS,
   REVIEW_TARGET_DURATIONS,
@@ -12,6 +14,7 @@ import {
   type PlanReviewSessionInput,
   type ReviewAnswerDiagnosisResult,
   type ReviewAttemptSnapshot,
+  type ReviewQuestionBatchGenerationResult,
   type TermEnrichmentInput,
   type TermEnrichmentResult,
   type TermExample,
@@ -350,6 +353,7 @@ export const validateReviewQuestionGenerationInput = (
     'articleTopic',
     'targetCefr',
     'requestedQuestionType',
+    'promptStyle',
   ];
   const requiredKeys = allowedKeys.filter((key) => key !== 'articleTopic');
   const actualKeys = Object.keys(input);
@@ -375,6 +379,26 @@ export const validateReviewQuestionGenerationInput = (
     REVIEW_QUESTION_TYPES,
     'input',
   );
+  enumValue(
+    input.promptStyle,
+    'promptStyle',
+    REVIEW_QUESTION_PROMPT_STYLES,
+    'input',
+  );
+};
+
+export const validateReviewQuestionBatchGenerationInput = (
+  inputs: ReviewQuestionGenerationInput[],
+): void => {
+  if (
+    !Array.isArray(inputs) ||
+    inputs.length === 0 ||
+    inputs.length > REVIEW_QUESTION_BATCH_MAX_SIZE
+  ) {
+    fail('input', 'reviewQuestionBatch');
+  }
+
+  inputs.forEach((input) => validateReviewQuestionGenerationInput(input));
 };
 
 const MAX_RESPONSE_TIME_MS = 2_147_483_647;
@@ -872,6 +896,57 @@ const normalizeAnswer = (value: string): string =>
     .replace(/\s+/gu, ' ')
     .toLocaleLowerCase('en-US');
 
+const normalizeForPromptInspection = (value: string): string =>
+  value
+    .normalize('NFKD')
+    .toLocaleLowerCase('en-US')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+
+const hasRawMarkdown = (value: string): boolean =>
+  /(?:```|`[^`\n]+`|\*\*|__|!\[[^\]]*\]\([^)\n]+\)|\[[^\]]+\]\([^)\n]+\)|(?:^|\n)\s{0,3}(?:#{1,6}|>|[-+*])\s)/u.test(
+    value,
+  ) || /(?:^|[\s(])(?:\*[^*\n]+\*|_[^_\n]+_)(?=$|[\s).,!?:;])/u.test(value);
+
+const validatePlainGeneratedText = (value: string, field: string): void => {
+  if (hasRawMarkdown(value)) {
+    fail('output', field);
+  }
+};
+
+const containsNormalizedText = (value: string, expected: string): boolean => {
+  const normalizedExpected = normalizeForPromptInspection(expected);
+  if (normalizedExpected.length < 3) return false;
+
+  const normalizedValue = normalizeForPromptInspection(value);
+  return ` ${normalizedValue} `.includes(` ${normalizedExpected} `);
+};
+
+const expectedPromptAnswer = (input: ReviewQuestionGenerationInput): string =>
+  input.requestedQuestionType === 'SELECT_MEANING'
+    ? input.contextualMeaningVi
+    : input.requestedQuestionType === 'SELECT_CORRECT_CONTEXT'
+      ? input.originalSentence
+      : input.wordOrPhrase;
+
+const validateReviewPromptQuality = (
+  prompt: string,
+  input: ReviewQuestionGenerationInput,
+): void => {
+  validatePlainGeneratedText(prompt, 'prompt');
+  const normalizedPrompt = normalizeForPromptInspection(prompt);
+  if (
+    /\bwhat\s+(?:is|does)\b.*\b(?:mean|meaning)\b/u.test(normalizedPrompt) ||
+    normalizedPrompt.includes('in the context of the sentence') ||
+    normalizedPrompt.includes('provided context') ||
+    containsNormalizedText(prompt, expectedPromptAnswer(input))
+  ) {
+    fail('output', 'prompt');
+  }
+};
+
 const validateShortExplanation = (value: unknown): string => {
   const explanation = stringValue(
     value,
@@ -891,6 +966,7 @@ const validateShortExplanation = (value: unknown): string => {
   ) {
     fail('output', 'answerExplanation');
   }
+  validatePlainGeneratedText(explanation, 'answerExplanation');
   return explanation;
 };
 
@@ -941,6 +1017,7 @@ export const parseReviewQuestionGenerationResult = (
     AI_OUTPUT_LIMITS.reviewPrompt,
     'output',
   );
+  validateReviewPromptQuality(prompt, input);
   const answerExplanation = validateShortExplanation(result.answerExplanation);
   const rawOptions = arrayValue(
     result.options,
@@ -965,10 +1042,15 @@ export const parseReviewQuestionGenerationResult = (
     );
     if (
       (blankSentence.match(/___/gu) ?? []).length !== 1 ||
-      options.length !== 0
+      options.length !== 0 ||
+      containsNormalizedText(blankSentence, input.wordOrPhrase)
     ) {
       fail('output', 'fillBlank');
     }
+    validatePlainGeneratedText(
+      blankSentence.replace('___', ''),
+      'blankSentence',
+    );
     return {
       prompt,
       blankSentence,
@@ -995,6 +1077,11 @@ export const parseReviewQuestionGenerationResult = (
       : input.requestedQuestionType === 'SELECT_WORD'
         ? input.wordOrPhrase
         : input.originalSentence;
+  options
+    .filter(({ isCorrect }) => !isCorrect)
+    .forEach(({ optionText }, index) =>
+      validatePlainGeneratedText(optionText, `options[${index}].optionText`),
+    );
   const canonicalOptions = options.map((option) =>
     option.isCorrect ? { ...option, optionText: expectedAnswer } : option,
   );
@@ -1012,6 +1099,63 @@ export const parseReviewQuestionGenerationResult = (
     answerExplanation,
     options: canonicalOptions,
   };
+};
+
+export const parseReviewQuestionBatchGenerationResult = (
+  raw: unknown,
+  inputs: ReviewQuestionGenerationInput[],
+): ReviewQuestionBatchGenerationResult => {
+  validateReviewQuestionBatchGenerationInput(inputs);
+  const result = recordValue(raw, 'result', ['questions'], 'output');
+  const questions = arrayValue(
+    result.questions,
+    'questions',
+    REVIEW_QUESTION_BATCH_MAX_SIZE,
+    'output',
+  );
+  if (questions.length !== inputs.length) {
+    fail('output', 'questions');
+  }
+
+  return questions.map((value, index) => {
+    const item = recordValue(
+      value,
+      `questions[${index}]`,
+      [
+        'inputIndex',
+        'prompt',
+        'blankSentence',
+        'correctAnswerText',
+        'answerExplanation',
+        'options',
+      ],
+      'output',
+    );
+    const inputIndex = nonNegativeIntegerValue(
+      item.inputIndex,
+      `questions[${index}].inputIndex`,
+      inputs.length - 1,
+      'output',
+    );
+    if (inputIndex !== index) {
+      fail('output', `questions[${index}].inputIndex`);
+    }
+    const input = inputs[index];
+    if (!input) {
+      fail('output', `questions[${index}]`);
+    }
+
+    return parseReviewQuestionGenerationResult(
+      {
+        prompt: item.prompt,
+        blankSentence: item.blankSentence,
+        correctAnswerText: item.correctAnswerText,
+        answerExplanation: item.answerExplanation,
+        options: item.options,
+      },
+      input,
+    );
+  });
 };
 
 export const parseReviewSessionPlanResult = (
