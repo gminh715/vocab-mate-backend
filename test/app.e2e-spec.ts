@@ -605,6 +605,18 @@ describe('Auth and Users APIs (e2e)', () => {
     };
   };
 
+  it('handles CORS preflight and includes Access-Control-Allow-Origin for allowed origin', async () => {
+    const response = await request(app.getHttpServer())
+      .options('/api/v1/auth/refresh')
+      .set('Origin', 'https://vocab-mate.onrender.com')
+      .set('Access-Control-Request-Method', 'POST');
+
+    expect(response.headers['access-control-allow-origin']).toBe(
+      'https://vocab-mate.onrender.com',
+    );
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+  });
+
   it('publishes Swagger operations for exactly the five documented Auth APIs', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/docs-json')

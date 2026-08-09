@@ -6,11 +6,27 @@ import {
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 
-export const configureApp = (app: INestApplication): void => {
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://vocab-mate.onrender.com',
+];
+
+export const configureApp = (
+  app: INestApplication,
+  corsOrigins?: string[],
+): void => {
   app.setGlobalPrefix('api');
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',
+  });
+  app.enableCors({
+    origin:
+      corsOrigins && corsOrigins.length > 0
+        ? corsOrigins
+        : defaultAllowedOrigins,
+    credentials: true,
   });
   app.use(cookieParser());
   app.useGlobalPipes(
