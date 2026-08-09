@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import type { AiConfig } from '../../../config/ai.config';
 import { AI_CONFIG } from '../../../config/config.module';
 import {
   CefrLevel,
@@ -17,6 +18,19 @@ import {
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 
 describe('AiAssistedQuestionGeneratorService', () => {
+  const config: AiConfig = {
+    geminiApiKey: 'gemini-key',
+    geminiModel: 'gemini-model',
+    groqApiKey: 'groq-key',
+    groqModel: 'groq-model',
+    requestTimeoutMs: 30_000,
+    reviewAgentEnabled: true,
+    reviewMaxCallsPerSession: 6,
+    reviewMaxDiagnosisCalls: 4,
+    reviewMinConfidence: 0.65,
+    reviewPromptVersion: 'review-agent-test-v1',
+    reviewQuestionWarmLimit: 2,
+  };
   const generated: ReviewQuestionGenerationResult = {
     prompt: 'What does "engaging" mean here?',
     blankSentence: null,
@@ -62,9 +76,12 @@ describe('AiAssistedQuestionGeneratorService', () => {
     findCachedAiQuestion: jest.Mock;
     findPreferredCachedAiQuestion: jest.Mock;
     cacheAiQuestion: jest.Mock;
+    reserveAiCallSlot: jest.Mock;
   };
 
   beforeEach(async () => {
+    config.reviewMaxCallsPerSession = 6;
+    config.reviewQuestionWarmLimit = 2;
     ai = { generateReviewQuestion: jest.fn().mockResolvedValue(generated) };
     repository = {
       getAiQuestionGenerationCandidates: jest
@@ -77,14 +94,12 @@ describe('AiAssistedQuestionGeneratorService', () => {
         .mockImplementation((spec: { articleSentenceTermId: string }) =>
           Promise.resolve({ id: `question-${spec.articleSentenceTermId}` }),
         ),
+      reserveAiCallSlot: jest.fn().mockResolvedValue(true),
     };
     const module = await Test.createTestingModule({
       providers: [
         AiAssistedQuestionGeneratorService,
-        {
-          provide: AI_CONFIG,
-          useValue: { reviewQuestionWarmLimit: 2 },
-        },
+        { provide: AI_CONFIG, useValue: config },
         { provide: AiService, useValue: ai },
         { provide: ReviewsRepository, useValue: repository },
       ],
@@ -193,6 +208,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     await expect(warmCache()).resolves.toEqual([
       expect.objectContaining({ userVocabularyId: 'vocabulary-2' }),
     ]);
+    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(2);
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
   });
 
@@ -201,11 +217,37 @@ describe('AiAssistedQuestionGeneratorService', () => {
       Array.from({ length: 20 }, (_, index) => makeCandidate(index + 1)),
     );
 
-    const prepared = await warmCache();
+    const onAiCallReserved = jest.fn();
+    const prepared = await service.warmCache(
+      'user',
+      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
+      new Date('2026-08-03T00:00:00Z'),
+      onAiCallReserved,
+    );
 
     expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(2);
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(2);
     expect(prepared).toHaveLength(2);
+    expect(onAiCallReserved).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps warm reservations by the shared per-session AI budget', async () => {
+    config.reviewQuestionWarmLimit = 4;
+    config.reviewMaxCallsPerSession = 1;
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue(
+      Array.from({ length: 20 }, (_, index) => makeCandidate(index + 1)),
+    );
+    const onAiCallReserved = jest.fn();
+
+    await service.warmCache(
+      'user',
+      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
+      new Date('2026-08-03T00:00:00Z'),
+      onAiCallReserved,
+    );
+
+    expect(onAiCallReserved).toHaveBeenCalledTimes(1);
+    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(1);
   });
 
   it('prepares a requested retest type through the same cache-first AI path', async () => {
@@ -213,6 +255,8 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
     await expect(
       service.prepareRetestQuestion(
+        'user',
+        'session',
         candidate.vocabulary,
         QuestionType.FILL_BLANK,
       ),
@@ -225,6 +269,78 @@ describe('AiAssistedQuestionGeneratorService', () => {
         requestedQuestionType: QuestionType.FILL_BLANK,
       }),
     );
+    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
+      'user',
+      'session',
+      config.reviewMaxCallsPerSession,
+    );
+  });
+
+  it('uses a cached retest without spending a session call slot', async () => {
+    const candidate = makeCandidate(1);
+    repository.findCachedAiQuestion.mockResolvedValue({ id: 'cached-retest' });
+
+    await expect(
+      service.prepareRetestQuestion(
+        'user',
+        'session',
+        candidate.vocabulary,
+        QuestionType.FILL_BLANK,
+      ),
+    ).resolves.toMatchObject({ quizQuestionId: 'cached-retest' });
+    expect(repository.reserveAiCallSlot).not.toHaveBeenCalled();
+    expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
+  });
+
+  it('shares one reserved call slot across concurrent retests for the same cache key', async () => {
+    const candidate = makeCandidate(1);
+    let releaseReservation: (reserved: boolean) => void = () => undefined;
+    const reservation = new Promise<boolean>((resolve) => {
+      releaseReservation = resolve;
+    });
+    repository.reserveAiCallSlot.mockReturnValue(reservation);
+
+    const retests = Promise.all([
+      service.prepareRetestQuestion(
+        'user',
+        'session',
+        candidate.vocabulary,
+        QuestionType.FILL_BLANK,
+      ),
+      service.prepareRetestQuestion(
+        'user',
+        'session',
+        candidate.vocabulary,
+        QuestionType.FILL_BLANK,
+      ),
+    ]);
+    await Promise.resolve();
+    releaseReservation(true);
+    await retests;
+
+    expect(repository.reserveAiCallSlot).toHaveBeenCalledTimes(1);
+    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(1);
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the deterministic retest when the shared session budget is exhausted', async () => {
+    const candidate = makeCandidate(1);
+    repository.reserveAiCallSlot.mockResolvedValue(false);
+
+    await expect(
+      service.prepareRetestQuestion(
+        'user',
+        'session',
+        candidate.vocabulary,
+        QuestionType.FILL_BLANK,
+      ),
+    ).resolves.toBeNull();
+    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
+      'user',
+      'session',
+      config.reviewMaxCallsPerSession,
+    );
+    expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
   });
 
   it('returns no rule-based retest when both providers and the AI cache are unavailable', async () => {
@@ -238,6 +354,8 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
     await expect(
       service.prepareRetestQuestion(
+        'user',
+        'session',
         candidate.vocabulary,
         QuestionType.FILL_BLANK,
       ),

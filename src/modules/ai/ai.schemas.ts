@@ -1,8 +1,6 @@
 import {
   CEFR_LEVELS,
-  LEXICAL_UNIT_TYPES,
   REVIEW_ERROR_TYPES,
-  type ArticleAnalysisInput,
   type DiagnoseReviewAnswerInput,
   type PlanReviewSessionInput,
   type ReviewQuestionGenerationInput,
@@ -35,55 +33,6 @@ const confidenceSchema: JsonSchema = {
   maximum: 1,
   description: 'Confidence from zero to one.',
 };
-
-export const articleAnalysisSchema = (
-  input: ArticleAnalysisInput,
-): JsonSchema =>
-  strictObject({
-    summaryEn: requiredString('A concise English summary of the article.'),
-    cefrLevel: {
-      type: 'string',
-      enum: CEFR_LEVELS,
-      description: 'The overall article CEFR difficulty.',
-    },
-    categorySlug: {
-      type: 'string',
-      enum: input.allowedCategories.map(({ slug }) => slug),
-      description: 'Exactly one slug from the supplied allowed categories.',
-    },
-    terms: {
-      type: 'array',
-      maxItems: input.maxTermCount,
-      description: 'Contextual vocabulary candidates in sentence order.',
-      items: strictObject({
-        sentenceId: {
-          type: 'string',
-          enum: input.sentences.map(({ sentenceId }) => sentenceId),
-          description: 'The supplied sentence identifier.',
-        },
-        value: requiredString(
-          'The exact case-sensitive surface text copied from the sentence.',
-        ),
-        wordDisplay: requiredString('Learner-facing display form.'),
-        lemma: requiredString('Dictionary lemma.'),
-        normalizedLemma: requiredString(
-          'Trimmed lowercase lemma used for normalization.',
-        ),
-        unitType: {
-          type: 'string',
-          enum: LEXICAL_UNIT_TYPES,
-        },
-        partOfSpeech: requiredString('Part of speech in English.'),
-        cefrLevel: {
-          type: 'string',
-          enum: CEFR_LEVELS,
-        },
-        selectionReason: requiredString(
-          'A concise reason this contextual term helps learners.',
-        ),
-      }),
-    },
-  });
 
 const boundedStringArray = (description: string): JsonSchema => ({
   type: 'array',

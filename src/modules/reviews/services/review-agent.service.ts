@@ -9,10 +9,6 @@ import type {
   ReviewSessionPlanResult,
   ReviewSkillDimension as AiReviewSkillDimension,
 } from '../../ai/ai.contracts';
-import {
-  REVIEW_ANSWER_DIAGNOSIS_PROMPT_VERSION,
-  REVIEW_SESSION_PLAN_PROMPT_VERSION,
-} from '../../ai/ai.contracts';
 import { AiService } from '../../ai/ai.service';
 import {
   parseReviewAnswerDiagnosisResult,
@@ -110,7 +106,7 @@ export class ReviewAgentService {
       return fallback('AI_UNAVAILABLE', {
         provider: null,
         model: null,
-        promptVersion: REVIEW_SESSION_PLAN_PROMPT_VERSION,
+        promptVersion: this.config.reviewPromptVersion,
         latencyMs: Math.max(0, Date.now() - startedAt),
       });
     }
@@ -176,7 +172,7 @@ export class ReviewAgentService {
       return fallback('AI_UNAVAILABLE', {
         provider: null,
         model: null,
-        promptVersion: REVIEW_ANSWER_DIAGNOSIS_PROMPT_VERSION,
+        promptVersion: this.config.reviewPromptVersion,
         latencyMs: Math.max(0, Date.now() - startedAt),
       });
     }

@@ -4,13 +4,11 @@ export interface AiConfig {
   groqApiKey: string;
   groqModel: string;
   requestTimeoutMs: number;
-  maxArticleCharacters: number;
-  maxTermsPerArticle: number;
   reviewAgentEnabled: boolean;
   reviewMaxCallsPerSession: number;
   reviewMaxDiagnosisCalls: number;
   reviewMinConfidence: number;
-  reviewDefaultDurationMinutes: 5 | 10 | 15;
+  reviewPromptVersion: string;
   reviewQuestionWarmLimit: number;
 }
 
@@ -73,10 +71,19 @@ const boundedNumber = (
   return value;
 };
 
-const reviewDuration = (name: string): 5 | 10 | 15 => {
-  const value = boundedPositiveInteger(name, 5, 15);
-  if (value !== 5 && value !== 10 && value !== 15) {
-    throw new Error(`${name} must be one of 5, 10, or 15`);
+const boundedPromptVersion = (
+  name: string,
+  fallback: string,
+  maximumLength: number,
+): string => {
+  const value = process.env[name]?.trim() || fallback;
+  if (
+    value.length > maximumLength ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)
+  ) {
+    throw new Error(
+      `${name} must be ${maximumLength} characters or fewer and use only letters, numbers, dots, underscores, or hyphens`,
+    );
   }
   return value;
 };
@@ -91,16 +98,6 @@ export const aiConfig = (): AiConfig => ({
     1000,
     120000,
   ),
-  maxArticleCharacters: boundedPositiveInteger(
-    'AI_MAX_ARTICLE_CHARACTERS',
-    1000,
-    200000,
-  ),
-  maxTermsPerArticle: boundedPositiveInteger(
-    'AI_MAX_TERMS_PER_ARTICLE',
-    1,
-    100,
-  ),
   reviewAgentEnabled: booleanValue('AI_REVIEW_AGENT_ENABLED'),
   reviewMaxCallsPerSession: boundedPositiveInteger(
     'AI_REVIEW_MAX_CALLS_PER_SESSION',
@@ -113,8 +110,10 @@ export const aiConfig = (): AiConfig => ({
     20,
   ),
   reviewMinConfidence: boundedNumber('AI_REVIEW_MIN_CONFIDENCE', 0, 1),
-  reviewDefaultDurationMinutes: reviewDuration(
-    'AI_REVIEW_DEFAULT_DURATION_MINUTES',
+  reviewPromptVersion: boundedPromptVersion(
+    'AI_REVIEW_PROMPT_VERSION',
+    'review-agent-v1',
+    50,
   ),
   reviewQuestionWarmLimit: boundedPositiveInteger(
     'AI_REVIEW_QUESTION_WARM_LIMIT',

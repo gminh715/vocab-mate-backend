@@ -12,8 +12,12 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import {
   QuestionType,
+  ReviewAgentAction,
+  ReviewDecisionSource,
+  ReviewErrorType,
   ReviewSessionStatus,
   ReviewSessionType,
+  ReviewSkillDimension,
 } from '../generated/prisma/enums';
 import { AppModule } from '../src/app.module';
 import { configureApp, setupSwagger } from '../src/app.setup';
@@ -168,6 +172,18 @@ class InMemoryReviewsService {
         inferredReviewScore: 0,
         willReturnLater: true,
         sessionCompleted: false,
+        agentFeedback: {
+          source: ReviewDecisionSource.AI,
+          action: ReviewAgentAction.TEACH_AND_REQUEUE,
+          skillDimension: ReviewSkillDimension.CONTEXT,
+          errorType: ReviewErrorType.CONFUSABLE_WORD,
+          microLesson: {
+            title: 'Contrast the meanings',
+            explanation: 'The selected word does not fit this context.',
+            example: 'Use the target word in the original context.',
+          },
+          retestAfterItems: 3,
+        },
         progress: this.getSession(userId, sessionId).progress,
         nextQuestion: this.item(session),
       };
@@ -463,6 +479,18 @@ describe('Review REST APIs (e2e)', () => {
     expect(answerResponses).toHaveProperty('400');
     expect(answerResponses).toHaveProperty('404');
     expect(answerResponses).toHaveProperty('409');
+    const submittedAnswerProperties =
+      response.body.components.schemas.SubmittedReviewAnswerDataDto.properties;
+    expect(submittedAnswerProperties).toHaveProperty('agentFeedback');
+    expect(
+      response.body.components.schemas.ReviewAgentFeedbackDto.properties,
+    ).toMatchObject({
+      source: { enum: Object.values(ReviewDecisionSource) },
+      action: { enum: Object.values(ReviewAgentAction) },
+      skillDimension: { enum: Object.values(ReviewSkillDimension) },
+      errorType: { enum: Object.values(ReviewErrorType) },
+      retestAfterItems: { minimum: 2, maximum: 5 },
+    });
   });
 
   it('returns today recommendations without creating a session', async () => {
@@ -634,6 +662,16 @@ describe('Review REST APIs (e2e)', () => {
               questionType: QuestionType.SELECT_WORD,
             },
           },
+          agentFeedback: {
+            source: ReviewDecisionSource.AI,
+            action: ReviewAgentAction.TEACH_AND_REQUEUE,
+            skillDimension: ReviewSkillDimension.CONTEXT,
+            errorType: ReviewErrorType.CONFUSABLE_WORD,
+            retestAfterItems: 3,
+          },
+        });
+        expect(body.data.agentFeedback.microLesson).toMatchObject({
+          title: 'Contrast the meanings',
         });
       });
 

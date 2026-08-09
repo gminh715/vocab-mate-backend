@@ -88,13 +88,11 @@ const config: AiConfig = {
   groqApiKey: 'groq-test-key',
   groqModel: 'llama-3.3-70b-versatile',
   requestTimeoutMs: 5000,
-  maxArticleCharacters: 50000,
-  maxTermsPerArticle: 25,
   reviewAgentEnabled: true,
   reviewMaxCallsPerSession: 6,
   reviewMaxDiagnosisCalls: 4,
   reviewMinConfidence: 0.65,
-  reviewDefaultDurationMinutes: 10,
+  reviewPromptVersion: 'review-agent-test-v2',
   reviewQuestionWarmLimit: 2,
 };
 

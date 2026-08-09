@@ -19,6 +19,8 @@ import {
 } from '../reviews.repository';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
 
+class ReviewAiCallBudgetExhaustedError extends Error {}
+
 @Injectable()
 export class AiAssistedQuestionGeneratorService {
   private readonly logger = new Logger(AiAssistedQuestionGeneratorService.name);
@@ -34,6 +36,7 @@ export class AiAssistedQuestionGeneratorService {
     userId: string,
     dto: StartReviewSessionDto,
     now: Date,
+    onAiCallReserved: () => void = () => undefined,
   ): Promise<PreparedAiReviewQuestion[]> {
     const candidates =
       await this.reviewsRepository.getAiQuestionGenerationCandidates(
@@ -42,14 +45,17 @@ export class AiAssistedQuestionGeneratorService {
         now,
       );
     const prepared = candidates.map(({ cachedQuestion }) => cachedQuestion);
-    let reservedGenerationCount = 0;
+    let generationAttempts = 0;
+    const generationLimit = Math.min(
+      this.config.reviewQuestionWarmLimit,
+      this.config.reviewMaxCallsPerSession,
+    );
 
     for (const [index, candidate] of candidates.entries()) {
       if (prepared[index]) continue;
-      if (reservedGenerationCount >= this.config.reviewQuestionWarmLimit) {
-        continue;
-      }
-      reservedGenerationCount += 1;
+      if (generationAttempts >= generationLimit) continue;
+      generationAttempts += 1;
+      onAiCallReserved();
 
       try {
         const question = await this.ensureCached(
@@ -60,7 +66,7 @@ export class AiAssistedQuestionGeneratorService {
       } catch (error: unknown) {
         if (!(error instanceof AiError)) throw error;
         this.logger.warn(
-          `AI review question unavailable; omitting candidate (${error.code})`,
+          `AI review question unavailable; omitting candidate without a compatible cache (${error.code})`,
         );
         prepared[index] =
           await this.reviewsRepository.findPreferredCachedAiQuestion(
@@ -78,6 +84,8 @@ export class AiAssistedQuestionGeneratorService {
   }
 
   async prepareRetestQuestion(
+    userId: string,
+    reviewSessionId: string,
     vocabulary: AiQuestionGenerationCandidate['vocabulary'],
     questionType: QuestionType,
   ): Promise<PreparedAiReviewQuestion | null> {
@@ -88,12 +96,25 @@ export class AiAssistedQuestionGeneratorService {
       cachedQuestion: null,
     };
     try {
-      const question = await this.ensureCached(candidate, questionType);
+      const question = await this.ensureCached(candidate, questionType, () =>
+        this.reviewsRepository.reserveAiCallSlot(
+          userId,
+          reviewSessionId,
+          this.config.reviewMaxCallsPerSession,
+        ),
+      );
       return this.toPreparedQuestion(candidate, question.id);
     } catch (error: unknown) {
-      if (!(error instanceof AiError)) throw error;
+      if (
+        !(error instanceof AiError) &&
+        !(error instanceof ReviewAiCallBudgetExhaustedError)
+      ) {
+        throw error;
+      }
       this.logger.warn(
-        `AI retest question unavailable; keeping deterministic transition (${error.code})`,
+        error instanceof AiError
+          ? `AI retest question unavailable; keeping deterministic transition (${error.code})`
+          : 'AI retest question budget exhausted; keeping deterministic transition',
       );
       return this.reviewsRepository.findPreferredCachedAiQuestion(
         vocabulary.id,
@@ -107,6 +128,7 @@ export class AiAssistedQuestionGeneratorService {
   private async ensureCached(
     candidate: AiQuestionGenerationCandidate,
     questionType: QuestionType,
+    reserveProviderCall?: () => Promise<boolean>,
   ): Promise<{ id: string }> {
     const key = [
       candidate.vocabulary.articleSentenceTermId,
@@ -125,9 +147,12 @@ export class AiAssistedQuestionGeneratorService {
 
     const concurrent = this.inFlight.get(key);
     if (concurrent) return concurrent;
-    const generation = this.generateAndCache(candidate, questionType).finally(
-      () => this.inFlight.delete(key),
-    );
+    const generation = (async () => {
+      if (reserveProviderCall && !(await reserveProviderCall())) {
+        throw new ReviewAiCallBudgetExhaustedError();
+      }
+      return this.generateAndCache(candidate, questionType);
+    })().finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, generation);
     return generation;
   }

@@ -10,6 +10,7 @@ import {
   ReviewDecisionKind,
   ReviewDecisionSource,
   ReviewErrorType,
+  ReviewGoal,
   ReviewSessionStatus,
   ReviewSessionType,
   ReviewSkillDimension,
@@ -22,7 +23,10 @@ import {
 } from '../reviews.repository';
 import { ReviewsService } from './reviews.service';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
-import { ReviewAgentService } from './review-agent.service';
+import {
+  ReviewAgentService,
+  type SessionPlanDecisionRequest,
+} from './review-agent.service';
 
 const diagnosisSnapshot = {
   request: {
@@ -132,6 +136,8 @@ describe('ReviewsService', () => {
       getCompletedResult: jest.fn(),
       getDueRecommendations: jest.fn(),
       persistAgentDecision: jest.fn(),
+      getSessionPlanningSnapshot: jest.fn().mockResolvedValue(null),
+      applySessionPlanDecision: jest.fn(),
       applyAnswerAgentDecision: jest.fn(),
     };
     aiQuestionGenerator = {
@@ -246,10 +252,14 @@ describe('ReviewsService', () => {
         questionType: 'SELECT_MEANING',
       },
     ];
-    aiQuestionGenerator.warmCache.mockImplementation(() => {
-      callOrder.push('provider-complete');
-      return prepared;
-    });
+    aiQuestionGenerator.warmCache.mockImplementation(
+      (_userId, _dto, _now, onAiCallReserved: () => void) => {
+        callOrder.push('provider-complete');
+        onAiCallReserved();
+        onAiCallReserved();
+        return prepared;
+      },
+    );
     repository.startSession.mockImplementation(() => {
       callOrder.push('transaction-start');
       return Promise.resolve({
@@ -271,7 +281,171 @@ describe('ReviewsService', () => {
       expect.any(Object),
       expect.any(Date),
       prepared,
+      2,
     );
+  });
+
+  it('plans a newly committed session from a bounded ID-free snapshot and persists the plan', async () => {
+    const callOrder: string[] = [];
+    const committedState = {
+      session: {
+        id: 'session',
+        planSummary: null,
+        status: ReviewSessionStatus.IN_PROGRESS,
+      },
+      answeredCount: 0,
+      totalQuestions: 2,
+      nextItem: { id: 'item-1' },
+    };
+    const plannedState = {
+      ...committedState,
+      session: {
+        ...committedState.session,
+        planSummary: 'Prioritize the overdue item.',
+      },
+      nextItem: { id: 'item-2' },
+    };
+    repository.startSession.mockImplementation(() => {
+      callOrder.push('session-committed');
+      return Promise.resolve(committedState);
+    });
+    repository.getSessionPlanningSnapshot.mockImplementation(() => {
+      callOrder.push('snapshot-loaded');
+      return Promise.resolve({
+        currentCefrLevel: 'B1',
+        skillWindowDays: 14,
+        skillAggregates: [
+          {
+            skillDimension: ReviewSkillDimension.RECALL,
+            attemptCount: 3,
+            correctCount: 1,
+            accuracy: 1 / 3,
+            averageResponseTimeMs: 4_000,
+          },
+        ],
+        candidates: [
+          {
+            reviewSessionItemId: 'item-1',
+            alias: 'v1',
+            vocabulary: {
+              id: 'vocabulary-1',
+              articleSentenceTermId: 'term-1',
+              savedWordDisplay: 'first',
+              savedLemma: 'first',
+              savedPartOfSpeech: 'adjective',
+              savedMeaningVi: 'thu nhat',
+              savedContextSentence: 'The first item is here.',
+              savedCefrLevel: 'B1',
+              overdueDurationMs: 2 * 24 * 60 * 60 * 1_000,
+              lapseCount: 0,
+              recentAttempts: [],
+            },
+          },
+          {
+            reviewSessionItemId: 'item-2',
+            alias: 'v2',
+            vocabulary: {
+              id: 'vocabulary-2',
+              articleSentenceTermId: 'term-2',
+              savedWordDisplay: 'second',
+              savedLemma: 'second',
+              savedPartOfSpeech: 'adjective',
+              savedMeaningVi: 'thu hai',
+              savedContextSentence: 'The second item is here.',
+              savedCefrLevel: 'B1',
+              overdueDurationMs: 6 * 24 * 60 * 60 * 1_000,
+              lapseCount: 2,
+              recentAttempts: [],
+            },
+          },
+        ],
+      });
+    });
+    reviewAgent.planSession.mockImplementation(
+      (request: SessionPlanDecisionRequest) => {
+        callOrder.push('provider-finished');
+        expect(JSON.stringify(request.input)).not.toContain('item-');
+        expect(JSON.stringify(request.input)).not.toContain('vocabulary-');
+        expect(JSON.stringify(request.input)).not.toContain('user');
+        return Promise.resolve({
+          reviewSessionId: 'session',
+          reviewSessionItemId: null,
+          reviewAnswerId: null,
+          kind: ReviewDecisionKind.SESSION_PLAN,
+          source: ReviewDecisionSource.AI,
+          action: null,
+          skillDimension: null,
+          errorType: null,
+          confidence: 0.9,
+          reasonCode: 'AI_PLAN_ACCEPTED',
+          stateSnapshot: {},
+          decisionPayload: {
+            orderedCandidateAliases: ['v2', 'v1'],
+            summary: 'Prioritize the overdue item.',
+          },
+          provider: 'GEMINI',
+          model: 'gemini-model',
+          promptVersion: 'review-agent-test-v2',
+          latencyMs: 50,
+        });
+      },
+    );
+    repository.applySessionPlanDecision.mockImplementation(() => {
+      callOrder.push('plan-persisted');
+      return Promise.resolve(plannedState);
+    });
+
+    await expect(
+      service.startSession('user', {
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        limit: 20,
+      }),
+    ).resolves.toMatchObject({
+      session: { planSummary: 'Prioritize the overdue item.' },
+      nextItem: { id: 'item-2' },
+    });
+    expect(callOrder).toEqual([
+      'session-committed',
+      'snapshot-loaded',
+      'provider-finished',
+      'plan-persisted',
+    ]);
+    expect(repository.applySessionPlanDecision).toHaveBeenCalledWith(
+      'user',
+      expect.objectContaining({
+        targetDurationMinutes: 10,
+        reviewGoal: ReviewGoal.BALANCED,
+        plannedItemCount: 2,
+        agentVersion: 'review-agent-test-v2',
+        orderedSessionItemIds: ['item-2', 'item-1'],
+      }),
+    );
+  });
+
+  it('keeps the committed deterministic session usable when optional planning fails', async () => {
+    repository.startSession.mockResolvedValue({
+      session: {
+        id: 'session',
+        planSummary: null,
+        status: ReviewSessionStatus.IN_PROGRESS,
+      },
+      answeredCount: 0,
+      totalQuestions: 1,
+      nextItem: { id: 'item-1' },
+    });
+    repository.getSessionPlanningSnapshot.mockRejectedValue(
+      new Error('planning storage unavailable'),
+    );
+
+    await expect(
+      service.startSession('user', {
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        limit: 20,
+      }),
+    ).resolves.toMatchObject({
+      session: { id: 'session', planSummary: null },
+      nextItem: { id: 'item-1' },
+    });
   });
 
   it('returns a retryable 503 when eligible vocabulary has no usable AI question', async () => {
@@ -487,6 +661,12 @@ describe('ReviewsService', () => {
         reviewAnswerId: 'answer',
       }),
     );
+    expect(aiQuestionGenerator.prepareRetestQuestion).toHaveBeenCalledWith(
+      'user',
+      'session',
+      diagnosisSnapshot.vocabulary,
+      QuestionType.FILL_BLANK,
+    );
     expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith(
       'user',
       expect.objectContaining({
@@ -496,6 +676,133 @@ describe('ReviewsService', () => {
         preparedRetestQuestion,
       }),
     );
+  });
+
+  it('persists a non-requeue diagnosis without generating or overriding the deterministic retest', async () => {
+    repository.submitAnswer.mockResolvedValue({
+      answerId: 'answer',
+      isCorrect: false,
+      correctAnswer: 'economic',
+      explanation: 'Economic relates to the economy.',
+      earnedPoints: 0,
+      inferredReviewScore: 0,
+      willReturnLater: true,
+      sessionCompleted: false,
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      diagnosisSnapshot,
+    });
+    const continueDecision = {
+      ...aiDecision,
+      action: ReviewAgentAction.CONTINUE,
+      errorType: ReviewErrorType.CARELESS_ERROR,
+      reasonCode: 'CONTINUE_AFTER_CARELESS_ERROR',
+      decisionPayload: {
+        action: ReviewAgentAction.CONTINUE,
+        microLesson: null,
+        retest: null,
+      },
+    };
+    reviewAgent.diagnoseAnswer.mockResolvedValue(continueDecision);
+    repository.applyAnswerAgentDecision.mockResolvedValue({
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      agentFeedback: {
+        source: ReviewDecisionSource.AI,
+        action: ReviewAgentAction.CONTINUE,
+        skillDimension: ReviewSkillDimension.CONTEXT,
+        errorType: ReviewErrorType.CARELESS_ERROR,
+      },
+    });
+
+    await expect(
+      service.submitAnswer('user', 'session', {
+        reviewSessionItemId: 'item',
+        quizQuestionId: 'question',
+        selectedOptionId: 'wrong-option',
+      }),
+    ).resolves.toMatchObject({
+      willReturnLater: true,
+      nextQuestion: { id: 'deterministic-next' },
+      agentFeedback: {
+        action: ReviewAgentAction.CONTINUE,
+        errorType: ReviewErrorType.CARELESS_ERROR,
+      },
+    });
+    expect(aiQuestionGenerator.prepareRetestQuestion).not.toHaveBeenCalled();
+    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith('user', {
+      decision: continueDecision,
+      originalQuestionType: QuestionType.SELECT_MEANING,
+      expectedAttemptNumber: 1,
+      preparedRetestQuestion: null,
+    });
+  });
+
+  it('keeps the AI lesson but restores the cached deterministic retest when generation is unavailable', async () => {
+    repository.submitAnswer.mockResolvedValue({
+      answerId: 'answer',
+      isCorrect: false,
+      correctAnswer: 'economic',
+      explanation: 'Economic relates to the economy.',
+      earnedPoints: 0,
+      inferredReviewScore: 0,
+      willReturnLater: true,
+      sessionCompleted: false,
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      diagnosisSnapshot,
+    });
+    reviewAgent.diagnoseAnswer.mockResolvedValue(aiDecision);
+    aiQuestionGenerator.prepareRetestQuestion.mockResolvedValue(null);
+    repository.applyAnswerAgentDecision.mockResolvedValue({
+      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
+      answeredCount: 0,
+      totalQuestions: 5,
+      nextItem: { id: 'deterministic-next' },
+      agentFeedback: {
+        source: ReviewDecisionSource.AI,
+        action: ReviewAgentAction.TEACH_AND_REQUEUE,
+        skillDimension: ReviewSkillDimension.CONTEXT,
+        errorType: ReviewErrorType.CONFUSABLE_WORD,
+        microLesson: aiDecision.decisionPayload.microLesson,
+        retestAfterItems: 3,
+      },
+    });
+
+    await expect(
+      service.submitAnswer('user', 'session', {
+        reviewSessionItemId: 'item',
+        quizQuestionId: 'question',
+        selectedOptionId: 'wrong-option',
+      }),
+    ).resolves.toMatchObject({
+      willReturnLater: true,
+      agentFeedback: {
+        microLesson: aiDecision.decisionPayload.microLesson,
+        retestAfterItems: 3,
+      },
+    });
+    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith('user', {
+      decision: {
+        ...aiDecision,
+        decisionPayload: {
+          ...aiDecision.decisionPayload,
+          retest: {
+            questionType: QuestionType.SELECT_WORD,
+            afterItems: 3,
+          },
+        },
+      },
+      originalQuestionType: QuestionType.SELECT_MEANING,
+      expectedAttemptNumber: 1,
+      preparedRetestQuestion: null,
+    });
   });
 
   it('keeps the committed transition when the enhancement transaction conflicts', async () => {

@@ -9,6 +9,7 @@ import {
   QuizStatus,
   ReviewAgentAction,
   ReviewDecisionKind,
+  type ReviewGoal,
   type ReviewDecisionSource,
   type ReviewErrorType,
   ReviewSessionItemStatus,
@@ -19,6 +20,7 @@ import {
 import type {
   DiagnoseReviewAnswerInput,
   ReviewRetestAfterItems,
+  ReviewTargetDuration,
 } from '../ai/ai.contracts';
 import { PrismaService } from '../../database/prisma.service';
 import type {
@@ -53,6 +55,7 @@ export class ReviewAgentDecisionConflictError extends Error {}
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
 const DEFAULT_RETEST_AFTER_ITEMS: ReviewRetestAfterItems = 3;
+const DIAGNOSIS_SKILL_WINDOW_DAYS = 14;
 const MAX_LEARNER_SNAPSHOT_VOCABULARIES = 100;
 const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
   LearningStatus.NEW,
@@ -318,6 +321,19 @@ export interface LearnerReviewSnapshot {
   eligibleVocabulary: LearnerSnapshotVocabulary[];
 }
 
+export interface SessionPlanningSnapshotCandidate {
+  reviewSessionItemId: string;
+  alias: string;
+  vocabulary: LearnerSnapshotVocabulary;
+}
+
+export interface SessionPlanningSnapshot {
+  currentCefrLevel: CefrLevel | null;
+  skillWindowDays: 7 | 14;
+  skillAggregates: LearnerSkillAggregate[];
+  candidates: SessionPlanningSnapshotCandidate[];
+}
+
 export type ReviewAgentJsonValue =
   | string
   | number
@@ -372,6 +388,16 @@ export interface ApplyAnswerAgentDecisionInput {
   preparedRetestQuestion: PreparedAiReviewQuestion | null;
 }
 
+export interface ApplySessionPlanDecisionInput {
+  decision: PersistReviewAgentDecisionInput;
+  targetDurationMinutes: ReviewTargetDuration;
+  reviewGoal: ReviewGoal;
+  plannedItemCount: number;
+  planSummary: string;
+  agentVersion: string;
+  orderedSessionItemIds: string[];
+}
+
 interface RecentAttemptSnapshotRow {
   answerId: string;
   userVocabularyId: string;
@@ -407,10 +433,6 @@ export class ReviewsRepository {
       Math.max(Math.trunc(limit), 1),
       MAX_LEARNER_SNAPSHOT_VOCABULARIES,
     );
-    const skillWindowStart = new Date(
-      now.getTime() - skillWindowDays * 24 * 60 * 60 * 1_000,
-    );
-
     return this.prisma.$transaction(async (tx) => {
       const vocabularies = await this.findEligibleVocabularies(
         tx,
@@ -422,90 +444,91 @@ export class ReviewsRepository {
         undefined,
         now,
       );
-      const [profile, attemptsByVocabulary, skillTotals, skillCorrectCounts] =
+      const [profile, attemptsByVocabulary, skillAggregates] =
         await Promise.all([
           tx.userProfile.findUnique({
             where: { userId },
             select: { currentCefrLevel: true },
           }),
           this.loadRecentAttemptSnapshots(tx, vocabularies),
-          tx.reviewAnswer.groupBy({
-            by: ['skillDimension'],
-            where: {
-              skillDimension: { not: null },
-              answeredAt: { gte: skillWindowStart, lte: now },
-              reviewSessionItem: {
-                is: { reviewSession: { is: { userId } } },
-              },
-            },
-            _count: { _all: true },
-            _avg: { responseTimeMs: true },
-          }),
-          tx.reviewAnswer.groupBy({
-            by: ['skillDimension'],
-            where: {
-              skillDimension: { not: null },
-              isCorrect: true,
-              answeredAt: { gte: skillWindowStart, lte: now },
-              reviewSessionItem: {
-                is: { reviewSession: { is: { userId } } },
-              },
-            },
-            _count: { _all: true },
-          }),
+          this.loadSkillAggregates(tx, userId, now, skillWindowDays),
         ]);
-      const correctCountBySkill = new Map<ReviewSkillDimension, number>();
-      for (const aggregate of skillCorrectCounts) {
-        if (aggregate.skillDimension) {
-          correctCountBySkill.set(
-            aggregate.skillDimension,
-            aggregate._count._all,
-          );
-        }
-      }
-      const skillAggregates: LearnerSkillAggregate[] = [];
-      for (const aggregate of skillTotals) {
-        if (!aggregate.skillDimension) continue;
-        const correctCount =
-          correctCountBySkill.get(aggregate.skillDimension) ?? 0;
-        skillAggregates.push({
-          skillDimension: aggregate.skillDimension,
-          attemptCount: aggregate._count._all,
-          correctCount,
-          accuracy: correctCount / aggregate._count._all,
-          averageResponseTimeMs: aggregate._avg.responseTimeMs,
-        });
-      }
-      skillAggregates.sort((left, right) =>
-        left.skillDimension.localeCompare(right.skillDimension),
-      );
 
       return {
         currentCefrLevel: profile?.currentCefrLevel ?? null,
         skillWindowDays,
         skillAggregates,
-        eligibleVocabulary: vocabularies.map((vocabulary) => ({
-          id: vocabulary.id,
-          articleSentenceTermId: vocabulary.articleSentenceTermId,
-          savedWordDisplay: vocabulary.savedWordDisplay,
-          savedLemma: vocabulary.savedLemma,
-          savedPartOfSpeech: vocabulary.savedPartOfSpeech,
-          savedMeaningVi: vocabulary.savedMeaningVi,
-          savedContextSentence: vocabulary.savedContextSentence,
-          savedExplanation: vocabulary.savedExplanation,
-          savedCefrLevel: vocabulary.savedCefrLevel,
-          learningStatus: vocabulary.learningStatus,
-          savedAt: vocabulary.savedAt,
-          lastReviewedAt: vocabulary.lastReviewedAt,
-          nextReviewAt: vocabulary.nextReviewAt,
-          overdueDurationMs: vocabulary.nextReviewAt
-            ? Math.max(0, now.getTime() - vocabulary.nextReviewAt.getTime())
-            : 0,
-          reviewIntervalDays: vocabulary.reviewIntervalDays,
-          consecutiveCorrectReviews: vocabulary.consecutiveCorrectReviews,
-          lapseCount: vocabulary.lapseCount,
-          lastReviewScore: vocabulary.lastReviewScore,
-          recentAttempts: attemptsByVocabulary.get(vocabulary.id) ?? [],
+        eligibleVocabulary: vocabularies.map((vocabulary) =>
+          this.toLearnerSnapshotVocabulary(
+            vocabulary,
+            attemptsByVocabulary.get(vocabulary.id) ?? [],
+            now,
+          ),
+        ),
+      };
+    });
+  }
+
+  async getSessionPlanningSnapshot(
+    userId: string,
+    sessionId: string,
+    now: Date,
+    skillWindowDays: 7 | 14 = 14,
+  ): Promise<SessionPlanningSnapshot | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const session = await tx.reviewSession.findFirst({
+        where: {
+          id: sessionId,
+          userId,
+          status: ReviewSessionStatus.IN_PROGRESS,
+          planSummary: null,
+        },
+        select: { id: true },
+      });
+      if (!session) return null;
+
+      const items = await tx.reviewSessionItem.findMany({
+        where: {
+          reviewSessionId: session.id,
+          status: ReviewSessionItemStatus.PENDING,
+          userVocabularyId: { not: null },
+        },
+        orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+        take: MAX_LEARNER_SNAPSHOT_VOCABULARIES,
+        select: {
+          id: true,
+          userVocabulary: { select: reviewVocabularySelect },
+        },
+      });
+      const boundedItems = items.flatMap((item) =>
+        item.userVocabulary
+          ? [{ id: item.id, vocabulary: item.userVocabulary }]
+          : [],
+      );
+      if (boundedItems.length === 0) return null;
+      const vocabularies = boundedItems.map(({ vocabulary }) => vocabulary);
+      const [profile, attemptsByVocabulary, skillAggregates] =
+        await Promise.all([
+          tx.userProfile.findUnique({
+            where: { userId },
+            select: { currentCefrLevel: true },
+          }),
+          this.loadRecentAttemptSnapshots(tx, vocabularies),
+          this.loadSkillAggregates(tx, userId, now, skillWindowDays),
+        ]);
+
+      return {
+        currentCefrLevel: profile?.currentCefrLevel ?? null,
+        skillWindowDays,
+        skillAggregates,
+        candidates: boundedItems.map(({ id, vocabulary }, index) => ({
+          reviewSessionItemId: id,
+          alias: `v${index + 1}`,
+          vocabulary: this.toLearnerSnapshotVocabulary(
+            vocabulary,
+            attemptsByVocabulary.get(vocabulary.id) ?? [],
+            now,
+          ),
         })),
       };
     });
@@ -629,12 +652,113 @@ export class ReviewsRepository {
     }
   }
 
+  async applySessionPlanDecision(
+    userId: string,
+    input: ApplySessionPlanDecisionInput,
+  ) {
+    const { decision } = input;
+    const uniqueItemIds = new Set(input.orderedSessionItemIds);
+    if (
+      decision.kind !== ReviewDecisionKind.SESSION_PLAN ||
+      decision.reviewSessionItemId !== null ||
+      decision.reviewAnswerId !== null ||
+      decision.action !== null ||
+      decision.skillDimension !== null ||
+      decision.errorType !== null ||
+      ![5, 10, 15].includes(input.targetDurationMinutes) ||
+      input.plannedItemCount !== input.orderedSessionItemIds.length ||
+      input.plannedItemCount < 1 ||
+      input.plannedItemCount > MAX_LEARNER_SNAPSHOT_VOCABULARIES ||
+      uniqueItemIds.size !== input.orderedSessionItemIds.length ||
+      input.planSummary.trim().length === 0 ||
+      input.planSummary.length > 300 ||
+      input.agentVersion.trim().length === 0 ||
+      input.agentVersion.length > 50
+    ) {
+      throw new InvalidReviewAgentDecisionRelationshipError();
+    }
+
+    return this.withSerializableRetry(async (tx) => {
+      const session = await tx.reviewSession.findFirst({
+        where: {
+          id: decision.reviewSessionId,
+          userId,
+          status: ReviewSessionStatus.IN_PROGRESS,
+          planSummary: null,
+        },
+        select: sessionSelect,
+      });
+      if (!session) throw new ReviewAgentDecisionConflictError();
+
+      const items = await tx.reviewSessionItem.findMany({
+        where: {
+          reviewSessionId: session.id,
+          status: ReviewSessionItemStatus.PENDING,
+        },
+        orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+        select: { id: true, sequenceNumber: true },
+      });
+      if (
+        items.length !== input.orderedSessionItemIds.length ||
+        items.some(({ id }) => !uniqueItemIds.has(id))
+      ) {
+        throw new ReviewAgentDecisionConflictError();
+      }
+
+      const claimed = await tx.reviewSession.updateMany({
+        where: {
+          id: session.id,
+          userId,
+          status: ReviewSessionStatus.IN_PROGRESS,
+          planSummary: null,
+        },
+        data: {
+          targetDurationMinutes: input.targetDurationMinutes,
+          reviewGoal: input.reviewGoal,
+          plannedItemCount: input.plannedItemCount,
+          planSummary: input.planSummary.trim(),
+          agentVersion: input.agentVersion,
+        },
+      });
+      if (claimed.count !== 1) throw new ReviewAgentDecisionConflictError();
+
+      const orderChanged = input.orderedSessionItemIds.some(
+        (itemId, index) => items[index]?.id !== itemId,
+      );
+      if (orderChanged) {
+        const sequenceOffset = items.length + 1;
+        await tx.reviewSessionItem.updateMany({
+          where: { reviewSessionId: session.id },
+          data: { sequenceNumber: { increment: sequenceOffset } },
+        });
+        for (const [index, itemId] of input.orderedSessionItemIds.entries()) {
+          await tx.reviewSessionItem.update({
+            where: { id: itemId },
+            data: { sequenceNumber: index + 1 },
+            select: { id: true },
+          });
+        }
+      }
+
+      await tx.reviewAgentDecision.create({ data: decision });
+      const plannedSession = await tx.reviewSession.findFirst({
+        where: { id: session.id, userId },
+        select: sessionSelect,
+      });
+      if (!plannedSession) throw new ReviewAgentDecisionConflictError();
+      return this.getSessionStateWithClient(tx, plannedSession);
+    });
+  }
+
   async applyAnswerAgentDecision(
     userId: string,
     input: ApplyAnswerAgentDecisionInput,
   ) {
     const { decision } = input;
     const retest = this.readRetestDecision(decision.decisionPayload);
+    const hasRetestAction =
+      decision.action === ReviewAgentAction.REQUEUE_WITH_NEW_TYPE ||
+      decision.action === ReviewAgentAction.TEACH_AND_REQUEUE;
     if (
       decision.kind !== ReviewDecisionKind.ANSWER_INTERVENTION ||
       !decision.reviewSessionItemId ||
@@ -642,8 +766,10 @@ export class ReviewsRepository {
       !decision.action ||
       !decision.skillDimension ||
       !decision.errorType ||
-      !retest ||
-      retest.questionType === input.originalQuestionType
+      this.readAgentAction(decision.decisionPayload) !== decision.action ||
+      (hasRetestAction
+        ? !retest || retest.questionType === input.originalQuestionType
+        : retest !== null || input.preparedRetestQuestion !== null)
     ) {
       throw new InvalidReviewAgentDecisionRelationshipError();
     }
@@ -707,8 +833,11 @@ export class ReviewsRepository {
         });
         if (!answer) throw new ReviewAgentDecisionConflictError();
 
-        let retestQuestionId = item.quizQuestion.id;
-        if (item.quizQuestion.questionType !== retest.questionType) {
+        let retestQuestionId: string | null = null;
+        if (retest) {
+          retestQuestionId = item.quizQuestion.id;
+        }
+        if (retest && item.quizQuestion.questionType !== retest.questionType) {
           const prepared = input.preparedRetestQuestion;
           if (
             !prepared ||
@@ -745,19 +874,21 @@ export class ReviewsRepository {
           },
           select: { id: true },
         });
-        if (retestQuestionId !== item.quizQuestion.id) {
+        if (retestQuestionId && retestQuestionId !== item.quizQuestion.id) {
           await tx.reviewSessionItem.update({
             where: { id: item.id },
             data: { quizQuestionId: retestQuestionId },
             select: { id: true },
           });
         }
-        await this.movePendingItemAfter(
-          tx,
-          session.id,
-          item.id,
-          retest.afterItems,
-        );
+        if (retest) {
+          await this.movePendingItemAfter(
+            tx,
+            session.id,
+            item.id,
+            retest.afterItems,
+          );
+        }
         const state = await this.getSessionStateWithClient(tx, session);
         return {
           ...state,
@@ -953,7 +1084,9 @@ export class ReviewsRepository {
     dto: StartReviewSessionDto,
     now: Date,
     preparedAiQuestions: PreparedAiReviewQuestion[] = [],
+    initialAiCallCount = 0,
   ) {
+    this.assertInitialAiCallCount(initialAiCallCount);
     return this.withSerializableRetry(async (tx) => {
       this.assertSourceShape(dto);
       const active = await tx.reviewSession.findFirst({
@@ -1006,6 +1139,7 @@ export class ReviewsRepository {
           collectionId: source.collectionId,
           status: ReviewSessionStatus.IN_PROGRESS,
           completedAt: null,
+          aiCallCount: initialAiCallCount,
         },
         select: sessionSelect,
       });
@@ -1141,6 +1275,12 @@ export class ReviewsRepository {
             select: { id: true, sequenceNumber: true },
           })
         : [];
+      const recentAttemptSnapshots =
+        wantsRetry && pendingItemsAfterCurrent.length >= 2 && vocabulary
+          ? ((await this.loadRecentAttemptSnapshots(tx, [vocabulary])).get(
+              vocabulary.id,
+            ) ?? [])
+          : [];
       const retryQuestion =
         wantsRetry && pendingItemsAfterCurrent.length >= 2
           ? await this.assignRetryQuestion(
@@ -1148,6 +1288,7 @@ export class ReviewsRepository {
               vocabulary,
               question.questionType,
               session.quizId,
+              recentAttemptSnapshots,
             )
           : null;
       const shouldRetry = retryQuestion !== null;
@@ -1233,6 +1374,19 @@ export class ReviewsRepository {
           ? (dto.userAnswerText ?? '')
           : (question.options.find(({ id }) => id === grading.selectedOptionId)
               ?.optionText ?? '');
+      const diagnosisSkillAggregates =
+        !grading.isCorrect &&
+        shouldRetry &&
+        retryQuestion &&
+        vocabulary &&
+        fallbackRetestAfterItems !== null
+          ? await this.loadSkillAggregates(
+              tx,
+              userId,
+              now,
+              DIAGNOSIS_SKILL_WINDOW_DAYS,
+            )
+          : [];
       const diagnosisSnapshot: PostAnswerDiagnosisSnapshot | undefined =
         !grading.isCorrect &&
         shouldRetry &&
@@ -1259,8 +1413,36 @@ export class ReviewsRepository {
                   responseTimeMs: dto.responseTimeMs ?? 0,
                   hintsUsed: dto.hintsUsed ?? 0,
                   attemptNumber,
-                  recentAttempts: [],
-                  skillAggregates: [],
+                  recentAttempts: recentAttemptSnapshots
+                    .filter(({ answerId }) => answerId !== answer.id)
+                    .map(
+                      ({
+                        questionType,
+                        skillDimension,
+                        isCorrect,
+                        responseTimeMs,
+                        hintsUsed,
+                      }) => ({
+                        questionType,
+                        skillDimension,
+                        isCorrect,
+                        responseTimeMs: responseTimeMs ?? 0,
+                        hintsUsed,
+                      }),
+                    ),
+                  skillAggregates: diagnosisSkillAggregates.map(
+                    ({
+                      skillDimension,
+                      attemptCount,
+                      correctCount,
+                      averageResponseTimeMs,
+                    }) => ({
+                      skillDimension,
+                      attempts: attemptCount,
+                      correct: correctCount,
+                      averageResponseTimeMs: averageResponseTimeMs ?? 0,
+                    }),
+                  ),
                   allowedSkillDimensions: [
                     ReviewSkillDimension.RECOGNITION,
                     ReviewSkillDimension.RECALL,
@@ -1273,9 +1455,14 @@ export class ReviewsRepository {
                     ReviewAgentAction.TEACH_AND_REQUEUE,
                     ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
                   ],
-                  allowedRetestQuestionTypes: Object.values(
-                    QuestionType,
-                  ).filter((candidate) => candidate !== question.questionType),
+                  allowedRetestQuestionTypes: [
+                    retryQuestion.questionType,
+                    ...Object.values(QuestionType).filter(
+                      (candidate) =>
+                        candidate !== question.questionType &&
+                        candidate !== retryQuestion.questionType,
+                    ),
+                  ],
                   allowedRetestAfterItems: [2, 3, 4, 5].filter(
                     (offset): offset is ReviewRetestAfterItems =>
                       offset <= pendingItemsAfterCurrent.length,
@@ -2038,6 +2225,22 @@ export class ReviewsRepository {
     };
   }
 
+  private readAgentAction(payload: unknown): ReviewAgentAction | null {
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      Array.isArray(payload) ||
+      !('action' in payload)
+    ) {
+      return null;
+    }
+    return (
+      Object.values(ReviewAgentAction).find(
+        (candidate) => candidate === payload.action,
+      ) ?? null
+    );
+  }
+
   private isQuestionType(value: unknown): value is QuestionType {
     return (
       typeof value === 'string' &&
@@ -2094,12 +2297,15 @@ export class ReviewsRepository {
     vocabulary: ReviewVocabulary | null,
     previousType: QuestionType,
     quizId: string | null,
+    recentAttempts: LearnerSnapshotAttempt[],
   ) {
     if (!vocabulary) throw new ReviewResourceNotFoundError();
-    const history = await this.loadRecentAttemptHistory(tx, [vocabulary]);
     const preferredTypes = this.questionSelectionService.preferredTypes(
       vocabulary,
-      history.get(vocabulary.id) ?? [],
+      recentAttempts.map(({ questionType, isCorrect }) => ({
+        questionType,
+        isCorrect,
+      })),
       previousType,
     );
     if (quizId) {
@@ -2149,6 +2355,99 @@ export class ReviewsRepository {
       articleTopic:
         vocabulary.articleSentenceTerm.sentence.article.category?.name,
     };
+  }
+
+  private toLearnerSnapshotVocabulary(
+    vocabulary: ReviewVocabulary,
+    recentAttempts: LearnerSnapshotAttempt[],
+    now: Date,
+  ): LearnerSnapshotVocabulary {
+    return {
+      id: vocabulary.id,
+      articleSentenceTermId: vocabulary.articleSentenceTermId,
+      savedWordDisplay: vocabulary.savedWordDisplay,
+      savedLemma: vocabulary.savedLemma,
+      savedPartOfSpeech: vocabulary.savedPartOfSpeech,
+      savedMeaningVi: vocabulary.savedMeaningVi,
+      savedContextSentence: vocabulary.savedContextSentence,
+      savedExplanation: vocabulary.savedExplanation,
+      savedCefrLevel: vocabulary.savedCefrLevel,
+      learningStatus: vocabulary.learningStatus,
+      savedAt: vocabulary.savedAt,
+      lastReviewedAt: vocabulary.lastReviewedAt,
+      nextReviewAt: vocabulary.nextReviewAt,
+      overdueDurationMs: vocabulary.nextReviewAt
+        ? Math.max(0, now.getTime() - vocabulary.nextReviewAt.getTime())
+        : 0,
+      reviewIntervalDays: vocabulary.reviewIntervalDays,
+      consecutiveCorrectReviews: vocabulary.consecutiveCorrectReviews,
+      lapseCount: vocabulary.lapseCount,
+      lastReviewScore: vocabulary.lastReviewScore,
+      recentAttempts,
+    };
+  }
+
+  private async loadSkillAggregates(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    now: Date,
+    skillWindowDays: 7 | 14,
+  ): Promise<LearnerSkillAggregate[]> {
+    const skillWindowStart = new Date(
+      now.getTime() - skillWindowDays * 24 * 60 * 60 * 1_000,
+    );
+    const [skillTotals, skillCorrectCounts] = await Promise.all([
+      tx.reviewAnswer.groupBy({
+        by: ['skillDimension'],
+        where: {
+          skillDimension: { not: null },
+          answeredAt: { gte: skillWindowStart, lte: now },
+          reviewSessionItem: {
+            is: { reviewSession: { is: { userId } } },
+          },
+        },
+        _count: { _all: true },
+        _avg: { responseTimeMs: true },
+      }),
+      tx.reviewAnswer.groupBy({
+        by: ['skillDimension'],
+        where: {
+          skillDimension: { not: null },
+          isCorrect: true,
+          answeredAt: { gte: skillWindowStart, lte: now },
+          reviewSessionItem: {
+            is: { reviewSession: { is: { userId } } },
+          },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const correctCountBySkill = new Map<ReviewSkillDimension, number>();
+    for (const aggregate of skillCorrectCounts) {
+      if (aggregate.skillDimension) {
+        correctCountBySkill.set(
+          aggregate.skillDimension,
+          aggregate._count._all,
+        );
+      }
+    }
+    const skillAggregates: LearnerSkillAggregate[] = [];
+    for (const aggregate of skillTotals) {
+      if (!aggregate.skillDimension) continue;
+      const correctCount =
+        correctCountBySkill.get(aggregate.skillDimension) ?? 0;
+      skillAggregates.push({
+        skillDimension: aggregate.skillDimension,
+        attemptCount: aggregate._count._all,
+        correctCount,
+        accuracy: correctCount / aggregate._count._all,
+        averageResponseTimeMs: aggregate._avg.responseTimeMs,
+      });
+    }
+    skillAggregates.sort((left, right) =>
+      left.skillDimension.localeCompare(right.skillDimension),
+    );
+    return skillAggregates;
   }
 
   private toPreparedAiQuestion(
@@ -2481,6 +2780,14 @@ export class ReviewsRepository {
   private assertAiCallMaximum(value: number, name: string): void {
     if (!Number.isInteger(value) || value < 1 || value > 32_767) {
       throw new RangeError(`${name} must be a positive SmallInt`);
+    }
+  }
+
+  private assertInitialAiCallCount(value: number): void {
+    if (!Number.isInteger(value) || value < 0 || value > 32_767) {
+      throw new RangeError(
+        'initialAiCallCount must be a non-negative SmallInt',
+      );
     }
   }
 }

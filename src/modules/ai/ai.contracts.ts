@@ -62,46 +62,6 @@ export type ReviewTargetDuration = (typeof REVIEW_TARGET_DURATIONS)[number];
 export type ReviewRetestAfterItems = (typeof REVIEW_RETEST_AFTER_ITEMS)[number];
 export type AiProviderName = (typeof AI_PROVIDER_NAMES)[number];
 
-export interface ArticleAnalysisSentence {
-  sentenceId: string;
-  sentenceText: string;
-}
-
-export interface AllowedArticleCategory {
-  id: string;
-  slug: string;
-  name: string;
-}
-
-export interface ArticleAnalysisInput {
-  articleId: string;
-  title: string;
-  articleText: string;
-  contentVersion: number;
-  sentences: ArticleAnalysisSentence[];
-  allowedCategories: AllowedArticleCategory[];
-  maxTermCount: number;
-}
-
-export interface ArticleAnalysisTerm {
-  sentenceId: string;
-  value: string;
-  wordDisplay: string;
-  lemma: string;
-  normalizedLemma: string;
-  unitType: LexicalUnitType;
-  partOfSpeech: string;
-  cefrLevel: CefrLevel;
-  selectionReason: string;
-}
-
-export interface ArticleAnalysisResult {
-  summaryEn: string;
-  cefrLevel: CefrLevel;
-  categorySlug: string;
-  terms: ArticleAnalysisTerm[];
-}
-
 export interface TermEnrichmentInput {
   articleId: string;
   articleTitle: string;

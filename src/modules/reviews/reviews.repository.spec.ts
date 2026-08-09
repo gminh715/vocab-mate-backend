@@ -12,6 +12,7 @@ import {
   ReviewDecisionKind,
   ReviewDecisionSource,
   ReviewErrorType,
+  ReviewGoal,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
   ReviewSessionType,
@@ -22,6 +23,7 @@ import { AnswerGradingService } from './services/answer-grading.service';
 import { InvisibleReviewScoringService } from './services/invisible-review-scoring.service';
 import { QuestionSelectionService } from './services/question-selection.service';
 import {
+  InvalidReviewAgentDecisionRelationshipError,
   NoUsableReviewQuestionError,
   ReviewAgentDecisionConflictError,
   ReviewResourceNotFoundError,
@@ -49,6 +51,7 @@ describe('ReviewsRepository', () => {
   const itemCount = jest.fn();
   const itemCreateMany = jest.fn();
   const itemUpdate = jest.fn();
+  const itemUpdateMany = jest.fn();
   const itemAggregate = jest.fn();
   const answerCreate = jest.fn();
   const answerFindFirst = jest.fn();
@@ -83,6 +86,7 @@ describe('ReviewsRepository', () => {
       findMany: itemFindMany,
       createMany: itemCreateMany,
       update: itemUpdate,
+      updateMany: itemUpdateMany,
       count: itemCount,
       aggregate: itemAggregate,
     },
@@ -661,6 +665,54 @@ describe('ReviewsRepository', () => {
     );
   });
 
+  it('builds a bounded owner-scoped planning snapshot for only the pending session items', async () => {
+    const now = new Date('2026-08-08T00:00:00Z');
+    sessionFindFirst.mockResolvedValue({ id: 'session' });
+    itemFindMany.mockResolvedValue([
+      { id: 'item-1', userVocabulary: reviewVocabulary },
+    ]);
+    profileFindUnique.mockResolvedValue({ currentCefrLevel: CefrLevel.B1 });
+    query.mockResolvedValue([]);
+
+    await expect(
+      repository.getSessionPlanningSnapshot('owner', 'session', now, 14),
+    ).resolves.toMatchObject({
+      currentCefrLevel: CefrLevel.B1,
+      skillWindowDays: 14,
+      candidates: [
+        {
+          reviewSessionItemId: 'item-1',
+          alias: 'v1',
+          vocabulary: {
+            id: 'vocabulary',
+            savedWordDisplay: 'word',
+            overdueDurationMs: 7 * 24 * 60 * 60 * 1_000,
+            recentAttempts: [],
+          },
+        },
+      ],
+    });
+    expect(sessionFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'session',
+        userId: 'owner',
+        status: ReviewSessionStatus.IN_PROGRESS,
+        planSummary: null,
+      },
+      select: { id: true },
+    });
+    expect(itemFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          reviewSessionId: 'session',
+          status: ReviewSessionItemStatus.PENDING,
+          userVocabularyId: { not: null },
+        },
+        take: 100,
+      }),
+    );
+  });
+
   it('reserves an AI call slot with one atomic owner-scoped update', async () => {
     sessionUpdateMany.mockResolvedValueOnce({ count: 1 });
 
@@ -748,6 +800,109 @@ describe('ReviewsRepository', () => {
       },
       select: { id: true },
     });
+  });
+
+  it('atomically persists a session plan and safely reorders the owned pending items', async () => {
+    const startedAt = new Date('2026-08-08T00:00:00Z');
+    sessionFindFirst
+      .mockResolvedValueOnce({
+        id: 'session',
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        quizId: null,
+        articleId: null,
+        collectionId: null,
+        planSummary: null,
+        status: ReviewSessionStatus.IN_PROGRESS,
+        startedAt,
+        completedAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'session',
+        sessionType: ReviewSessionType.DAILY_REVIEW,
+        quizId: null,
+        articleId: null,
+        collectionId: null,
+        planSummary: 'Prioritize the overdue item.',
+        status: ReviewSessionStatus.IN_PROGRESS,
+        startedAt,
+        completedAt: null,
+      });
+    itemFindMany.mockResolvedValue([
+      { id: 'item-1', sequenceNumber: 1 },
+      { id: 'item-2', sequenceNumber: 2 },
+    ]);
+    sessionUpdateMany.mockResolvedValue({ count: 1 });
+    decisionCreate.mockResolvedValue({ id: 'decision' });
+    itemCount.mockResolvedValueOnce(2).mockResolvedValueOnce(0);
+    itemFindFirst.mockResolvedValue(null);
+    decisionFindFirst.mockResolvedValue(null);
+    const decision = {
+      reviewSessionId: 'session',
+      reviewSessionItemId: null,
+      reviewAnswerId: null,
+      kind: ReviewDecisionKind.SESSION_PLAN,
+      source: ReviewDecisionSource.AI,
+      action: null,
+      skillDimension: null,
+      errorType: null,
+      confidence: 0.9,
+      reasonCode: 'AI_PLAN_ACCEPTED',
+      stateSnapshot: { candidates: [{ alias: 'v1' }, { alias: 'v2' }] },
+      decisionPayload: {
+        orderedCandidateAliases: ['v2', 'v1'],
+        summary: 'Prioritize the overdue item.',
+      },
+      provider: 'GEMINI',
+      model: 'gemini-model',
+      promptVersion: 'review-agent-v1',
+      latencyMs: 80,
+    };
+
+    await expect(
+      repository.applySessionPlanDecision('owner', {
+        decision,
+        targetDurationMinutes: 10,
+        reviewGoal: ReviewGoal.BALANCED,
+        plannedItemCount: 2,
+        planSummary: 'Prioritize the overdue item.',
+        agentVersion: 'review-agent-v1',
+        orderedSessionItemIds: ['item-2', 'item-1'],
+      }),
+    ).resolves.toMatchObject({
+      session: { id: 'session', planSummary: 'Prioritize the overdue item.' },
+      totalQuestions: 2,
+      answeredCount: 0,
+    });
+    expect(sessionUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'session',
+        userId: 'owner',
+        status: ReviewSessionStatus.IN_PROGRESS,
+        planSummary: null,
+      },
+      data: {
+        targetDurationMinutes: 10,
+        reviewGoal: ReviewGoal.BALANCED,
+        plannedItemCount: 2,
+        planSummary: 'Prioritize the overdue item.',
+        agentVersion: 'review-agent-v1',
+      },
+    });
+    expect(itemUpdateMany).toHaveBeenCalledWith({
+      where: { reviewSessionId: 'session' },
+      data: { sequenceNumber: { increment: 3 } },
+    });
+    expect(itemUpdate).toHaveBeenNthCalledWith(1, {
+      where: { id: 'item-2' },
+      data: { sequenceNumber: 1 },
+      select: { id: true },
+    });
+    expect(itemUpdate).toHaveBeenNthCalledWith(2, {
+      where: { id: 'item-1' },
+      data: { sequenceNumber: 2 },
+      select: { id: true },
+    });
+    expect(decisionCreate).toHaveBeenCalledWith({ data: decision });
   });
 
   it('returns the existing owner-scoped decision after a duplicate constraint conflict', async () => {
@@ -925,6 +1080,117 @@ describe('ReviewsRepository', () => {
     });
   });
 
+  it('persists a non-requeue intervention without replacing or moving the deterministic retest', async () => {
+    sessionFindFirst.mockResolvedValue({
+      id: 'session',
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      quizId: null,
+      articleId: null,
+      collectionId: null,
+      status: ReviewSessionStatus.IN_PROGRESS,
+      startedAt: new Date(),
+      completedAt: null,
+    });
+    itemFindFirst
+      .mockResolvedValueOnce({
+        id: 'item',
+        userVocabularyId: 'vocabulary',
+        retryCount: 1,
+        quizQuestion: {
+          id: 'fallback-question',
+          articleSentenceTermId: 'term',
+          questionType: QuestionType.SELECT_WORD,
+        },
+        userVocabulary: { savedCefrLevel: CefrLevel.B1 },
+      })
+      .mockResolvedValueOnce(null);
+    answerFindFirst.mockResolvedValue({ id: 'answer' });
+    decisionCreate.mockResolvedValue({ id: 'decision' });
+
+    const result = await repository.applyAnswerAgentDecision('owner', {
+      decision: {
+        reviewSessionId: 'session',
+        reviewSessionItemId: 'item',
+        reviewAnswerId: 'answer',
+        kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+        source: ReviewDecisionSource.AI,
+        action: ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
+        skillDimension: ReviewSkillDimension.RECALL,
+        errorType: ReviewErrorType.LOW_RECALL,
+        confidence: 0.82,
+        reasonCode: 'NEEDS_FUTURE_FOCUS',
+        stateSnapshot: { attemptNumber: 1 },
+        decisionPayload: {
+          action: ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
+          microLesson: null,
+          retest: null,
+        },
+        provider: 'GEMINI',
+        model: 'gemini-model',
+        promptVersion: 'review-answer-diagnosis-v1',
+        latencyMs: 90,
+      },
+      originalQuestionType: QuestionType.SELECT_MEANING,
+      expectedAttemptNumber: 1,
+      preparedRetestQuestion: null,
+    });
+
+    expect(decisionCreate).toHaveBeenCalledTimes(1);
+    expect(answerUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          skillDimension: ReviewSkillDimension.RECALL,
+          errorType: ReviewErrorType.LOW_RECALL,
+        },
+      }),
+    );
+    expect(questionFindFirst).not.toHaveBeenCalled();
+    expect(itemUpdate).not.toHaveBeenCalled();
+    expect(itemFindMany).not.toHaveBeenCalled();
+    expect(result.agentFeedback).toMatchObject({
+      action: ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
+      skillDimension: ReviewSkillDimension.RECALL,
+    });
+    expect(result.agentFeedback).not.toHaveProperty('retestAfterItems');
+  });
+
+  it('rejects an action and retest payload that describe different interventions', async () => {
+    await expect(
+      repository.applyAnswerAgentDecision('owner', {
+        decision: {
+          reviewSessionId: 'session',
+          reviewSessionItemId: 'item',
+          reviewAnswerId: 'answer',
+          kind: ReviewDecisionKind.ANSWER_INTERVENTION,
+          source: ReviewDecisionSource.AI,
+          action: ReviewAgentAction.CONTINUE,
+          skillDimension: ReviewSkillDimension.RECOGNITION,
+          errorType: ReviewErrorType.CARELESS_ERROR,
+          confidence: 0.8,
+          reasonCode: 'CONTINUE_AFTER_ERROR',
+          stateSnapshot: {},
+          decisionPayload: {
+            action: ReviewAgentAction.CONTINUE,
+            microLesson: null,
+            retest: {
+              questionType: QuestionType.SELECT_WORD,
+              afterItems: 3,
+            },
+          },
+          provider: 'GEMINI',
+          model: 'gemini-model',
+          promptVersion: 'review-answer-diagnosis-v1',
+          latencyMs: 80,
+        },
+        originalQuestionType: QuestionType.SELECT_MEANING,
+        expectedAttemptNumber: 1,
+        preparedRetestQuestion: null,
+      }),
+    ).rejects.toBeInstanceOf(InvalidReviewAgentDecisionRelationshipError);
+    expect(sessionFindFirst).not.toHaveBeenCalled();
+    expect(decisionCreate).not.toHaveBeenCalled();
+  });
+
   it('rejects a stale answer attempt before persisting the agent enhancement', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
@@ -957,6 +1223,7 @@ describe('ReviewsRepository', () => {
           reasonCode: 'DETERMINISTIC_REQUEUE',
           stateSnapshot: {},
           decisionPayload: {
+            action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
             retest: { questionType: QuestionType.SELECT_WORD, afterItems: 3 },
           },
           provider: null,
@@ -1145,6 +1412,7 @@ describe('ReviewsRepository', () => {
           questionType: QuestionType.FILL_BLANK,
         },
       ],
+      2,
     );
 
     expect(articleFindFirst).toHaveBeenCalledWith(
@@ -1171,6 +1439,11 @@ describe('ReviewsRepository', () => {
     });
     expect(questionCreateManyAndReturn).not.toHaveBeenCalled();
     expect(optionCreateMany).not.toHaveBeenCalled();
+    expect(sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ aiCallCount: 2 }),
+      }),
+    );
   });
 
   it('omits an eligible candidate whose prepared AI question is unavailable', async () => {
@@ -1587,6 +1860,162 @@ describe('ReviewsRepository', () => {
         }),
       }),
     );
+  });
+
+  it('returns bounded historical signals for a meaningful first-answer diagnosis', async () => {
+    sessionFindFirst.mockResolvedValue({
+      id: 'session',
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      quizId: null,
+      articleId: null,
+      collectionId: null,
+      planSummary: null,
+      status: ReviewSessionStatus.IN_PROGRESS,
+      startedAt: new Date('2026-08-03T00:00:00Z'),
+      completedAt: null,
+    });
+    itemFindFirst
+      .mockResolvedValueOnce({
+        id: 'item',
+        userVocabularyId: 'vocabulary',
+        retryCount: 0,
+        sequenceNumber: 1,
+        _count: { answers: 0 },
+        quizQuestion: {
+          id: 'question',
+          articleSentenceTermId: 'term',
+          questionType: QuestionType.SELECT_MEANING,
+          correctAnswerText: null,
+          answerExplanation: 'The saved meaning fits this context.',
+          isCaseSensitive: false,
+          points: 1,
+          options: [
+            {
+              id: 'correct-option',
+              optionText: 'Correct',
+              isCorrect: true,
+              explanation: null,
+            },
+            {
+              id: 'wrong-option',
+              optionText: 'Wrong',
+              isCorrect: false,
+              explanation: null,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce(null);
+    itemFindMany
+      .mockResolvedValueOnce([
+        { id: 'next-1', sequenceNumber: 2 },
+        { id: 'next-2', sequenceNumber: 3 },
+        { id: 'next-3', sequenceNumber: 4 },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'item', sequenceNumber: 1 },
+        { id: 'next-1', sequenceNumber: 2 },
+        { id: 'next-2', sequenceNumber: 3 },
+        { id: 'next-3', sequenceNumber: 4 },
+      ]);
+    itemCount
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(0);
+    vocabularyFindUnique.mockResolvedValue({
+      ...reviewVocabulary,
+      lapseCount: 2,
+    });
+    answerCreate.mockResolvedValue({ id: 'answer' });
+    vocabularyUpdate.mockResolvedValue({ id: 'vocabulary' });
+    questionFindMany.mockResolvedValue([
+      {
+        id: 'cached-context-retest',
+        articleSentenceTermId: 'term',
+        questionType: QuestionType.SELECT_CORRECT_CONTEXT,
+      },
+    ]);
+    query.mockResolvedValue([
+      {
+        answerId: 'answer',
+        userVocabularyId: 'vocabulary',
+        questionType: QuestionType.SELECT_MEANING,
+        skillDimension: ReviewSkillDimension.RECOGNITION,
+        errorType: null,
+        isCorrect: false,
+        responseTimeMs: 4_200,
+        hintsUsed: 0,
+        inferredReviewScore: 0,
+        answeredAt: new Date('2026-08-03T00:00:00Z'),
+      },
+      {
+        answerId: 'previous-answer',
+        userVocabularyId: 'vocabulary',
+        questionType: QuestionType.SELECT_CORRECT_CONTEXT,
+        skillDimension: ReviewSkillDimension.CONTEXT,
+        errorType: ReviewErrorType.CONTEXT_MISUNDERSTANDING,
+        isCorrect: false,
+        responseTimeMs: 3_800,
+        hintsUsed: 1,
+        inferredReviewScore: 1,
+        answeredAt: new Date('2026-08-02T00:00:00Z'),
+      },
+    ]);
+    answerGroupBy
+      .mockResolvedValueOnce([
+        {
+          skillDimension: ReviewSkillDimension.CONTEXT,
+          _count: { _all: 3 },
+          _avg: { responseTimeMs: 3_500 },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          skillDimension: ReviewSkillDimension.CONTEXT,
+          _count: { _all: 1 },
+        },
+      ]);
+
+    const result = await repository.submitAnswer('owner', 'session', {
+      reviewSessionItemId: 'item',
+      quizQuestionId: 'question',
+      selectedOptionId: 'wrong-option',
+      responseTimeMs: 4_200,
+    });
+
+    expect(result.diagnosisSnapshot?.request.input).toMatchObject({
+      recentAttempts: [
+        {
+          questionType: QuestionType.SELECT_CORRECT_CONTEXT,
+          skillDimension: ReviewSkillDimension.CONTEXT,
+          isCorrect: false,
+          responseTimeMs: 3_800,
+          hintsUsed: 1,
+        },
+      ],
+      skillAggregates: [
+        {
+          skillDimension: ReviewSkillDimension.CONTEXT,
+          attempts: 3,
+          correct: 1,
+          averageResponseTimeMs: 3_500,
+        },
+      ],
+      allowedRetestQuestionTypes: expect.arrayContaining([
+        QuestionType.SELECT_CORRECT_CONTEXT,
+      ]),
+    });
+    expect(
+      result.diagnosisSnapshot?.request.input.allowedRetestQuestionTypes[0],
+    ).toBe(QuestionType.SELECT_CORRECT_CONTEXT);
+    const providerInput = JSON.stringify(
+      result.diagnosisSnapshot?.request.input,
+    );
+    expect(providerInput).not.toContain('previous-answer');
+    expect(providerInput).not.toContain('vocabulary');
+    expect(providerInput).not.toContain('owner');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(answerGroupBy).toHaveBeenCalledTimes(2);
   });
 
   it('does not requeue the same question type when no alternate question is cached', async () => {

@@ -20,13 +20,11 @@ const config: AiConfig = {
   groqApiKey: 'groq-test-key',
   groqModel: 'groq-test-model',
   requestTimeoutMs: 5_000,
-  maxArticleCharacters: 50_000,
-  maxTermsPerArticle: 25,
   reviewAgentEnabled: true,
   reviewMaxCallsPerSession: 6,
   reviewMaxDiagnosisCalls: 4,
   reviewMinConfidence: 0.65,
-  reviewDefaultDurationMinutes: 10,
+  reviewPromptVersion: 'review-agent-test-v2',
   reviewQuestionWarmLimit: 2,
 };
 
@@ -369,6 +367,51 @@ describe('ReviewAgentService', () => {
       reasonCode: 'OBVIOUS_SPELLING_ERROR',
     });
     expect(repository.reserveDiagnosisAiCallSlot).not.toHaveBeenCalled();
+  });
+
+  it('returns a deterministic session plan without calling AI when the shared slot budget is exhausted', async () => {
+    repository.reserveAiCallSlot.mockResolvedValue(false);
+
+    await expect(
+      service.planSession({
+        userId: 'user',
+        reviewSessionId: 'session',
+        input: planInput,
+      }),
+    ).resolves.toMatchObject({
+      source: ReviewDecisionSource.RULE,
+      reasonCode: 'BUDGET_EXHAUSTED',
+      decisionPayload: {
+        orderedCandidateAliases: ['v1', 'v2'],
+      },
+    });
+    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
+      'user',
+      'session',
+      6,
+    );
+    expect(ai.planReviewSession).not.toHaveBeenCalled();
+  });
+
+  it('uses a safe deterministic session plan when both structured providers are unavailable', async () => {
+    ai.planReviewSession.mockRejectedValue(
+      new Error('provider response must not escape'),
+    );
+
+    const decision = await service.planSession({
+      userId: 'user',
+      reviewSessionId: 'session',
+      input: planInput,
+    });
+
+    expect(decision).toMatchObject({
+      source: ReviewDecisionSource.RULE,
+      reasonCode: 'AI_UNAVAILABLE',
+      provider: null,
+      model: null,
+      promptVersion: config.reviewPromptVersion,
+    });
+    expect(JSON.stringify(decision)).not.toContain('provider response');
   });
 
   it('sends and persists only the sanitized bounded snapshot', async () => {

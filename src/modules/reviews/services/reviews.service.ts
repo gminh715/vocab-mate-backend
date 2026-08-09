@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -28,7 +29,8 @@ import {
   type PostAnswerDiagnosisSnapshot,
   type PreparedAiReviewQuestion,
 } from '../reviews.repository';
-import { QuestionType } from '../../../../generated/prisma/enums';
+import { QuestionType, ReviewGoal } from '../../../../generated/prisma/enums';
+import { AGENTIC_REVIEW_V1_SKILL_DIMENSIONS } from '../../ai/ai.contracts';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 import {
   type AnswerDiagnosisDecisionRequest,
@@ -38,6 +40,8 @@ import {
 
 @Injectable()
 export class ReviewsService {
+  private readonly logger = new Logger(ReviewsService.name);
+
   constructor(
     private readonly reviewsRepository: ReviewsRepository,
     private readonly aiQuestionGenerator: AiAssistedQuestionGeneratorService,
@@ -65,21 +69,38 @@ export class ReviewsService {
   async startSession(userId: string, dto: StartReviewSessionDto) {
     try {
       const now = new Date();
+      let initialAiCallCount = 0;
       const preparedAiQuestions = await this.aiQuestionGenerator.warmCache(
         userId,
         dto,
         now,
+        () => {
+          initialAiCallCount += 1;
+        },
       );
       const result = await this.reviewsRepository.startSession(
         userId,
         dto,
         now,
         preparedAiQuestions,
+        initialAiCallCount,
       );
       if (!result) {
         throw new NotFoundException('No eligible vocabulary found');
       }
-      return this.formatState(result);
+      let state = result;
+      if (result.answeredCount === 0 && result.session.planSummary === null) {
+        try {
+          state =
+            (await this.planNewSession(userId, result.session.id, now)) ??
+            result;
+        } catch {
+          this.logger.warn(
+            'Optional review session planning failed; continuing with the committed deterministic session',
+          );
+        }
+      }
+      return this.formatState(state);
     } catch (error: unknown) {
       this.mapError(error);
     }
@@ -129,6 +150,8 @@ export class ReviewsService {
         ) {
           preparedRetestQuestion =
             await this.aiQuestionGenerator.prepareRetestQuestion(
+              userId,
+              sessionId,
               diagnosisSnapshot.vocabulary,
               requestedRetestType,
             );
@@ -138,11 +161,6 @@ export class ReviewsService {
               diagnosisSnapshot,
             );
           }
-        } else if (!requestedRetestType) {
-          applicableDecision = this.useFallbackRetest(
-            decision,
-            diagnosisSnapshot,
-          );
         }
 
         try {
@@ -216,6 +234,97 @@ export class ReviewsService {
         },
       },
     };
+  }
+
+  private async planNewSession(
+    userId: string,
+    reviewSessionId: string,
+    now: Date,
+  ) {
+    const snapshot = await this.reviewsRepository.getSessionPlanningSnapshot(
+      userId,
+      reviewSessionId,
+      now,
+      14,
+    );
+    if (!snapshot || snapshot.candidates.length === 0) return null;
+
+    const input = {
+      targetCefr:
+        snapshot.currentCefrLevel ??
+        snapshot.candidates[0].vocabulary.savedCefrLevel,
+      reviewGoal: ReviewGoal.BALANCED,
+      targetDurationMinutes: 10 as const,
+      maxItemCount: snapshot.candidates.length,
+      allowedFocusDimensions: [...AGENTIC_REVIEW_V1_SKILL_DIMENSIONS],
+      candidates: snapshot.candidates.map(({ alias, vocabulary }) => ({
+        alias,
+        wordOrPhrase: vocabulary.savedWordDisplay,
+        lemma: vocabulary.savedLemma,
+        partOfSpeech: vocabulary.savedPartOfSpeech,
+        contextualMeaningVi: vocabulary.savedMeaningVi,
+        originalSentence: vocabulary.savedContextSentence,
+        daysOverdue: Math.floor(
+          vocabulary.overdueDurationMs / (24 * 60 * 60 * 1_000),
+        ),
+        lapseCount: vocabulary.lapseCount,
+        recentAttempts: vocabulary.recentAttempts.map((attempt) => ({
+          questionType: attempt.questionType,
+          skillDimension: attempt.skillDimension,
+          isCorrect: attempt.isCorrect,
+          responseTimeMs: attempt.responseTimeMs ?? 0,
+          hintsUsed: attempt.hintsUsed,
+        })),
+      })),
+      skillAggregates: snapshot.skillAggregates.map((aggregate) => ({
+        skillDimension: aggregate.skillDimension,
+        attempts: aggregate.attemptCount,
+        correct: aggregate.correctCount,
+        averageResponseTimeMs: aggregate.averageResponseTimeMs ?? 0,
+      })),
+    };
+    const decision = await this.reviewAgent.planSession({
+      userId,
+      reviewSessionId,
+      input,
+    });
+    const candidatesByAlias = new Map(
+      snapshot.candidates.map((candidate) => [candidate.alias, candidate]),
+    );
+    const requestedAliases = Array.isArray(
+      decision.decisionPayload.orderedCandidateAliases,
+    )
+      ? decision.decisionPayload.orderedCandidateAliases
+      : [];
+    const orderedAliases: string[] = [];
+    for (const alias of requestedAliases) {
+      if (
+        typeof alias === 'string' &&
+        candidatesByAlias.has(alias) &&
+        !orderedAliases.includes(alias)
+      ) {
+        orderedAliases.push(alias);
+      }
+    }
+    for (const { alias } of snapshot.candidates) {
+      if (!orderedAliases.includes(alias)) orderedAliases.push(alias);
+    }
+    const summary = decision.decisionPayload.summary;
+    if (typeof summary !== 'string') {
+      throw new InvalidReviewAgentDecisionRelationshipError();
+    }
+
+    return this.reviewsRepository.applySessionPlanDecision(userId, {
+      decision,
+      targetDurationMinutes: input.targetDurationMinutes,
+      reviewGoal: input.reviewGoal,
+      plannedItemCount: orderedAliases.length,
+      planSummary: summary,
+      agentVersion: decision.promptVersion,
+      orderedSessionItemIds: orderedAliases.map(
+        (alias) => candidatesByAlias.get(alias)!.reviewSessionItemId,
+      ),
+    });
   }
 
   async skipItem(

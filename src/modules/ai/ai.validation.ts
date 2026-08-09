@@ -1,4 +1,3 @@
-import type { AiConfig } from '../../config/ai.config';
 import {
   AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
   CEFR_LEVELS,
@@ -9,9 +8,6 @@ import {
   REVIEW_QUESTION_TYPES,
   REVIEW_RETEST_AFTER_ITEMS,
   REVIEW_TARGET_DURATIONS,
-  type ArticleAnalysisInput,
-  type ArticleAnalysisResult,
-  type ArticleAnalysisTerm,
   type DiagnoseReviewAnswerInput,
   type PlanReviewSessionInput,
   type ReviewAnswerDiagnosisResult,
@@ -28,10 +24,8 @@ import {
 import { AiError, ProviderCallError } from './ai.errors';
 
 export const AI_OUTPUT_LIMITS = {
-  summary: 1000,
   termText: 200,
   partOfSpeech: 100,
-  selectionReason: 500,
   enrichmentText: 2000,
   ipa: 100,
   listItems: 8,
@@ -296,118 +290,6 @@ const stringArrayValue = (value: unknown, field: string): string[] => {
   }
 
   return strings;
-};
-
-export const validateArticleAnalysisInput = (
-  input: ArticleAnalysisInput,
-  config: AiConfig,
-): void => {
-  const value = recordValue(
-    input,
-    'article',
-    [
-      'articleId',
-      'title',
-      'articleText',
-      'contentVersion',
-      'sentences',
-      'allowedCategories',
-      'maxTermCount',
-    ],
-    'input',
-  );
-
-  stringValue(value.articleId, 'articleId', 128, 'input');
-  stringValue(value.title, 'title', 500, 'input');
-  stringValue(
-    value.articleText,
-    'articleText',
-    config.maxArticleCharacters,
-    'input',
-  );
-  positiveIntegerValue(
-    value.contentVersion,
-    'contentVersion',
-    Number.MAX_SAFE_INTEGER,
-  );
-  positiveIntegerValue(
-    value.maxTermCount,
-    'maxTermCount',
-    config.maxTermsPerArticle,
-  );
-
-  const sentences = arrayValue(value.sentences, 'sentences', 2000, 'input');
-  if (sentences.length === 0) {
-    fail('input', 'sentences');
-  }
-  const sentenceIds = new Set<string>();
-  let totalSentenceCharacters = 0;
-  for (const [index, sentence] of sentences.entries()) {
-    const item = recordValue(
-      sentence,
-      `sentences[${index}]`,
-      ['sentenceId', 'sentenceText'],
-      'input',
-    );
-    const sentenceId = stringValue(
-      item.sentenceId,
-      `sentences[${index}].sentenceId`,
-      128,
-      'input',
-    );
-    const sentenceText = stringValue(
-      item.sentenceText,
-      `sentences[${index}].sentenceText`,
-      10000,
-      'input',
-    );
-    totalSentenceCharacters += sentenceText.length;
-    if (totalSentenceCharacters > config.maxArticleCharacters) {
-      fail('input', 'sentences');
-    }
-    if (sentenceIds.has(sentenceId)) {
-      fail('input', 'sentences.sentenceId');
-    }
-    sentenceIds.add(sentenceId);
-  }
-
-  const categories = arrayValue(
-    value.allowedCategories,
-    'allowedCategories',
-    100,
-    'input',
-  );
-  if (categories.length === 0) {
-    fail('input', 'allowedCategories');
-  }
-  const categoryIds = new Set<string>();
-  const categorySlugs = new Set<string>();
-  for (const [index, category] of categories.entries()) {
-    const item = recordValue(
-      category,
-      `allowedCategories[${index}]`,
-      ['id', 'slug', 'name'],
-      'input',
-    );
-    const id = stringValue(
-      item.id,
-      `allowedCategories[${index}].id`,
-      128,
-      'input',
-    );
-    const slug = stringValue(
-      item.slug,
-      `allowedCategories[${index}].slug`,
-      100,
-      'input',
-    );
-    stringValue(item.name, `allowedCategories[${index}].name`, 200, 'input');
-    if (categoryIds.has(id) || categorySlugs.has(slug)) {
-      fail('input', 'allowedCategories');
-    }
-    categoryIds.add(id);
-    categorySlugs.add(slug);
-  }
 };
 
 export const validateTermEnrichmentInput = (
@@ -853,188 +735,6 @@ export const validateDiagnoseReviewAnswerInput = (
     REVIEW_RETEST_AFTER_ITEMS.length,
     REVIEW_RETEST_AFTER_ITEMS,
   );
-};
-
-const parseArticleTerm = (
-  value: unknown,
-  index: number,
-): ArticleAnalysisTerm => {
-  const term = recordValue(
-    value,
-    `terms[${index}]`,
-    [
-      'sentenceId',
-      'value',
-      'wordDisplay',
-      'lemma',
-      'normalizedLemma',
-      'unitType',
-      'partOfSpeech',
-      'cefrLevel',
-      'selectionReason',
-    ],
-    'output',
-  );
-
-  return {
-    sentenceId: stringValue(
-      term.sentenceId,
-      `terms[${index}].sentenceId`,
-      128,
-      'output',
-    ),
-    value: stringValue(
-      term.value,
-      `terms[${index}].value`,
-      AI_OUTPUT_LIMITS.termText,
-      'output',
-    ),
-    wordDisplay: stringValue(
-      term.wordDisplay,
-      `terms[${index}].wordDisplay`,
-      AI_OUTPUT_LIMITS.termText,
-      'output',
-    ),
-    lemma: stringValue(
-      term.lemma,
-      `terms[${index}].lemma`,
-      AI_OUTPUT_LIMITS.termText,
-      'output',
-    ),
-    normalizedLemma: stringValue(
-      term.normalizedLemma,
-      `terms[${index}].normalizedLemma`,
-      AI_OUTPUT_LIMITS.termText,
-      'output',
-    ),
-    unitType: enumValue(
-      term.unitType,
-      `terms[${index}].unitType`,
-      LEXICAL_UNIT_TYPES,
-      'output',
-    ),
-    partOfSpeech: stringValue(
-      term.partOfSpeech,
-      `terms[${index}].partOfSpeech`,
-      AI_OUTPUT_LIMITS.partOfSpeech,
-      'output',
-    ),
-    cefrLevel: enumValue(
-      term.cefrLevel,
-      `terms[${index}].cefrLevel`,
-      CEFR_LEVELS,
-      'output',
-    ),
-    selectionReason: stringValue(
-      term.selectionReason,
-      `terms[${index}].selectionReason`,
-      AI_OUTPUT_LIMITS.selectionReason,
-      'output',
-    ),
-  };
-};
-
-export const parseArticleAnalysisResult = (
-  raw: unknown,
-  input: ArticleAnalysisInput,
-): ArticleAnalysisResult => {
-  const result = recordValue(
-    raw,
-    'result',
-    ['summaryEn', 'cefrLevel', 'categorySlug', 'terms'],
-    'output',
-  );
-  const parsedTerms = arrayValue(
-    result.terms,
-    'terms',
-    input.maxTermCount * 2,
-    'output',
-  )
-    .slice(0, input.maxTermCount)
-    .map(parseArticleTerm);
-
-  const sentences = new Map(
-    input.sentences.map(({ sentenceId, sentenceText }, index) => [
-      sentenceId,
-      { sentenceText, index },
-    ]),
-  );
-  const terms = parsedTerms
-    .flatMap((term) => {
-      const sentence = sentences.get(term.sentenceId);
-      if (!sentence) {
-        return fail('output', 'terms');
-      }
-      if (sentence.sentenceText.includes(term.value)) {
-        return [term];
-      }
-
-      const normalizedSentence =
-        sentence.sentenceText.toLocaleLowerCase('en-US');
-      const normalizedValue = term.value.toLocaleLowerCase('en-US');
-      const start = normalizedSentence.indexOf(normalizedValue);
-      if (
-        start < 0 ||
-        normalizedSentence.indexOf(normalizedValue, start + 1) >= 0
-      ) {
-        return [];
-      }
-
-      return [
-        {
-          ...term,
-          value: sentence.sentenceText.slice(start, start + term.value.length),
-        },
-      ];
-    })
-    .sort(
-      (left, right) =>
-        Number(sentences.get(left.sentenceId)?.index) -
-        Number(sentences.get(right.sentenceId)?.index),
-    );
-  const candidates = new Set<string>();
-  const uniqueTerms: ArticleAnalysisTerm[] = [];
-
-  for (const term of terms) {
-    const sentence = sentences.get(term.sentenceId);
-    if (sentence) {
-      if (!sentence.sentenceText.includes(term.value)) {
-        fail('output', 'terms');
-      }
-
-      const candidateKey = `${term.sentenceId}\u0000${term.value}`;
-      if (candidates.has(candidateKey)) {
-        continue;
-      }
-      candidates.add(candidateKey);
-      uniqueTerms.push(term);
-      continue;
-    }
-
-    fail('output', 'terms');
-  }
-
-  const categorySlug = stringValue(
-    result.categorySlug,
-    'categorySlug',
-    100,
-    'output',
-  );
-  if (!input.allowedCategories.some(({ slug }) => slug === categorySlug)) {
-    fail('output', 'categorySlug');
-  }
-
-  return {
-    summaryEn: stringValue(
-      result.summaryEn,
-      'summaryEn',
-      AI_OUTPUT_LIMITS.summary,
-      'output',
-    ),
-    cefrLevel: enumValue(result.cefrLevel, 'cefrLevel', CEFR_LEVELS, 'output'),
-    categorySlug,
-    terms: uniqueTerms,
-  };
 };
 
 const parseExample = (value: unknown, index: number): TermExample => {
