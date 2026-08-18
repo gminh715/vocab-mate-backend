@@ -24,6 +24,7 @@ import {
   GEMINI_AI_PROVIDER,
   GROQ_AI_PROVIDER,
   type StructuredAiRequest,
+  type StructuredAiResponse,
 } from './ai.provider';
 import {
   reviewAnswerDiagnosisSchema,
@@ -62,13 +63,12 @@ const REVIEW_QUESTION_INSTRUCTION = [
   'Return plain text only: never use Markdown headings, emphasis, links, lists, blockquotes, or code formatting.',
   'Never use generic What is/does ... mean/meaning wording, in the context of the sentence, or provided context.',
   'Never reveal the authoritative correct answer in the prompt.',
-  'For option questions, return three or four distinct options with exactly one unambiguous correct option and contextually plausible distractors.',
-  'For SELECT_MEANING, invite an inference from the supplied usage, allow wordOrPhrase in the prompt, never include contextualMeaningVi in the prompt, and copy contextualMeaningVi character-for-character as the correct option.',
-  'For SELECT_WORD, frame a meaning-to-word or use-to-word task, never include wordOrPhrase in the prompt, and copy wordOrPhrase character-for-character as the correct option.',
-  'For SELECT_CORRECT_CONTEXT, ask the learner to identify matching usage, never copy originalSentence into the prompt, and copy originalSentence character-for-character as the correct option.',
-  'For SELECT_CORRECT_CONTEXT, keep the supplied original sentence as the correct option and create plausible but clearly incorrect example contexts as distractors.',
-  'For FILL_BLANK, create one fresh natural example sentence containing exactly one ___ blank, never include wordOrPhrase in the prompt or elsewhere in that sentence, and copy wordOrPhrase character-for-character as correctAnswerText.',
-  'Never translate, normalize, or paraphrase a copied correct answer.',
+  'For option questions, return only two or three distinct, contextually plausible distractors; the server inserts the authoritative correct option.',
+  'For SELECT_MEANING, invite an inference from the supplied usage, allow wordOrPhrase in the prompt, and never include contextualMeaningVi in the prompt or distractors.',
+  'For SELECT_WORD, frame a meaning-to-word or use-to-word task and never include wordOrPhrase in the prompt or distractors.',
+  'For SELECT_CORRECT_CONTEXT, ask the learner to identify matching usage, never copy originalSentence into the prompt, and create plausible but clearly incorrect example contexts as distractors.',
+  'For FILL_BLANK, create one fresh natural example sentence containing exactly one ___ blank and never include wordOrPhrase in the prompt or elsewhere in that sentence.',
+  'Do not return the authoritative correct answer as its own field or as a distractor; it may appear only in answerExplanation.',
   'Write the answer explanation as exactly two or three short sentences.',
   'Do not add facts, user history, identifiers, scores, or fields that were not requested.',
   'Do not use external knowledge retrieval, search, URLs, tools, or function calls.',
@@ -252,14 +252,32 @@ export class AiService {
     request: StructuredAiRequest,
     parse: (value: unknown) => T,
   ): Promise<ProviderExecutionResult<T>> {
+    const geminiStartedAt = Date.now();
+    let geminiResponse: StructuredAiResponse | null = null;
     try {
       const raw = await this.geminiProvider.generateStructured(request);
+      geminiResponse = this.normalizeProviderResponse(raw);
+      const result = parse(parseProviderJson(geminiResponse.content));
+      this.logProviderMetric(
+        request,
+        'GEMINI',
+        geminiResponse,
+        Date.now() - geminiStartedAt,
+        'success',
+      );
       return {
-        result: parse(parseProviderJson(raw)),
+        result,
         provider: 'GEMINI',
       };
     } catch (error: unknown) {
       const providerError = this.providerError(error);
+      this.logProviderMetric(
+        request,
+        'GEMINI',
+        geminiResponse,
+        Date.now() - geminiStartedAt,
+        `failure:${providerError.reason}`,
+      );
       if (!isFallbackEligible(providerError.reason)) {
         throw this.publicError(providerError);
       }
@@ -268,19 +286,79 @@ export class AiService {
       );
     }
 
+    const groqStartedAt = Date.now();
+    let groqResponse: StructuredAiResponse | null = null;
     try {
       const raw = await this.groqProvider.generateStructured(request);
+      groqResponse = this.normalizeProviderResponse(raw);
+      const result = parse(parseProviderJson(groqResponse.content));
+      this.logProviderMetric(
+        request,
+        'GROQ',
+        groqResponse,
+        Date.now() - groqStartedAt,
+        'success',
+      );
       return {
-        result: parse(parseProviderJson(raw)),
+        result,
         provider: 'GROQ',
       };
     } catch (error: unknown) {
       const providerError = this.providerError(error);
+      this.logProviderMetric(
+        request,
+        'GROQ',
+        groqResponse,
+        Date.now() - groqStartedAt,
+        `failure:${providerError.reason}`,
+      );
       this.logger.warn(
         `Groq structured generation failed (${providerError.reason})`,
       );
       throw this.publicError(providerError);
     }
+  }
+
+  private normalizeProviderResponse(
+    response: string | StructuredAiResponse,
+  ): StructuredAiResponse {
+    return typeof response === 'string'
+      ? {
+          content: response,
+          usage: { inputTokens: null, outputTokens: null },
+        }
+      : response;
+  }
+
+  private logProviderMetric(
+    request: StructuredAiRequest,
+    provider: 'GEMINI' | 'GROQ',
+    response: StructuredAiResponse | null,
+    latencyMs: number,
+    status: string,
+  ): void {
+    const estimatedInputTokens = this.estimateTokens(
+      `${request.systemInstruction} ${request.userContent} ${JSON.stringify(request.schema)}`,
+    );
+    const inputTokens = response?.usage.inputTokens ?? estimatedInputTokens;
+    const outputTokens =
+      response === null
+        ? 0
+        : (response.usage.outputTokens ??
+          this.estimateTokens(response.content));
+    const tokenSource =
+      response !== null &&
+      response.usage.inputTokens !== null &&
+      response.usage.outputTokens !== null
+        ? 'provider'
+        : 'estimated';
+    this.logger.log(
+      `AI_METRIC schema=${request.schemaName} provider=${provider} status=${status} latencyMs=${Math.max(0, latencyMs)} inputTokens=${inputTokens} outputTokens=${outputTokens} tokenSource=${tokenSource}`,
+    );
+  }
+
+  private estimateTokens(value: string): number {
+    return Math.max(1, Math.ceil(value.length / 4));
   }
 
   private providerError(error: unknown): ProviderCallError {

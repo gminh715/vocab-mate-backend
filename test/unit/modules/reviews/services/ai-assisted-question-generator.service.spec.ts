@@ -38,14 +38,9 @@ describe('AiAssistedQuestionGeneratorService', () => {
   const generated: ReviewQuestionGenerationResult = {
     prompt: 'Quick match: choose the best Vietnamese interpretation.',
     blankSentence: null,
-    correctAnswerText: null,
     answerExplanation:
       'It means that something holds your interest. The lesson is enjoyable to follow.',
-    options: [
-      { optionText: 'hap dan', isCorrect: true },
-      { optionText: 'kho hieu', isCorrect: false },
-      { optionText: 'ngan gon', isCorrect: false },
-    ],
+    distractors: ['kho hieu', 'ngan gon'],
   };
 
   const makeCandidate = (
@@ -75,14 +70,18 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
   let service: AiAssistedQuestionGeneratorService;
   let ai: {
-    generateReviewQuestion: jest.Mock;
-    generateReviewQuestions: jest.Mock;
+    generateReviewQuestion: jest.MockedFunction<
+      AiService['generateReviewQuestion']
+    >;
+    generateReviewQuestions: jest.MockedFunction<
+      AiService['generateReviewQuestions']
+    >;
   };
   let repository: {
     getAiQuestionGenerationCandidates: jest.Mock;
     findCachedAiQuestion: jest.Mock;
     findPreferredCachedAiQuestion: jest.Mock;
-    cacheAiQuestion: jest.Mock;
+    cacheAiQuestion: jest.MockedFunction<ReviewsRepository['cacheAiQuestion']>;
     reserveAiCallSlot: jest.Mock;
   };
 
@@ -153,11 +152,8 @@ describe('AiAssistedQuestionGeneratorService', () => {
     expect(ai.generateReviewQuestions).toHaveBeenCalledWith([
       {
         wordOrPhrase: 'engaging',
-        lemma: 'engage',
-        partOfSpeech: 'adjective',
         contextualMeaningVi: 'hap dan',
         originalSentence: 'The lesson was engaging for everyone.',
-        articleTopic: 'Education',
         targetCefr: CefrLevel.B1,
         requestedQuestionType: QuestionType.SELECT_MEANING,
         promptStyle: REVIEW_QUESTION_PROMPT_STYLES[0],
@@ -170,7 +166,15 @@ describe('AiAssistedQuestionGeneratorService', () => {
         difficultyCefr: CefrLevel.B1,
         generationSource: QuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
+        correctAnswerText: null,
       }),
+    );
+    const cachedSpec = repository.cacheAiQuestion.mock.calls[0]?.[0];
+    expect(cachedSpec?.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ optionText: 'hap dan', isCorrect: true }),
+        expect.objectContaining({ optionText: 'kho hieu', isCorrect: false }),
+      ]),
     );
     expect(prepared).toEqual([
       expect.objectContaining({
@@ -179,6 +183,54 @@ describe('AiAssistedQuestionGeneratorService', () => {
         questionType: QuestionType.SELECT_MEANING,
       }),
     ]);
+  });
+
+  it('sends only the context fields required by each question type', async () => {
+    const selectWord = makeCandidate(1);
+    selectWord.questionType = QuestionType.SELECT_WORD;
+    const selectContext = makeCandidate(2);
+    selectContext.questionType = QuestionType.SELECT_CORRECT_CONTEXT;
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue([
+      selectWord,
+      selectContext,
+    ]);
+
+    await warmCache();
+
+    expect(ai.generateReviewQuestions).toHaveBeenCalledWith([
+      {
+        wordOrPhrase: 'engaging',
+        contextualMeaningVi: 'hap dan',
+        partOfSpeech: 'adjective',
+        targetCefr: CefrLevel.B1,
+        requestedQuestionType: QuestionType.SELECT_WORD,
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[0],
+      },
+      {
+        wordOrPhrase: 'engaging',
+        contextualMeaningVi: 'hap dan',
+        originalSentence: 'The lesson was engaging for everyone.',
+        targetCefr: CefrLevel.B1,
+        requestedQuestionType: QuestionType.SELECT_CORRECT_CONTEXT,
+        promptStyle: REVIEW_QUESTION_PROMPT_STYLES[1],
+      },
+    ]);
+    const cachedSpecs = repository.cacheAiQuestion.mock.calls.map(
+      ([spec]) => spec,
+    );
+    expect(cachedSpecs[0].options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ optionText: 'engaging', isCorrect: true }),
+      ]),
+    );
+    expect(cachedSpecs[1].options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          optionText: 'The lesson was engaging for everyone.',
+          isCorrect: true,
+        }),
+      ]),
+    );
   });
 
   it('deduplicates concurrent generation for the same cache key', async () => {
@@ -252,6 +304,37 @@ describe('AiAssistedQuestionGeneratorService', () => {
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(20);
     expect(prepared).toHaveLength(20);
     expect(onAiCallReserved).toHaveBeenCalledTimes(5);
+  });
+
+  it('runs no more than two cold batches concurrently and reports item progress', async () => {
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue(
+      Array.from({ length: 20 }, (_, index) => makeCandidate(index + 1)),
+    );
+    let activeCalls = 0;
+    let maximumActiveCalls = 0;
+    ai.generateReviewQuestions.mockImplementation(async (inputs: unknown[]) => {
+      activeCalls += 1;
+      maximumActiveCalls = Math.max(maximumActiveCalls, activeCalls);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      activeCalls -= 1;
+      return inputs.map(() => generated);
+    });
+    const onProgress = jest.fn();
+
+    const prepared = await service.warmCache(
+      'user',
+      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
+      new Date('2026-08-03T00:00:00Z'),
+      undefined,
+      onProgress,
+    );
+
+    expect(prepared).toHaveLength(20);
+    expect(maximumActiveCalls).toBe(2);
+    expect(onProgress).toHaveBeenLastCalledWith({
+      completedItems: 20,
+      totalItems: 20,
+    });
   });
 
   it('keeps all cache hits while spending the batch budget only on cold questions', async () => {
@@ -336,15 +419,25 @@ describe('AiAssistedQuestionGeneratorService', () => {
       userVocabularyId: 'vocabulary-1',
       questionType: QuestionType.FILL_BLANK,
     });
-    expect(ai.generateReviewQuestion).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestedQuestionType: QuestionType.FILL_BLANK,
-      }),
-    );
+    const retestInput = ai.generateReviewQuestion.mock.calls[0]?.[0];
+    expect(retestInput).toMatchObject({
+      wordOrPhrase: 'engaging',
+      contextualMeaningVi: 'hap dan',
+      partOfSpeech: 'adjective',
+      targetCefr: CefrLevel.B1,
+      requestedQuestionType: QuestionType.FILL_BLANK,
+    });
+    expect(REVIEW_QUESTION_PROMPT_STYLES).toContain(retestInput?.promptStyle);
     expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
       'user',
       'session',
       config.reviewMaxCallsPerSession,
+    );
+    expect(repository.cacheAiQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correctAnswerText: 'engaging',
+        options: [],
+      }),
     );
   });
 

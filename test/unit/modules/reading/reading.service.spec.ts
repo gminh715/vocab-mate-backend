@@ -52,6 +52,7 @@ const readerRecord = (
   },
   contentHtml: '<p>Safe content</p>',
   userCefrLevel: CefrLevel.B1,
+  userTargetCefrLevel: CefrLevel.C1,
   termCandidates: [],
   progress: null,
   ...overrides,
@@ -202,14 +203,18 @@ describe('ReadingService', () => {
     service = module.get(ReadingService);
   });
 
-  it('includes same-level and above-level terms and excludes below-level terms', async () => {
+  it('highlights terms from the current CEFR through the target CEFR', async () => {
     repository.findReaderArticle.mockResolvedValue(
       readerRecord({
         userCefrLevel: CefrLevel.B1,
+        userTargetCefrLevel: CefrLevel.C1,
         termCandidates: [
           { id: 'below', cefrLevel: CefrLevel.A2 },
           { id: 'same', cefrLevel: CefrLevel.B1 },
-          { id: 'above', cefrLevel: CefrLevel.C2 },
+          { id: 'within', cefrLevel: CefrLevel.B2 },
+          { id: 'target', cefrLevel: CefrLevel.C1 },
+          { id: 'above-target', cefrLevel: CefrLevel.C2 },
+          { id: 'unknown', cefrLevel: null },
         ],
       }),
     );
@@ -217,8 +222,21 @@ describe('ReadingService', () => {
     await expect(
       service.getReaderArticle('user-id', 'article'),
     ).resolves.toMatchObject({
-      highlightedTermIds: ['same', 'above'],
+      highlightedTermIds: ['same', 'within', 'target'],
     });
+  });
+
+  it('returns no highlights when the user has no target CEFR', async () => {
+    repository.findReaderArticle.mockResolvedValue(
+      readerRecord({
+        userTargetCefrLevel: null,
+        termCandidates: [{ id: 'above', cefrLevel: CefrLevel.B2 }],
+      }),
+    );
+
+    await expect(
+      service.getReaderArticle('user-id', 'article'),
+    ).resolves.toMatchObject({ highlightedTermIds: [] });
   });
 
   it('returns a read-only in-memory progress default', async () => {

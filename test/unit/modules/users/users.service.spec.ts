@@ -23,6 +23,7 @@ const account: MyAccountRecord & {
     avatarUrl: null,
     currentCefrLevel: 'B1',
     learningGoal: 'B2',
+    dailyStudyMinutes: 10,
     preferredLanguage: 'vi',
   },
 };
@@ -126,10 +127,10 @@ describe('UsersService', () => {
     });
   });
 
-  it('rejects a learning goal that is equal to or lower than current CEFR level', async () => {
+  it('rejects a learning goal lower than the current CEFR level', async () => {
     repository.findMyAccount.mockResolvedValue(account);
     const dto = {
-      learningGoal: 'B1' as const, // account has currentCefrLevel: 'B1'
+      learningGoal: 'A2' as const, // account has currentCefrLevel: 'B1'
     };
 
     await expect(service.updateMe(account.id, dto)).rejects.toBeInstanceOf(
@@ -166,7 +167,6 @@ describe('UsersService', () => {
         email: 'user@example.com',
         passwordHash: 'hash',
         displayName: 'User',
-        currentCefrLevel: 'B1',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });

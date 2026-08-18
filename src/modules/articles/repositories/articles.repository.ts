@@ -216,6 +216,7 @@ export interface AnalyzedTermInput {
   sentenceId: string;
   value: string;
   lemma: string;
+  cefrLevel: CefrLevel | null;
   createdByUserId: string;
   updatedByUserId: string;
 }
@@ -227,6 +228,7 @@ export interface CompleteArticleAnalysisInput {
   annotatedContentHtml: string;
   actingAdminId: string;
   expectedSentences: ArticleAnalysisSentenceRecord[];
+  articleCefrLevel: CefrLevel;
   terms: AnalyzedTermInput[];
 }
 
@@ -956,6 +958,7 @@ export class ArticlesRepository {
           },
           data: {
             contentHtml: input.annotatedContentHtml,
+            cefrLevel: input.articleCefrLevel,
             updatedByUserId: input.actingAdminId,
             aiAnalysisStatus: AiGenerationStatus.READY,
             aiAnalysisError: null,
@@ -1002,7 +1005,6 @@ export class ArticlesRepository {
               normalizedLemma: null,
               unitType: LexicalUnitType.WORD,
               partOfSpeech: null,
-              cefrLevel: null,
               origin: TermOrigin.NLP,
               reviewStatus: TermReviewStatus.APPROVED,
               explanationStatus: AiGenerationStatus.PENDING,

@@ -98,6 +98,7 @@ describe('UsersRepository', () => {
             avatarUrl: true,
             currentCefrLevel: true,
             learningGoal: true,
+            dailyStudyMinutes: true,
             preferredLanguage: true,
           },
         },

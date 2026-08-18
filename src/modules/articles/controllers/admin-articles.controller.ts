@@ -176,9 +176,9 @@ export class AdminArticlesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'postAdminArticleAnalyze',
-    summary: 'Analyze a parsed draft and create local vocabulary terms',
+    summary: 'Analyze a parsed draft, CEFR, and local vocabulary terms',
     description:
-      'Atomically claims one parsed DRAFT, tokenizes each sentence locally with WinkNLP, stores approved lookup terms with deferred metadata, and inserts one exact data-term-id marker per unique sentence surface only if the content version is unchanged.',
+      'Atomically claims one parsed DRAFT, tokenizes each sentence locally with WinkNLP, uses cefr-analyzer to update the article CEFR and classify each known term, stores unknown term CEFR as null for later lookup enrichment, and inserts one exact data-term-id marker per unique sentence surface only if the content version is unchanged.',
   })
   @ApiOkResponse({ type: ArticleAnalysisSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

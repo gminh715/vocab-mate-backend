@@ -9,6 +9,7 @@ import {
   ReadingStatus,
   TermReviewStatus,
 } from '../../../generated/prisma/enums';
+import { isCefrLevel } from '../../common/utils/cefr-level.util';
 import { PrismaService } from '../../database/prisma.service';
 
 export interface ReaderArticleMetadataRecord {
@@ -91,6 +92,7 @@ export interface ReaderArticleRecord {
   article: ReaderArticleMetadataRecord;
   contentHtml: string;
   userCefrLevel: CefrLevel | null;
+  userTargetCefrLevel: CefrLevel | null;
   termCandidates: Array<{ id: string; cefrLevel: CefrLevel | null }>;
   progress: ReaderProgressRecord | null;
 }
@@ -382,7 +384,7 @@ export class ReadingRepository {
       } as const;
       const profile = await transaction.userProfile.findUnique({
         where: { userId },
-        select: { currentCefrLevel: true },
+        select: { currentCefrLevel: true, learningGoal: true },
       });
       const termCandidates = await transaction.articleSentenceTerm.findMany({
         where: {
@@ -408,6 +410,10 @@ export class ReadingRepository {
         article,
         contentHtml,
         userCefrLevel: profile?.currentCefrLevel ?? null,
+        userTargetCefrLevel:
+          profile && isCefrLevel(profile.learningGoal)
+            ? profile.learningGoal
+            : null,
         termCandidates,
         progress,
       };

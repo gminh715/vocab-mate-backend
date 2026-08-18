@@ -247,7 +247,7 @@ export class ReaderArticleDataDto {
       '550e8400-e29b-41d4-a716-446655440003',
     ],
     description:
-      'IDs of active current-version lookup terms at or above the authenticated user profile CEFR level.',
+      'IDs of active current-version lookup terms above the authenticated user current CEFR level and at or below their target CEFR level.',
   })
   highlightedTermIds!: string[];
 

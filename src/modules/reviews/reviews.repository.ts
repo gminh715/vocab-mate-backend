@@ -124,6 +124,7 @@ const safeQuestionSelect = {
   questionType: true,
   prompt: true,
   blankSentence: true,
+  correctAnswerText: true,
   points: true,
   displayOrder: true,
   options: {
@@ -131,6 +132,44 @@ const safeQuestionSelect = {
     select: safeOptionSelect,
   },
 } satisfies Prisma.QuizQuestionSelect;
+
+const answerWordCharacters = (answer: string | null | undefined): string[][] =>
+  answer
+    ?.trim()
+    .split(/\s+/u)
+    .filter(Boolean)
+    .map((word) => Array.from(word)) ?? [];
+
+const hintPositionHash = (value: string): number => {
+  let hash = 2_166_136_261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
+};
+
+const shuffledHintCharacters = (
+  seed: string,
+  words: string[][],
+): Array<{ character: string; wordIndex: number; characterIndex: number }> =>
+  words
+    .flatMap((word, wordIndex) =>
+      word.map((character, characterIndex) => ({
+        character,
+        wordIndex,
+        characterIndex,
+      })),
+    )
+    .sort(
+      (left, right) =>
+        hintPositionHash(`${seed}:${left.wordIndex}:${left.characterIndex}`) -
+          hintPositionHash(
+            `${seed}:${right.wordIndex}:${right.characterIndex}`,
+          ) ||
+        left.wordIndex - right.wordIndex ||
+        left.characterIndex - right.characterIndex,
+    );
 
 const gradingQuestionSelect = {
   id: true,
@@ -1247,6 +1286,69 @@ export class ReviewsRepository {
     });
     if (!session) return null;
     return this.getSessionStateWithClient(this.prisma, session);
+  }
+
+  async revealFillBlankHint(
+    userId: string,
+    sessionId: string,
+    reviewSessionItemId: string,
+    hintIndex: number,
+  ) {
+    const activeItem = await this.prisma.reviewSessionItem.findFirst({
+      where: {
+        reviewSessionId: sessionId,
+        status: ReviewSessionItemStatus.PENDING,
+        reviewSession: {
+          is: {
+            userId,
+            status: ReviewSessionStatus.IN_PROGRESS,
+          },
+        },
+      },
+      orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        quizQuestion: {
+          select: {
+            id: true,
+            questionType: true,
+            correctAnswerText: true,
+          },
+        },
+      },
+    });
+    if (!activeItem || activeItem.id !== reviewSessionItemId) {
+      throw new ReviewSubmissionConflictError();
+    }
+
+    const {
+      id: questionId,
+      questionType,
+      correctAnswerText,
+    } = activeItem.quizQuestion;
+    const words = answerWordCharacters(correctAnswerText);
+    if (questionType !== QuestionType.FILL_BLANK || words.length === 0) {
+      throw new InvalidAnswerShapeError(
+        'Progressive hints are only available for fill-blank questions',
+      );
+    }
+    const characters = shuffledHintCharacters(
+      `${sessionId}:${questionId}`,
+      words,
+    );
+    if (hintIndex >= characters.length) {
+      throw new InvalidAnswerShapeError(
+        'No more hint characters are available',
+      );
+    }
+
+    const hint = characters[hintIndex];
+    return {
+      revealedCharacter: hint.character,
+      wordIndex: hint.wordIndex,
+      characterIndex: hint.characterIndex,
+      totalCharacters: characters.length,
+    };
   }
 
   submitAnswer(userId: string, sessionId: string, dto: SubmitReviewAnswerDto) {
@@ -2934,6 +3036,7 @@ export class ReviewsRepository {
     questionType: GradingQuestion['questionType'];
     prompt: string;
     blankSentence: string | null;
+    correctAnswerText: string | null;
     points: number;
     displayOrder: number;
     options: Array<{
@@ -2947,6 +3050,12 @@ export class ReviewsRepository {
       questionType: question.questionType,
       prompt: question.prompt,
       blankSentence: question.blankSentence,
+      answerWordLengths:
+        question.questionType === QuestionType.FILL_BLANK
+          ? answerWordCharacters(question.correctAnswerText).map(
+              (word) => word.length,
+            )
+          : null,
       points: question.points,
       displayOrder: question.displayOrder,
       options: question.options.map((option) => ({

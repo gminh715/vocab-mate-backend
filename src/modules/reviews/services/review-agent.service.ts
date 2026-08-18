@@ -112,6 +112,18 @@ export class ReviewAgentService {
     }
   }
 
+  planSessionDeterministically(
+    request: SessionPlanDecisionRequest,
+  ): PersistReviewAgentDecisionInput {
+    const input = this.sanitizePlanInput(request.input);
+    validatePlanReviewSessionInput(input);
+    return this.planFallback(
+      request.reviewSessionId,
+      input,
+      'DETERMINISTIC_PLAN',
+    );
+  }
+
   async diagnoseAnswer(
     request: AnswerDiagnosisDecisionRequest,
   ): Promise<PersistReviewAgentDecisionInput> {
@@ -309,7 +321,24 @@ export class ReviewAgentService {
     )
       ? [preferredSkill]
       : [input.allowedFocusDimensions[0]];
-    const orderedCandidateAliases = input.candidates
+    const orderedCandidateAliases = [...input.candidates]
+      .sort((left, right) => {
+        const leftGoalErrors = this.goalErrorCount(left, preferredSkill);
+        const rightGoalErrors = this.goalErrorCount(right, preferredSkill);
+        const leftErrors = left.recentAttempts.filter(
+          ({ isCorrect }) => !isCorrect,
+        ).length;
+        const rightErrors = right.recentAttempts.filter(
+          ({ isCorrect }) => !isCorrect,
+        ).length;
+        return (
+          rightGoalErrors - leftGoalErrors ||
+          rightErrors - leftErrors ||
+          right.lapseCount - left.lapseCount ||
+          right.daysOverdue - left.daysOverdue ||
+          left.alias.localeCompare(right.alias)
+        );
+      })
       .slice(0, input.maxItemCount)
       .map(({ alias }) => alias);
     return {
@@ -319,6 +348,16 @@ export class ReviewAgentService {
       summary: `Review ${orderedCandidateAliases.length} vocabulary item${orderedCandidateAliases.length === 1 ? '' : 's'} with a ${input.reviewGoal.toLowerCase()} focus.`,
       confidence: 0,
     };
+  }
+
+  private goalErrorCount(
+    candidate: PlanReviewSessionInput['candidates'][number],
+    preferredSkill: AiReviewSkillDimension,
+  ): number {
+    return candidate.recentAttempts.filter(
+      ({ isCorrect, skillDimension }) =>
+        !isCorrect && skillDimension === preferredSkill,
+    ).length;
   }
 
   private applyPlanPolicy(

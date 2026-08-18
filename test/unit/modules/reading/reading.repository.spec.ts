@@ -60,7 +60,10 @@ describe('ReadingRepository', () => {
     transaction.mockImplementation((input: TransactionInput) =>
       Array.isArray(input) ? Promise.all(input) : input(transactionClient),
     );
-    profileFindUnique.mockResolvedValue({ currentCefrLevel: 'B1' });
+    profileFindUnique.mockResolvedValue({
+      currentCefrLevel: 'B1',
+      learningGoal: 'C1',
+    });
     termFindMany.mockResolvedValue([]);
     progressFindUnique.mockResolvedValue(null);
     progressFindMany.mockResolvedValue([]);
@@ -109,7 +112,7 @@ describe('ReadingRepository', () => {
       category: { id: 'category-id', name: 'News', slug: 'news' },
     });
 
-    await repository.findReaderArticle('user-id', 'article');
+    const result = await repository.findReaderArticle('user-id', 'article');
 
     expect(articleFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -118,7 +121,11 @@ describe('ReadingRepository', () => {
     );
     expect(profileFindUnique).toHaveBeenCalledWith({
       where: { userId: 'user-id' },
-      select: { currentCefrLevel: true },
+      select: { currentCefrLevel: true, learningGoal: true },
+    });
+    expect(result).toMatchObject({
+      userCefrLevel: 'B1',
+      userTargetCefrLevel: 'C1',
     });
     expect(termFindMany).toHaveBeenCalledWith({
       where: {
@@ -155,7 +162,10 @@ describe('ReadingRepository', () => {
       publishedAt: new Date(),
       category: { id: 'category-id', name: 'News', slug: 'news' },
     });
-    let resolveProfile!: (value: { currentCefrLevel: string }) => void;
+    let resolveProfile!: (value: {
+      currentCefrLevel: string;
+      learningGoal: string;
+    }) => void;
     profileFindUnique.mockReturnValue(
       new Promise((resolve) => {
         resolveProfile = resolve;
@@ -169,7 +179,7 @@ describe('ReadingRepository', () => {
     expect(termFindMany).not.toHaveBeenCalled();
     expect(progressFindUnique).not.toHaveBeenCalled();
 
-    resolveProfile({ currentCefrLevel: 'B1' });
+    resolveProfile({ currentCefrLevel: 'B1', learningGoal: 'C1' });
     await result;
 
     expect(termFindMany).toHaveBeenCalledTimes(1);

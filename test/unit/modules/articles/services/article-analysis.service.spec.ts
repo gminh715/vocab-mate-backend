@@ -75,13 +75,13 @@ describe('ArticleAnalysisService', () => {
             slug: 'society',
             name: 'Society',
           },
-          cefrLevel: 'B1',
+          cefrLevel: input.articleCefrLevel,
           candidateCount: input.terms.length,
         }),
     );
   });
 
-  it('tokenizes locally, stores only surface and lemma inputs, and prepares one marker per term', async () => {
+  it('tokenizes locally, assigns CEFR where known, and prepares one marker per term', async () => {
     await expect(service.analyze('admin-id', 'article-id')).resolves.toEqual({
       articleId: 'article-id',
       contentVersion: 3,
@@ -91,7 +91,7 @@ describe('ArticleAnalysisService', () => {
         slug: 'society',
         name: 'Society',
       },
-      cefrLevel: 'B1',
+      cefrLevel: 'A2',
       candidateCount: 5,
     });
 
@@ -101,14 +101,19 @@ describe('ArticleAnalysisService', () => {
     );
     const completion = repository.completeArticleAnalysis.mock.calls[0][0];
     expect(
-      completion.terms.map(({ value, lemma }) => ({ value, lemma })),
+      completion.terms.map(({ value, lemma, cefrLevel }) => ({
+        value,
+        lemma,
+        cefrLevel,
+      })),
     ).toEqual([
-      { value: 'The', lemma: 'the' },
-      { value: 'ambitious', lemma: 'ambitious' },
-      { value: 'plan', lemma: 'plan' },
-      { value: 'helps', lemma: 'help' },
-      { value: 'commuters', lemma: 'commuter' },
+      { value: 'The', lemma: 'the', cefrLevel: 'A1' },
+      { value: 'ambitious', lemma: 'ambitious', cefrLevel: 'B1' },
+      { value: 'plan', lemma: 'plan', cefrLevel: 'A1' },
+      { value: 'helps', lemma: 'help', cefrLevel: 'A1' },
+      { value: 'commuters', lemma: 'commuter', cefrLevel: null },
     ]);
+    expect(completion.articleCefrLevel).toBe('A2');
     expect(completion.terms[0]).toMatchObject({
       sentenceId: 'sentence-1',
       value: 'The',
@@ -218,6 +223,25 @@ describe('ArticleAnalysisService', () => {
     await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
       UnprocessableEntityException,
     );
+  });
+
+  it('fails the claimed analysis when CEFR cannot classify any vocabulary', async () => {
+    const state = snapshot();
+    state.article.contentHtml =
+      '<p><span data-sentence-id="sentence-1">Qzxvplm trwknd.</span></p>';
+    state.sentences[0].sentenceText = 'Qzxvplm trwknd.';
+    repository.findAnalysisSnapshot.mockResolvedValue(state);
+
+    await expect(service.analyze('admin-id', 'article-id')).rejects.toThrow(
+      UnprocessableEntityException,
+    );
+    expect(repository.failArticleAnalysis).toHaveBeenCalledWith(
+      'article-id',
+      3,
+      'Vocabulary analysis could not be completed',
+      'admin-id',
+    );
+    expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
   });
 
   it('rejects a lost analysis claim', async () => {

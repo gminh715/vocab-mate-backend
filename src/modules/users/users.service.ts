@@ -35,10 +35,10 @@ const validateLearningGoalConstraint = (
   if (
     learningGoal &&
     isCefrLevel(learningGoal) &&
-    CEFR_ORDER[learningGoal] <= CEFR_ORDER[currentCefrLevel]
+    CEFR_ORDER[learningGoal] < CEFR_ORDER[currentCefrLevel]
   ) {
     throw new BadRequestException(
-      'Learning goal CEFR level must be higher than current CEFR level',
+      'Learning goal CEFR level cannot be lower than current CEFR level',
     );
   }
 };
@@ -107,6 +107,9 @@ export class UsersService {
       input.currentCefrLevel = dto.currentCefrLevel;
     }
     if (dto.learningGoal !== undefined) input.learningGoal = dto.learningGoal;
+    if (dto.dailyStudyMinutes !== undefined) {
+      input.dailyStudyMinutes = dto.dailyStudyMinutes;
+    }
     if (dto.preferredLanguage !== undefined) {
       input.preferredLanguage = dto.preferredLanguage;
     }
@@ -138,7 +141,6 @@ export class UsersService {
   async createRegisteredUser(
     input: CreateRegisteredUserInput,
   ): Promise<PublicUserRecord> {
-    validateLearningGoalConstraint(input.currentCefrLevel, input.learningGoal);
     try {
       return await this.usersRepository.createWithProfile(input);
     } catch (error: unknown) {

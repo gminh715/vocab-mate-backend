@@ -22,6 +22,9 @@ export class MyProfileDto {
   })
   learningGoal!: string | null;
 
+  @ApiProperty({ enum: [5, 10, 15], example: 10, nullable: true })
+  dailyStudyMinutes!: number | null;
+
   @ApiProperty({
     example: 'vi',
     description:

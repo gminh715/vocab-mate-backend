@@ -41,6 +41,7 @@ import {
   ApiErrorResponseDto,
   AuthSuccessResponseDto,
   MessageSuccessResponseDto,
+  RegistrationSuccessResponseDto,
 } from '../dto/auth-response.dto';
 import { LoginDto } from '../dto/login.dto';
 import { RegisterDto } from '../dto/register.dto';
@@ -65,19 +66,16 @@ export class AuthController {
     operationId: 'postAuthRegister',
     summary: 'Register a USER account and create a learning profile',
   })
-  @ApiCreatedResponse({ type: AuthSuccessResponseDto })
+  @ApiCreatedResponse({ type: RegistrationSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
   @ApiConflictResponse({ type: ApiErrorResponseDto })
   @ApiTooManyRequestsResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   async register(
     @Body() dto: RegisterDto,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<{ user: AuthenticatedUser; accessToken: string }> {
-    const result = await this.authService.register(dto);
-    this.setRefreshCookie(response, result.refreshToken);
-
-    return { user: result.user, accessToken: result.accessToken };
+  ): Promise<{ user: AuthenticatedUser }> {
+    const user = await this.authService.register(dto);
+    return { user };
   }
 
   @Post('login')

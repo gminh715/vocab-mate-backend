@@ -393,6 +393,30 @@ describe('ReviewAgentService', () => {
     expect(ai.planReviewSession).not.toHaveBeenCalled();
   });
 
+  it('builds the critical-path plan locally and prioritizes weaker overdue candidates', () => {
+    const decision = service.planSessionDeterministically({
+      userId: 'user',
+      reviewSessionId: 'session',
+      input: {
+        ...planInput,
+        candidates: [...planInput.candidates].reverse(),
+      },
+    });
+
+    expect(decision).toMatchObject({
+      source: ReviewDecisionSource.RULE,
+      reasonCode: 'DETERMINISTIC_PLAN',
+      provider: null,
+      model: null,
+      latencyMs: null,
+      decisionPayload: {
+        orderedCandidateAliases: ['v1', 'v2'],
+      },
+    });
+    expect(repository.reserveAiCallSlot).not.toHaveBeenCalled();
+    expect(ai.planReviewSession).not.toHaveBeenCalled();
+  });
+
   it('uses a safe deterministic session plan when both structured providers are unavailable', async () => {
     ai.planReviewSession.mockRejectedValue(
       new Error('provider response must not escape'),

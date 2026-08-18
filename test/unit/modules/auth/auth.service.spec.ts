@@ -90,7 +90,6 @@ describe('AuthService', () => {
       email: '  User@Example.COM ',
       password: 'StrongPass@123',
       displayName: 'Nguyen Van A',
-      currentCefrLevel: 'B1',
     };
 
     it('normalizes email, hashes the password, and returns only a safe user', async () => {
@@ -108,10 +107,8 @@ describe('AuthService', () => {
       await expect(
         bcrypt.compare(dto.password, createInput.passwordHash),
       ).resolves.toBe(true);
-      expect(result.user).toEqual(safeUser);
-      expect(result.user).not.toHaveProperty('passwordHash');
-      expect(result.accessToken).toEqual(expect.any(String));
-      expect(result.refreshToken).toEqual(expect.any(String));
+      expect(result).toEqual(safeUser);
+      expect(result).not.toHaveProperty('passwordHash');
     });
 
     it('preserves duplicate-email conflict errors', async () => {

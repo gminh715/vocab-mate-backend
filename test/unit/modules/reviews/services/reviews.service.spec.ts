@@ -27,6 +27,7 @@ import {
   ReviewAgentService,
   type SessionPlanDecisionRequest,
 } from '../../../../../src/modules/reviews/services/review-agent.service';
+import { ReviewPreparationProgressService } from '../../../../../src/modules/reviews/services/review-preparation-progress.service';
 
 const diagnosisSnapshot = {
   request: {
@@ -121,14 +122,17 @@ describe('ReviewsService', () => {
   };
   let reviewAgent: {
     planSession: jest.Mock;
+    planSessionDeterministically: jest.Mock;
     diagnoseAnswer: jest.Mock;
   };
+  let preparationProgress: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     repository = {
       startSession: jest.fn(),
       getSessionState: jest.fn(),
       getActiveSessionState: jest.fn(),
+      revealFillBlankHint: jest.fn(),
       submitAnswer: jest.fn(),
       skipItem: jest.fn(),
       abandonSession: jest.fn(),
@@ -150,7 +154,15 @@ describe('ReviewsService', () => {
     };
     reviewAgent = {
       planSession: jest.fn(),
+      planSessionDeterministically: jest.fn(),
       diagnoseAnswer: jest.fn(),
+    };
+    preparationProgress = {
+      begin: jest.fn(),
+      update: jest.fn(),
+      complete: jest.fn(),
+      fail: jest.fn(),
+      get: jest.fn(),
     };
     const module = await Test.createTestingModule({
       providers: [
@@ -161,6 +173,10 @@ describe('ReviewsService', () => {
           useValue: aiQuestionGenerator,
         },
         { provide: ReviewAgentService, useValue: reviewAgent },
+        {
+          provide: ReviewPreparationProgressService,
+          useValue: preparationProgress,
+        },
       ],
     }).compile();
     service = module.get(ReviewsService);
@@ -277,6 +293,7 @@ describe('ReviewsService', () => {
       }),
       expect.any(Date),
       expect.any(Function),
+      expect.any(Function),
     );
     expect(repository.startSession).toHaveBeenCalledWith(
       'user',
@@ -337,6 +354,60 @@ describe('ReviewsService', () => {
       expect.any(Date),
       prepared,
       2,
+    );
+  });
+
+  it('publishes bounded preparation progress for a tracked start request', async () => {
+    aiQuestionGenerator.warmCache.mockImplementation(
+      (
+        _userId,
+        _dto,
+        _now,
+        _onAiCallReserved,
+        onProgress: (progress: {
+          completedItems: number;
+          totalItems: number;
+        }) => void,
+      ) => {
+        onProgress({ completedItems: 2, totalItems: 4 });
+        onProgress({ completedItems: 4, totalItems: 4 });
+        return Promise.resolve([]);
+      },
+    );
+    repository.startSession.mockResolvedValue({
+      session: {
+        id: 'session',
+        planSummary: 'A ready review.',
+        status: ReviewSessionStatus.IN_PROGRESS,
+      },
+      answeredCount: 0,
+      totalQuestions: 4,
+      nextItem: { id: 'item' },
+    });
+
+    await service.startSession('user', {
+      preparationId: '11111111-1111-4111-8111-111111111111',
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      limit: 20,
+    });
+
+    expect(preparationProgress.begin).toHaveBeenCalledWith(
+      'user',
+      '11111111-1111-4111-8111-111111111111',
+    );
+    expect(preparationProgress.update).toHaveBeenCalledWith(
+      'user',
+      '11111111-1111-4111-8111-111111111111',
+      expect.objectContaining({
+        stage: 'GENERATING_QUESTIONS',
+        progressPercent: 45,
+        completedItems: 2,
+        totalItems: 4,
+      }),
+    );
+    expect(preparationProgress.complete).toHaveBeenCalledWith(
+      'user',
+      '11111111-1111-4111-8111-111111111111',
     );
   });
 
@@ -416,9 +487,9 @@ describe('ReviewsService', () => {
         ],
       });
     });
-    reviewAgent.planSession.mockImplementation(
+    reviewAgent.planSessionDeterministically.mockImplementation(
       (request: SessionPlanDecisionRequest) => {
-        callOrder.push('provider-finished');
+        callOrder.push('deterministic-plan-built');
         expect(JSON.stringify(request.input)).not.toContain('item-');
         expect(JSON.stringify(request.input)).not.toContain('vocabulary-');
         expect(JSON.stringify(request.input)).not.toContain('user');
@@ -430,27 +501,27 @@ describe('ReviewsService', () => {
           ReviewSkillDimension.CONTEXT,
           ReviewSkillDimension.RECALL,
         ]);
-        return Promise.resolve({
+        return {
           reviewSessionId: 'session',
           reviewSessionItemId: null,
           reviewAnswerId: null,
           kind: ReviewDecisionKind.SESSION_PLAN,
-          source: ReviewDecisionSource.AI,
+          source: ReviewDecisionSource.RULE,
           action: null,
           skillDimension: null,
           errorType: null,
-          confidence: 0.9,
-          reasonCode: 'AI_PLAN_ACCEPTED',
+          confidence: null,
+          reasonCode: 'DETERMINISTIC_PLAN',
           stateSnapshot: {},
           decisionPayload: {
             orderedCandidateAliases: ['v2', 'v1'],
             summary: 'Prioritize the overdue item.',
           },
-          provider: 'GEMINI',
-          model: 'gemini-model',
-          promptVersion: 'review-agent-test-v2',
-          latencyMs: 50,
-        });
+          provider: null,
+          model: null,
+          promptVersion: 'review-agent-rule-v1',
+          latencyMs: null,
+        };
       },
     );
     repository.applySessionPlanDecision.mockImplementation(() => {
@@ -472,7 +543,7 @@ describe('ReviewsService', () => {
     expect(callOrder).toEqual([
       'session-committed',
       'snapshot-loaded',
-      'provider-finished',
+      'deterministic-plan-built',
       'plan-persisted',
     ]);
     expect(repository.applySessionPlanDecision).toHaveBeenCalledWith(
@@ -481,10 +552,11 @@ describe('ReviewsService', () => {
         targetDurationMinutes: 15,
         reviewGoal: ReviewGoal.CONTEXT,
         plannedItemCount: 2,
-        agentVersion: 'review-agent-test-v2',
+        agentVersion: 'review-agent-rule-v1',
         orderedSessionItemIds: ['item-2', 'item-1'],
       }),
     );
+    expect(reviewAgent.planSession).not.toHaveBeenCalled();
   });
 
   it('keeps the committed deterministic session usable when optional planning fails', async () => {
@@ -675,6 +747,30 @@ describe('ReviewsService', () => {
       progress: { remainingCount: 1 },
       nextItem: { id: 'item' },
     });
+  });
+
+  it('reveals the requested fill-blank character through the repository', async () => {
+    repository.revealFillBlankHint.mockResolvedValue({
+      revealedCharacter: 'n',
+      wordIndex: 1,
+      characterIndex: 1,
+      totalCharacters: 15,
+    });
+
+    await expect(
+      service.revealHint('user', 'session', 'item', 1),
+    ).resolves.toEqual({
+      revealedCharacter: 'n',
+      wordIndex: 1,
+      characterIndex: 1,
+      totalCharacters: 15,
+    });
+    expect(repository.revealFillBlankHint).toHaveBeenCalledWith(
+      'user',
+      'session',
+      'item',
+      1,
+    );
   });
 
   it('returns answer feedback, progress, and the requeued next item together', async () => {

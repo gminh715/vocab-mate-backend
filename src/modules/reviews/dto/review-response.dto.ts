@@ -11,6 +11,27 @@ import {
   ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
+import {
+  REVIEW_PREPARATION_STAGES,
+  REVIEW_PREPARATION_STATUSES,
+  type ReviewPreparationStage,
+  type ReviewPreparationStatus,
+} from '../services/review-preparation-progress.service';
+
+export class ReviewPreparationProgressDataDto {
+  @ApiProperty({ format: 'uuid' })
+  preparationId!: string;
+  @ApiProperty({ enum: REVIEW_PREPARATION_STATUSES })
+  status!: ReviewPreparationStatus;
+  @ApiProperty({ enum: REVIEW_PREPARATION_STAGES })
+  stage!: ReviewPreparationStage;
+  @ApiProperty({ minimum: 0, maximum: 100 })
+  progressPercent!: number;
+  @ApiProperty({ minimum: 0 })
+  completedItems!: number;
+  @ApiProperty({ minimum: 0 })
+  totalItems!: number;
+}
 
 export class ReviewSessionDto {
   @ApiProperty({ format: 'uuid' })
@@ -65,12 +86,31 @@ export class SessionQuestionDto {
   prompt!: string;
   @ApiProperty({ nullable: true, example: null })
   blankSentence!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: [Number],
+    example: [4, 4, 7],
+    description:
+      'Character count for each whitespace-delimited answer word. Null for other question types.',
+  })
+  answerWordLengths!: number[] | null;
   @ApiProperty()
   points!: number;
   @ApiProperty()
   displayOrder!: number;
   @ApiProperty({ type: [SessionQuestionOptionDto] })
   options!: SessionQuestionOptionDto[];
+}
+
+export class RevealedReviewHintDataDto {
+  @ApiProperty({ example: 'a' })
+  revealedCharacter!: string;
+  @ApiProperty({ minimum: 0, example: 0 })
+  wordIndex!: number;
+  @ApiProperty({ minimum: 0, example: 1 })
+  characterIndex!: number;
+  @ApiProperty({ minimum: 1, example: 15 })
+  totalCharacters!: number;
 }
 
 export class ReviewProgressDto {
@@ -436,11 +476,17 @@ const successResponse = <T>(dataType: new () => T) => {
 export class StartReviewSessionSuccessResponseDto extends successResponse(
   StartReviewSessionDataDto,
 ) {}
+export class ReviewPreparationProgressSuccessResponseDto extends successResponse(
+  ReviewPreparationProgressDataDto,
+) {}
 export class ReviewSessionStateSuccessResponseDto extends successResponse(
   ReviewSessionStateDataDto,
 ) {}
 export class SubmitReviewAnswerSuccessResponseDto extends successResponse(
   SubmittedReviewAnswerDataDto,
+) {}
+export class RevealedReviewHintSuccessResponseDto extends successResponse(
+  RevealedReviewHintDataDto,
 ) {}
 export class SkipReviewItemSuccessResponseDto extends successResponse(
   SkippedReviewItemDataDto,

@@ -46,6 +46,7 @@ import {
   ReviewAgentService,
   type SessionPlanDecisionRequest,
 } from './review-agent.service';
+import { ReviewPreparationProgressService } from './review-preparation-progress.service';
 
 const DEFAULT_DAILY_REVIEW_DURATION: ReviewTargetDuration = 10;
 const DEFAULT_DAILY_REVIEW_LIMIT = 20;
@@ -74,6 +75,7 @@ export class ReviewsService {
     private readonly reviewsRepository: ReviewsRepository,
     private readonly aiQuestionGenerator: AiAssistedQuestionGeneratorService,
     private readonly reviewAgent: ReviewAgentService,
+    private readonly preparationProgress: ReviewPreparationProgressService,
   ) {}
 
   async createSessionPlanDecision(request: SessionPlanDecisionRequest) {
@@ -95,6 +97,10 @@ export class ReviewsService {
   }
 
   async startSession(userId: string, dto: StartReviewSessionDto) {
+    const preparationId = dto.preparationId;
+    if (preparationId) {
+      this.preparationProgress.begin(userId, preparationId);
+    }
     try {
       const now = new Date();
       const dailyPlan =
@@ -110,6 +116,12 @@ export class ReviewsService {
           }
         : dto;
       let initialAiCallCount = 0;
+      if (preparationId) {
+        this.preparationProgress.update(userId, preparationId, {
+          stage: 'CHECKING_CACHE',
+          progressPercent: 8,
+        });
+      }
       const preparedAiQuestions = await this.aiQuestionGenerator.warmCache(
         userId,
         effectiveDto,
@@ -117,7 +129,26 @@ export class ReviewsService {
         () => {
           initialAiCallCount += 1;
         },
+        ({ completedItems, totalItems }) => {
+          if (!preparationId) return;
+          const generationProgress =
+            totalItems === 0
+              ? 80
+              : 10 + Math.round((completedItems / totalItems) * 70);
+          this.preparationProgress.update(userId, preparationId, {
+            stage: totalItems === 0 ? 'CHECKING_CACHE' : 'GENERATING_QUESTIONS',
+            progressPercent: generationProgress,
+            completedItems,
+            totalItems,
+          });
+        },
       );
+      if (preparationId) {
+        this.preparationProgress.update(userId, preparationId, {
+          stage: 'CREATING_SESSION',
+          progressPercent: 85,
+        });
+      }
       const result = await this.reviewsRepository.startSession(
         userId,
         effectiveDto,
@@ -130,6 +161,12 @@ export class ReviewsService {
       }
       let state = result;
       if (result.answeredCount === 0 && result.session.planSummary === null) {
+        if (preparationId) {
+          this.preparationProgress.update(userId, preparationId, {
+            stage: 'PLANNING_SESSION',
+            progressPercent: 92,
+          });
+        }
         try {
           state =
             (await this.planNewSession(
@@ -145,10 +182,24 @@ export class ReviewsService {
           );
         }
       }
+      if (preparationId) {
+        this.preparationProgress.complete(userId, preparationId);
+      }
       return this.formatState(state);
     } catch (error: unknown) {
+      if (preparationId) {
+        this.preparationProgress.fail(userId, preparationId);
+      }
       this.mapError(error);
     }
+  }
+
+  getPreparationProgress(userId: string, preparationId: string) {
+    const progress = this.preparationProgress.get(userId, preparationId);
+    if (!progress) {
+      throw new NotFoundException('Review preparation not found');
+    }
+    return progress;
   }
 
   async getSession(userId: string, sessionId: string) {
@@ -164,6 +215,24 @@ export class ReviewsService {
     const state = await this.reviewsRepository.getActiveSessionState(userId);
     if (!state) throw new NotFoundException('Active review session not found');
     return this.formatState(state);
+  }
+
+  async revealHint(
+    userId: string,
+    sessionId: string,
+    reviewSessionItemId: string,
+    hintIndex: number,
+  ) {
+    try {
+      return await this.reviewsRepository.revealFillBlankHint(
+        userId,
+        sessionId,
+        reviewSessionItemId,
+        hintIndex,
+      );
+    } catch (error: unknown) {
+      this.mapError(error);
+    }
   }
 
   async submitAnswer(
@@ -333,7 +402,7 @@ export class ReviewsService {
         averageResponseTimeMs: aggregate.averageResponseTimeMs ?? 0,
       })),
     };
-    const decision = await this.reviewAgent.planSession({
+    const decision = this.reviewAgent.planSessionDeterministically({
       userId,
       reviewSessionId,
       input,

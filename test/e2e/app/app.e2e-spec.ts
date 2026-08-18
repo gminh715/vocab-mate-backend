@@ -49,9 +49,12 @@ const registration = {
   email: 'user@example.com',
   password: 'StrongPass@123',
   displayName: 'Nguyen Van A',
-  currentCefrLevel: 'B1',
-  learningGoal: 'C1',
 };
+
+interface RegistrationResponseBody {
+  success: true;
+  data: { user: PublicUserRecord };
+}
 
 interface AuthResponseBody {
   success: true;
@@ -365,8 +368,9 @@ class InMemoryUsersRepository {
     this.profiles.set(user.id, {
       displayName: input.displayName,
       avatarUrl: null,
-      currentCefrLevel: input.currentCefrLevel,
-      learningGoal: input.learningGoal ?? null,
+      currentCefrLevel: 'A1',
+      learningGoal: null,
+      dailyStudyMinutes: null,
       preferredLanguage: input.preferredLanguage ?? 'vi',
     });
     return Promise.resolve(this.toSafeUser(user));
@@ -493,15 +497,11 @@ describe('Auth and Users APIs (e2e)', () => {
     input: typeof registration,
     role: 'ADMIN' | 'USER',
   ): Promise<AuthResponseBody> => {
-    const registered = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/api/v1/auth/register')
       .send(input)
       .expect(201);
     repository.setRoleByEmail(input.email, role);
-
-    if (role === 'USER') {
-      return responseBody<AuthResponseBody>(registered);
-    }
 
     const login = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
@@ -2791,12 +2791,8 @@ describe('Auth and Users APIs (e2e)', () => {
   });
 
   it('USR-001 returns the authenticated account and profile without sensitive fields', async () => {
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const authenticated = await registerWithRole(registration, 'USER');
+    const accessToken = authenticated.data.accessToken;
     const response = await request(app.getHttpServer())
       .get('/api/v1/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -2810,8 +2806,9 @@ describe('Auth and Users APIs (e2e)', () => {
       profile: {
         displayName: registration.displayName,
         avatarUrl: null,
-        currentCefrLevel: registration.currentCefrLevel,
-        learningGoal: registration.learningGoal,
+        currentCefrLevel: 'A1',
+        learningGoal: null,
+        dailyStudyMinutes: null,
         preferredLanguage: 'vi',
       },
     });
@@ -2828,12 +2825,8 @@ describe('Auth and Users APIs (e2e)', () => {
   });
 
   it('USR-002 partially updates only the authenticated profile and persists it', async () => {
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const authenticated = await registerWithRole(registration, 'USER');
+    const accessToken = authenticated.data.accessToken;
     const updated = await request(app.getHttpServer())
       .patch('/api/v1/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -2849,7 +2842,8 @@ describe('Auth and Users APIs (e2e)', () => {
     expect(updatedBody.data.profile).toMatchObject({
       displayName: 'Updated Name',
       currentCefrLevel: 'B2',
-      learningGoal: registration.learningGoal,
+      learningGoal: null,
+      dailyStudyMinutes: null,
       preferredLanguage: 'vi',
     });
 
@@ -2863,12 +2857,8 @@ describe('Auth and Users APIs (e2e)', () => {
   });
 
   it('USR-002 rejects unknown account fields and leaves the profile unchanged', async () => {
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const authenticated = await registerWithRole(registration, 'USER');
+    const accessToken = authenticated.data.accessToken;
 
     for (const attempt of [
       { email: 'other@example.com' },
@@ -2897,12 +2887,8 @@ describe('Auth and Users APIs (e2e)', () => {
     ['empty payload', {}],
     ['explicit null', { avatarUrl: null }],
   ])('USR-002 rejects %s', async (_case, payload) => {
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const authenticated = await registerWithRole(registration, 'USER');
+    const accessToken = authenticated.data.accessToken;
 
     await request(app.getHttpServer())
       .patch('/api/v1/users/me')
@@ -2912,21 +2898,13 @@ describe('Auth and Users APIs (e2e)', () => {
   });
 
   it('USR-002 cannot target another user', async () => {
-    const first = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
+    const firstBody = await registerWithRole(registration, 'USER');
     const secondRegistration = {
       ...registration,
       email: 'second@example.com',
       displayName: 'Second User',
     };
-    const second = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(secondRegistration)
-      .expect(201);
-    const firstBody = responseBody<AuthResponseBody>(first);
-    const secondBody = responseBody<AuthResponseBody>(second);
+    const secondBody = await registerWithRole(secondRegistration, 'USER');
 
     await request(app.getHttpServer())
       .patch('/api/v1/users/me')
@@ -2946,13 +2924,13 @@ describe('Auth and Users APIs (e2e)', () => {
     ).toBe(secondRegistration.displayName);
   });
 
-  it('AUT-001 registers a normalized USER and sets an HttpOnly refresh cookie', async () => {
+  it('AUT-001 registers a normalized USER without starting a session', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
       .send({ ...registration, email: '  User@Example.COM ' })
       .expect(201);
 
-    const body = responseBody<AuthResponseBody>(response);
+    const body = responseBody<RegistrationResponseBody>(response);
     expect(body).toMatchObject({
       success: true,
       data: {
@@ -2963,9 +2941,9 @@ describe('Auth and Users APIs (e2e)', () => {
         },
       },
     });
-    expect(typeof body.data.accessToken).toBe('string');
+    expect(body.data).not.toHaveProperty('accessToken');
     expect(body.data.user).not.toHaveProperty('passwordHash');
-    expect(response.headers['set-cookie'][0]).toContain('HttpOnly');
+    expect(response.headers['set-cookie']).toBeUndefined();
   });
 
   it('AUT-001 rejects duplicate email and client-controlled role', async () => {
@@ -3038,11 +3016,12 @@ describe('Auth and Users APIs (e2e)', () => {
 
   it('AUT-003 rotates a valid refresh token', async () => {
     const agent = request.agent(app.getHttpServer());
-    const registered = await agent
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const originalCookie = registered.headers['set-cookie'][0];
+    await agent.post('/api/v1/auth/register').send(registration).expect(201);
+    const login = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: registration.email, password: registration.password })
+      .expect(200);
+    const originalCookie = login.headers['set-cookie'][0];
     const refreshed = await agent.post('/api/v1/auth/refresh').expect(200);
     const rotatedCookie = refreshed.headers['set-cookie'][0];
 
@@ -3073,6 +3052,10 @@ describe('Auth and Users APIs (e2e)', () => {
   it('AUT-003 rejects refresh for an inactive account', async () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/v1/auth/register').send(registration).expect(201);
+    await agent
+      .post('/api/v1/auth/login')
+      .send({ email: registration.email, password: registration.password })
+      .expect(200);
     repository.setStatusByEmail(registration.email, 'DISABLED');
 
     await agent.post('/api/v1/auth/refresh').expect(403);
@@ -3080,12 +3063,12 @@ describe('Auth and Users APIs (e2e)', () => {
 
   it('AUT-004 clears the cookie and remains idempotent with a valid access token', async () => {
     const agent = request.agent(app.getHttpServer());
-    const registered = await agent
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    await agent.post('/api/v1/auth/register').send(registration).expect(201);
+    const login = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: registration.email, password: registration.password })
+      .expect(200);
+    const accessToken = responseBody<AuthResponseBody>(login).data.accessToken;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const logout = await agent
@@ -3106,12 +3089,12 @@ describe('Auth and Users APIs (e2e)', () => {
 
   it('AUT-005 changes the password, clears refresh, and invalidates old credentials', async () => {
     const agent = request.agent(app.getHttpServer());
-    const registered = await agent
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    await agent.post('/api/v1/auth/register').send(registration).expect(201);
+    const login = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: registration.email, password: registration.password })
+      .expect(200);
+    const accessToken = responseBody<AuthResponseBody>(login).data.accessToken;
 
     await agent
       .patch('/api/v1/auth/change-password')
@@ -3134,12 +3117,8 @@ describe('Auth and Users APIs (e2e)', () => {
   });
 
   it('AUT-005 rejects an incorrect current password and a weak new password', async () => {
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(registration)
-      .expect(201);
-    const accessToken =
-      responseBody<AuthResponseBody>(registered).data.accessToken;
+    const authenticated = await registerWithRole(registration, 'USER');
+    const accessToken = authenticated.data.accessToken;
 
     await request(app.getHttpServer())
       .patch('/api/v1/auth/change-password')

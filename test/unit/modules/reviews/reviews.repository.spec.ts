@@ -1836,6 +1836,58 @@ describe('ReviewsRepository', () => {
     );
   });
 
+  it('reveals every fill-blank character once in a shuffled order', async () => {
+    itemFindFirst.mockResolvedValue({
+      id: 'item',
+      quizQuestion: {
+        id: 'question',
+        questionType: QuestionType.FILL_BLANK,
+        correctAnswerText: 'take into account',
+      },
+    });
+
+    const hints = await Promise.all(
+      Array.from({ length: 15 }, (_, hintIndex) =>
+        repository.revealFillBlankHint('owner', 'session', 'item', hintIndex),
+      ),
+    );
+    const answerWords = ['take', 'into', 'account'];
+    const positions = hints.map(
+      ({ wordIndex, characterIndex }) => `${wordIndex}:${characterIndex}`,
+    );
+
+    expect(new Set(positions).size).toBe(15);
+    expect(positions).not.toEqual(
+      answerWords.flatMap((word, wordIndex) =>
+        Array.from(
+          word,
+          (_, characterIndex) => `${wordIndex}:${characterIndex}`,
+        ),
+      ),
+    );
+    for (const hint of hints) {
+      expect(hint.revealedCharacter).toBe(
+        Array.from(answerWords[hint.wordIndex])[hint.characterIndex],
+      );
+      expect(hint.totalCharacters).toBe(15);
+    }
+    expect(itemFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          reviewSessionId: 'session',
+          status: ReviewSessionItemStatus.PENDING,
+          reviewSession: {
+            is: {
+              userId: 'owner',
+              status: ReviewSessionStatus.IN_PROGRESS,
+            },
+          },
+        }),
+        orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+      }),
+    );
+  });
+
   it('restores persisted feedback only while its owner-scoped item is pending', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',

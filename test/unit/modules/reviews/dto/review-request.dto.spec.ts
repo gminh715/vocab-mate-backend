@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
   GetReviewHistoryQueryDto,
+  ReviewPreparationParamsDto,
   StartReviewSessionDto,
   SubmitReviewAnswerDto,
 } from '../../../../../src/modules/reviews/dto/review-request.dto';
@@ -45,6 +46,19 @@ describe('Review request DTOs', () => {
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
+  });
+
+  it('accepts only UUID preparation identifiers', async () => {
+    const valid = plainToInstance(StartReviewSessionDto, {
+      sessionType: ReviewSessionType.DAILY_REVIEW,
+      preparationId: QUESTION_ID,
+    });
+    const invalid = plainToInstance(ReviewPreparationParamsDto, {
+      preparationId: 'not-a-uuid',
+    });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(invalid)).resolves.not.toHaveLength(0);
   });
 
   it.each([5, 10, 15])(

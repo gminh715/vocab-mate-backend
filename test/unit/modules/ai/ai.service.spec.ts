@@ -1,4 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import type { AiConfig } from '../../../../src/config/ai.config';
 import { AI_CONFIG } from '../../../../src/config/config.module';
 import type {
@@ -77,11 +78,8 @@ const enrichmentResult: TermEnrichmentResult = {
 
 const reviewQuestionInput: ReviewQuestionGenerationInput = {
   wordOrPhrase: 'engaging',
-  lemma: 'engage',
-  partOfSpeech: 'adjective',
   contextualMeaningVi: 'hap dan',
   originalSentence: 'The lesson was engaging for everyone.',
-  articleTopic: 'Education',
   targetCefr: 'B1',
   requestedQuestionType: 'SELECT_MEANING',
   promptStyle: 'CONTEXT_CLUE',
@@ -91,46 +89,33 @@ const reviewQuestionResult: ReviewQuestionGenerationResult = {
   prompt:
     'Use the lesson clue to pick the Vietnamese option that best fits "engaging".',
   blankSentence: null,
-  correctAnswerText: null,
   answerExplanation:
     'The word describes something that keeps your interest. It is positive in this lesson context.',
-  options: [
-    { optionText: 'hap dan', isCorrect: true },
-    { optionText: 'kho hieu', isCorrect: false },
-    { optionText: 'ngan gon', isCorrect: false },
-  ],
+  distractors: ['kho hieu', 'ngan gon'],
 };
 
 const reviewQuestionBatchInputs: ReviewQuestionGenerationInput[] = [
   reviewQuestionInput,
   {
     wordOrPhrase: 'ambitious',
-    lemma: 'ambitious',
     partOfSpeech: 'adjective',
     contextualMeaningVi: 'day tham vong',
-    originalSentence: 'They announced an ambitious transport plan.',
-    articleTopic: 'Transport',
     targetCefr: 'B1',
     requestedQuestionType: 'SELECT_WORD',
     promptStyle: 'QUICK_MATCH',
   },
   {
     wordOrPhrase: 'network',
-    lemma: 'network',
-    partOfSpeech: 'noun',
     contextualMeaningVi: 'mang luoi',
     originalSentence: 'The city expanded the network.',
-    articleTopic: 'Transport',
     targetCefr: 'B1',
     requestedQuestionType: 'SELECT_CORRECT_CONTEXT',
     promptStyle: 'MINI_CHALLENGE',
   },
   {
     wordOrPhrase: 'resilient',
-    lemma: 'resilient',
     partOfSpeech: 'adjective',
     contextualMeaningVi: 'kien cuong',
-    originalSentence: 'Small businesses remained resilient.',
     targetCefr: 'B1',
     requestedQuestionType: 'FILL_BLANK',
     promptStyle: 'REAL_WORLD_USE',
@@ -142,45 +127,28 @@ const reviewQuestionBatchResult: ReviewQuestionGenerationResult[] = [
   {
     prompt: 'Quick match: choose the saved English item for “day tham vong”.',
     blankSentence: null,
-    correctAnswerText: null,
     answerExplanation:
       'Ambitious describes a goal that is difficult and important. It fits a plan that aims for a major result.',
-    options: [
-      { optionText: 'ambitious', isCorrect: true },
-      { optionText: 'ordinary', isCorrect: false },
-      { optionText: 'temporary', isCorrect: false },
-    ],
+    distractors: ['ordinary', 'temporary'],
   },
   {
     prompt:
       'Mini challenge: spot the sentence where “network” keeps its article usage.',
     blankSentence: null,
-    correctAnswerText: null,
     answerExplanation:
       'Network refers to a connected transport system here. The correct sentence keeps that same use.',
-    options: [
-      {
-        optionText: 'The city expanded the network.',
-        isCorrect: true,
-      },
-      {
-        optionText: 'She used a network to catch fish.',
-        isCorrect: false,
-      },
-      {
-        optionText: 'He networks with guests after work.',
-        isCorrect: false,
-      },
+    distractors: [
+      'She used a network to catch fish.',
+      'He networks with guests after work.',
     ],
   },
   {
     prompt:
       'Complete this everyday-use sentence with the saved vocabulary item.',
     blankSentence: 'The small business stayed ___ after a difficult year.',
-    correctAnswerText: 'resilient',
     answerExplanation:
       'Resilient describes someone or something that recovers from difficulty. It completes this sentence naturally.',
-    options: [],
+    distractors: [],
   },
 ];
 
@@ -356,12 +324,32 @@ describe('AiService', () => {
     );
     expect(request.systemInstruction).toContain('never use Markdown');
     expect(request.systemInstruction).toContain(
-      'copy contextualMeaningVi character-for-character',
+      'return only two or three distinct',
     );
     expect(JSON.stringify(request.schema)).toContain(
-      'exactly copy contextualMeaningVi',
+      'plausible, but incorrect option',
     );
     expect(JSON.stringify(request.schema)).toContain('CONTEXT_CLUE');
+  });
+
+  it('logs bounded provider latency and token metrics without prompt content', async () => {
+    const metricLog = jest
+      .spyOn(Logger.prototype, 'log')
+      .mockImplementation(() => undefined);
+    gemini.generateStructured.mockResolvedValue({
+      content: JSON.stringify(reviewQuestionResult),
+      usage: { inputTokens: 120, outputTokens: 45 },
+    });
+
+    await service.generateReviewQuestion(reviewQuestionInput);
+
+    expect(metricLog).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^AI_METRIC schema=review_question_generation_v2 provider=GEMINI status=success latencyMs=\d+ inputTokens=120 outputTokens=45 tokenSource=provider$/,
+      ),
+    );
+    expect(metricLog.mock.calls.join(' ')).not.toContain('engaging');
+    metricLog.mockRestore();
   });
 
   it('generates up to four mixed review questions in one exact-order provider call', async () => {
@@ -437,25 +425,19 @@ describe('AiService', () => {
 
   it('does not apply answer-leak matching to normalized answers shorter than three characters', async () => {
     const shortAnswerInput: ReviewQuestionGenerationInput = {
-      ...reviewQuestionInput,
       wordOrPhrase: 'go',
-      lemma: 'go',
       contextualMeaningVi: 'di',
-      originalSentence: 'They go to class together.',
+      partOfSpeech: 'verb',
+      targetCefr: 'B1',
       requestedQuestionType: 'SELECT_WORD',
       promptStyle: 'QUICK_MATCH',
     };
     const shortAnswerResult: ReviewQuestionGenerationResult = {
       prompt: 'Quick match: choose “go” for the clue “di”.',
       blankSentence: null,
-      correctAnswerText: null,
       answerExplanation:
         'Go describes moving from one place to another. It matches this short clue.',
-      options: [
-        { optionText: 'go', isCorrect: true },
-        { optionText: 'sit', isCorrect: false },
-        { optionText: 'wait', isCorrect: false },
-      ],
+      distractors: ['sit', 'wait'],
     };
     gemini.generateStructured.mockResolvedValue(
       JSON.stringify(shortAnswerResult),
@@ -483,10 +465,7 @@ describe('AiService', () => {
   it('rejects ambiguous or malformed review output from both providers', async () => {
     const invalid = {
       ...reviewQuestionResult,
-      options: reviewQuestionResult.options.map((option) => ({
-        ...option,
-        isCorrect: true,
-      })),
+      distractors: ['kho hieu', 'kho hieu'],
     };
     gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
     groq.generateStructured.mockResolvedValue(JSON.stringify(invalid));
@@ -497,22 +476,24 @@ describe('AiService', () => {
     expect(groq.generateStructured.mock.calls).toHaveLength(1);
   });
 
-  it('restores the authoritative answer when a provider paraphrases or mangles it', async () => {
+  it('rejects a distractor that duplicates the authoritative answer', async () => {
     gemini.generateStructured.mockResolvedValue(
       JSON.stringify({
         ...reviewQuestionResult,
-        options: reviewQuestionResult.options.map((option) =>
-          option.isCorrect
-            ? { ...option, optionText: 'interesting and engaging' }
-            : option,
-        ),
+        distractors: ['hap dan', 'kho hieu'],
+      }),
+    );
+    groq.generateStructured.mockResolvedValue(
+      JSON.stringify({
+        ...reviewQuestionResult,
+        distractors: ['hap dan', 'kho hieu'],
       }),
     );
 
     await expect(
       service.generateReviewQuestion(reviewQuestionInput),
-    ).resolves.toEqual(reviewQuestionResult);
-    expect(groq.generateStructured.mock.calls).toHaveLength(0);
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
   });
 
   it('uses the limited provider fallback when review generation times out', async () => {

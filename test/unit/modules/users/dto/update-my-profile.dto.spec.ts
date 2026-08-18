@@ -30,12 +30,19 @@ describe('UpdateMyProfileDto', () => {
     await expect(validate(dto)).resolves.toHaveLength(0);
   });
 
+  it.each([5, 10, 15])('accepts %i daily study minutes', async (minutes) => {
+    await expect(
+      validateDto({ dailyStudyMinutes: minutes }),
+    ).resolves.toHaveLength(0);
+  });
+
   it.each([
     ['invalid CEFR level', { currentCefrLevel: 'B9' }],
     ['invalid learningGoal CEFR', { learningGoal: 'INVALID' }],
     ['blank display name', { displayName: '   ' }],
     ['invalid avatar URL', { avatarUrl: 'not-a-url' }],
     ['explicit null', { learningGoal: null }],
+    ['unsupported daily study time', { dailyStudyMinutes: 20 }],
     ['account field', { email: 'other@example.com' }],
     ['authorization field', { role: 'ADMIN' }],
     ['status field', { status: 'DISABLED' }],

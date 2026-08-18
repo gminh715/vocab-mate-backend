@@ -35,6 +35,9 @@ import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import {
+  RevealReviewHintDto,
+  ReviewPreparationParamsDto,
+  ReviewSessionItemParamsDto,
   ReviewSessionParamsDto,
   SkipReviewSessionItemDto,
   StartReviewSessionDto,
@@ -43,6 +46,8 @@ import {
 import {
   AbandonReviewSessionSuccessResponseDto,
   CompletedReviewResultSuccessResponseDto,
+  RevealedReviewHintSuccessResponseDto,
+  ReviewPreparationProgressSuccessResponseDto,
   ReviewSessionStateSuccessResponseDto,
   SkipReviewItemSuccessResponseDto,
   StartReviewSessionSuccessResponseDto,
@@ -139,6 +144,28 @@ export class ReviewSessionsController {
     return this.reviewsService.getActiveSession(user.id);
   }
 
+  @Get('preparations/:preparationId')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'getReviewPreparationProgress',
+    summary: 'Get progress for an in-flight review-session preparation',
+  })
+  @ApiOkResponse({ type: ReviewPreparationProgressSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiForbiddenResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  getPreparationProgress(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param() params: ReviewPreparationParamsDto,
+  ) {
+    return this.reviewsService.getPreparationProgress(
+      user.id,
+      params.preparationId,
+    );
+  }
+
   @Get(':sessionId')
   @Version('1')
   @HttpCode(HttpStatus.OK)
@@ -160,6 +187,31 @@ export class ReviewSessionsController {
     @Param() params: ReviewSessionParamsDto,
   ) {
     return this.reviewsService.getSession(user.id, params.sessionId);
+  }
+
+  @Post(':sessionId/items/:reviewSessionItemId/hints')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'revealReviewHint',
+    summary: 'Reveal the next word for the active fill-blank question',
+  })
+  @ApiOkResponse({ type: RevealedReviewHintSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiForbiddenResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
+  revealHint(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param() params: ReviewSessionItemParamsDto,
+    @Body() dto: RevealReviewHintDto,
+  ) {
+    return this.reviewsService.revealHint(
+      user.id,
+      params.sessionId,
+      params.reviewSessionItemId,
+      dto.hintIndex,
+    );
   }
 
   @Post(':sessionId/answers')

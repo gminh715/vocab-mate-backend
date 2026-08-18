@@ -22,8 +22,6 @@ export interface CreateRegisteredUserInput {
   email: string;
   passwordHash: string;
   displayName: string;
-  currentCefrLevel: CefrLevel;
-  learningGoal?: CefrLevel;
   preferredLanguage?: string;
 }
 
@@ -32,6 +30,7 @@ export interface UserProfileRecord {
   avatarUrl: string | null;
   currentCefrLevel: CefrLevel;
   learningGoal: string | null;
+  dailyStudyMinutes: number | null;
   preferredLanguage: string;
 }
 
@@ -44,6 +43,7 @@ export interface UpdateMyProfileInput {
   avatarUrl?: string;
   currentCefrLevel?: CefrLevel;
   learningGoal?: CefrLevel;
+  dailyStudyMinutes?: number;
   preferredLanguage?: string;
 }
 
@@ -128,6 +128,7 @@ const userProfileSelect = {
   avatarUrl: true,
   currentCefrLevel: true,
   learningGoal: true,
+  dailyStudyMinutes: true,
   preferredLanguage: true,
 } as const;
 
@@ -403,8 +404,7 @@ export class UsersRepository {
         profile: {
           create: {
             displayName: input.displayName,
-            currentCefrLevel: input.currentCefrLevel,
-            learningGoal: input.learningGoal,
+            currentCefrLevel: 'A1',
             preferredLanguage: input.preferredLanguage,
           },
         },

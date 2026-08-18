@@ -115,15 +115,6 @@ const questionTypePromptGuidance = (
   }
 };
 
-const optionInstruction = (input: ReviewQuestionGenerationInput): string =>
-  input.requestedQuestionType === 'SELECT_MEANING'
-    ? 'The one correct option must exactly copy contextualMeaningVi from the supplied input.'
-    : input.requestedQuestionType === 'SELECT_WORD'
-      ? 'The one correct option must exactly copy wordOrPhrase from the supplied input.'
-      : input.requestedQuestionType === 'SELECT_CORRECT_CONTEXT'
-        ? 'The one correct option must exactly copy originalSentence from the supplied input.'
-        : 'Must be empty.';
-
 const promptDescription = (input: ReviewQuestionGenerationInput): string =>
   [
     `One engaging learner-facing sentence no harder than ${input.targetCefr}.`,
@@ -137,8 +128,6 @@ const promptDescription = (input: ReviewQuestionGenerationInput): string =>
 const reviewQuestionProperties = (
   input: ReviewQuestionGenerationInput,
 ): Record<string, JsonSchema> => {
-  const answerOptionInstruction = optionInstruction(input);
-
   return {
     prompt: requiredString(promptDescription(input)),
     blankSentence: {
@@ -148,32 +137,18 @@ const reviewQuestionProperties = (
           ? 'One fresh, natural target-level example sentence with exactly one ___ blank and no other copy of wordOrPhrase.'
           : 'Must be null for an option-based question.',
     },
-    correctAnswerText: {
-      type: input.requestedQuestionType === 'FILL_BLANK' ? 'string' : 'null',
-      description:
-        input.requestedQuestionType === 'FILL_BLANK'
-          ? 'Must exactly copy wordOrPhrase from the supplied input.'
-          : 'Must be null for an option-based question.',
-    },
     answerExplanation: requiredString(
       'Exactly two or three short plain-text sentences explaining the correct answer, with no Markdown.',
     ),
-    options: {
+    distractors: {
       type: 'array',
-      maxItems: 4,
+      minItems: input.requestedQuestionType === 'FILL_BLANK' ? 0 : 2,
+      maxItems: input.requestedQuestionType === 'FILL_BLANK' ? 0 : 3,
       description:
         input.requestedQuestionType === 'FILL_BLANK'
           ? 'Must be empty.'
-          : `Three or four distinct plain-text options with exactly one correct answer. ${answerOptionInstruction}`,
-      items: strictObject({
-        optionText: requiredString(
-          `One distinct plain-text answer option. ${answerOptionInstruction}`,
-        ),
-        isCorrect: {
-          type: 'boolean',
-          description: 'True for exactly one option.',
-        },
-      }),
+          : 'Two or three distinct plain-text incorrect options. Never include or paraphrase the authoritative correct answer.',
+      items: requiredString('One distinct, plausible, but incorrect option.'),
     },
   };
 };
@@ -208,28 +183,17 @@ export const reviewQuestionBatchGenerationSchema = (
           description:
             'For FILL_BLANK, one fresh sentence with exactly one ___ blank; otherwise null.',
         },
-        correctAnswerText: {
-          type: ['string', 'null'],
-          description:
-            'For FILL_BLANK, exactly copy wordOrPhrase; otherwise null.',
-        },
         answerExplanation: requiredString(
           'Exactly two or three short plain-text sentences explaining the correct answer.',
         ),
-        options: {
+        distractors: {
           type: 'array',
-          maxItems: 4,
+          maxItems: 3,
           description:
-            'For an option question, three or four distinct plain-text options with exactly one correct answer copied from the authoritative matching input field; for FILL_BLANK, empty.',
-          items: strictObject({
-            optionText: requiredString(
-              'One distinct plain-text answer option.',
-            ),
-            isCorrect: {
-              type: 'boolean',
-              description: 'True for exactly one option.',
-            },
-          }),
+            'For an option question, two or three distinct plausible but incorrect options; for FILL_BLANK, empty. Never return the authoritative correct answer.',
+          items: requiredString(
+            'One distinct, plausible, but incorrect option.',
+          ),
         },
       }),
     },

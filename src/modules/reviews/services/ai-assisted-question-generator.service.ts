@@ -33,6 +33,13 @@ interface IndexedGenerationCandidate {
   index: number;
 }
 
+export interface ReviewQuestionWarmProgress {
+  completedItems: number;
+  totalItems: number;
+}
+
+const MAX_CONCURRENT_WARM_BATCHES = 2;
+
 @Injectable()
 export class AiAssistedQuestionGeneratorService {
   private readonly logger = new Logger(AiAssistedQuestionGeneratorService.name);
@@ -53,6 +60,8 @@ export class AiAssistedQuestionGeneratorService {
     dto: StartReviewSessionDto,
     now: Date,
     onAiCallReserved: () => void = () => undefined,
+    onProgress: (progress: ReviewQuestionWarmProgress) => void = () =>
+      undefined,
   ): Promise<PreparedAiReviewQuestion[]> {
     const candidates =
       await this.reviewsRepository.getAiQuestionGenerationCandidates(
@@ -69,77 +78,107 @@ export class AiAssistedQuestionGeneratorService {
     const missing = candidates.flatMap((candidate, index) =>
       prepared[index] ? [] : [{ candidate, index }],
     );
+    const initialCompletedItems = candidates.length - missing.length;
+    let processedMissingItems = 0;
+    onProgress({
+      completedItems: initialCompletedItems,
+      totalItems: candidates.length,
+    });
 
+    const batches: IndexedGenerationCandidate[][] = [];
     for (
       let offset = 0;
       offset < missing.length;
       offset += REVIEW_QUESTION_BATCH_MAX_SIZE
     ) {
-      const batch = missing.slice(
-        offset,
-        offset + REVIEW_QUESTION_BATCH_MAX_SIZE,
+      batches.push(
+        missing.slice(offset, offset + REVIEW_QUESTION_BATCH_MAX_SIZE),
       );
-      const latestCached = await Promise.all(
-        batch.map(({ candidate }) =>
-          this.reviewsRepository.findCachedAiQuestion(
-            candidate.vocabulary.articleSentenceTermId,
-            candidate.vocabulary.savedCefrLevel,
-            candidate.questionType,
-          ),
-        ),
-      );
-      const unresolved = batch.filter(({ candidate, index }, batchIndex) => {
-        const cached = latestCached[batchIndex];
-        if (!cached) return true;
-        prepared[index] = this.toPreparedQuestion(candidate, cached.id);
-        return false;
-      });
-      if (unresolved.length === 0) continue;
+    }
 
-      const batchKey = unresolved
-        .map(({ candidate }) =>
-          this.cacheKey(candidate, candidate.questionType),
-        )
-        .join('|');
-      let generation = this.batchInFlight.get(batchKey);
-      if (!generation) {
-        if (generatedBatchCount >= batchLimit) continue;
-        generatedBatchCount += 1;
-        onAiCallReserved();
-        generation = this.generateAndCacheBatch(unresolved).finally(() =>
-          this.batchInFlight.delete(batchKey),
-        );
-        this.batchInFlight.set(batchKey, generation);
-      }
+    let nextBatchIndex = 0;
+    const processBatch = async (batch: IndexedGenerationCandidate[]) => {
       try {
-        const questions = await generation;
-        unresolved.forEach(({ candidate, index }, questionIndex) => {
-          const question = questions[questionIndex];
-          if (question) {
-            prepared[index] = this.toPreparedQuestion(candidate, question.id);
-          }
-        });
-      } catch (error: unknown) {
-        if (!(error instanceof AiError)) throw error;
-        const failureReason = error.providerFailureReason ?? 'unknown';
-        this.logger.warn(
-          `AI review question batch unavailable; omitting candidates without a compatible cache (${error.code}: ${failureReason})`,
-        );
-        const fallbacks = await Promise.all(
-          unresolved.map(({ candidate }) =>
-            this.reviewsRepository.findPreferredCachedAiQuestion(
-              candidate.vocabulary.id,
+        const latestCached = await Promise.all(
+          batch.map(({ candidate }) =>
+            this.reviewsRepository.findCachedAiQuestion(
               candidate.vocabulary.articleSentenceTermId,
               candidate.vocabulary.savedCefrLevel,
-              candidate.preferredQuestionTypes,
+              candidate.questionType,
             ),
           ),
         );
-        unresolved.forEach(({ index }, fallbackIndex) => {
-          prepared[index] = fallbacks[fallbackIndex];
+        const unresolved = batch.filter(({ candidate, index }, batchIndex) => {
+          const cached = latestCached[batchIndex];
+          if (!cached) return true;
+          prepared[index] = this.toPreparedQuestion(candidate, cached.id);
+          return false;
+        });
+        if (unresolved.length === 0) return;
+
+        const batchKey = unresolved
+          .map(({ candidate }) =>
+            this.cacheKey(candidate, candidate.questionType),
+          )
+          .join('|');
+        let generation = this.batchInFlight.get(batchKey);
+        if (!generation) {
+          if (generatedBatchCount >= batchLimit) return;
+          generatedBatchCount += 1;
+          onAiCallReserved();
+          generation = this.generateAndCacheBatch(unresolved).finally(() =>
+            this.batchInFlight.delete(batchKey),
+          );
+          this.batchInFlight.set(batchKey, generation);
+        }
+        try {
+          const questions = await generation;
+          unresolved.forEach(({ candidate, index }, questionIndex) => {
+            const question = questions[questionIndex];
+            if (question) {
+              prepared[index] = this.toPreparedQuestion(candidate, question.id);
+            }
+          });
+        } catch (error: unknown) {
+          if (!(error instanceof AiError)) throw error;
+          const failureReason = error.providerFailureReason ?? 'unknown';
+          this.logger.warn(
+            `AI review question batch unavailable; omitting candidates without a compatible cache (${error.code}: ${failureReason})`,
+          );
+          const fallbacks = await Promise.all(
+            unresolved.map(({ candidate }) =>
+              this.reviewsRepository.findPreferredCachedAiQuestion(
+                candidate.vocabulary.id,
+                candidate.vocabulary.articleSentenceTermId,
+                candidate.vocabulary.savedCefrLevel,
+                candidate.preferredQuestionTypes,
+              ),
+            ),
+          );
+          unresolved.forEach(({ index }, fallbackIndex) => {
+            prepared[index] = fallbacks[fallbackIndex];
+          });
+        }
+      } finally {
+        processedMissingItems += batch.length;
+        onProgress({
+          completedItems: initialCompletedItems + processedMissingItems,
+          totalItems: candidates.length,
         });
       }
-    }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(MAX_CONCURRENT_WARM_BATCHES, batches.length) },
+      async () => {
+        while (nextBatchIndex < batches.length) {
+          const batch = batches[nextBatchIndex];
+          nextBatchIndex += 1;
+          if (batch) await processBatch(batch);
+        }
+      },
+    );
+    await Promise.all(workers);
 
     return prepared.filter(
       (question): question is PreparedAiReviewQuestion => question !== null,
@@ -265,19 +304,23 @@ export class AiAssistedQuestionGeneratorService {
     promptStyle: ReviewQuestionPromptStyle,
   ): ReviewQuestionGenerationInput {
     const vocabulary = candidate.vocabulary;
-    return {
+    const baseInput = {
       wordOrPhrase: vocabulary.savedWordDisplay,
-      lemma: vocabulary.savedLemma,
-      partOfSpeech: vocabulary.savedPartOfSpeech,
       contextualMeaningVi: vocabulary.savedMeaningVi,
-      originalSentence: vocabulary.savedContextSentence,
-      ...(vocabulary.articleTopic
-        ? { articleTopic: vocabulary.articleTopic }
-        : {}),
       targetCefr: vocabulary.savedCefrLevel,
       requestedQuestionType: this.toAiQuestionType(questionType),
       promptStyle,
     };
+    return questionType === QuestionType.SELECT_WORD ||
+      questionType === QuestionType.FILL_BLANK
+      ? {
+          ...baseInput,
+          partOfSpeech: vocabulary.savedPartOfSpeech,
+        }
+      : {
+          ...baseInput,
+          originalSentence: vocabulary.savedContextSentence,
+        };
   }
 
   private toQuestionSpec(
@@ -295,19 +338,59 @@ export class AiAssistedQuestionGeneratorService {
       difficultyCefr: vocabulary.savedCefrLevel,
       prompt: generated.prompt,
       blankSentence: generated.blankSentence,
-      correctAnswerText: generated.correctAnswerText,
+      correctAnswerText:
+        questionType === QuestionType.FILL_BLANK
+          ? vocabulary.savedWordDisplay
+          : null,
       answerExplanation: generated.answerExplanation,
       isCaseSensitive: false,
       points: 1,
       displayOrder: 1,
       isActive: true,
-      options: generated.options.map((option, index) => ({
-        optionText: option.optionText,
-        isCorrect: option.isCorrect,
-        explanation: null,
-        displayOrder: index + 1,
-      })),
+      options: this.buildOptions(candidate, questionType, generated).map(
+        (option, index) => ({
+          optionText: option.optionText,
+          isCorrect: option.isCorrect,
+          explanation: null,
+          displayOrder: index + 1,
+        }),
+      ),
     };
+  }
+
+  private buildOptions(
+    candidate: AiQuestionGenerationCandidate,
+    questionType: QuestionType,
+    generated: ReviewQuestionGenerationResult,
+  ): Array<{ optionText: string; isCorrect: boolean }> {
+    if (questionType === QuestionType.FILL_BLANK) return [];
+    const options = generated.distractors.map((optionText) => ({
+      optionText,
+      isCorrect: false,
+    }));
+    const correctOption = {
+      optionText: this.correctAnswer(candidate, questionType),
+      isCorrect: true,
+    };
+    const insertionIndex =
+      this.stableHash(this.cacheKey(candidate, questionType)) %
+      (options.length + 1);
+    options.splice(insertionIndex, 0, correctOption);
+    return options;
+  }
+
+  private correctAnswer(
+    candidate: AiQuestionGenerationCandidate,
+    questionType: QuestionType,
+  ): string {
+    const vocabulary = candidate.vocabulary;
+    if (questionType === QuestionType.SELECT_MEANING) {
+      return vocabulary.savedMeaningVi;
+    }
+    if (questionType === QuestionType.SELECT_CORRECT_CONTEXT) {
+      return vocabulary.savedContextSentence;
+    }
+    return vocabulary.savedWordDisplay;
   }
 
   private cacheKey(
@@ -331,11 +414,15 @@ export class AiAssistedQuestionGeneratorService {
   }
 
   private promptStyleForSeed(seed: string): ReviewQuestionPromptStyle {
+    return this.promptStyleAt(this.stableHash(seed));
+  }
+
+  private stableHash(seed: string): number {
     let hash = 0;
     for (const character of seed) {
       hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
     }
-    return this.promptStyleAt(hash);
+    return hash;
   }
 
   private toPreparedQuestion(

@@ -35,6 +35,7 @@ model UserProfile {
   avatarUrl         String?   @map("avatar_url") @db.Text
   currentCefrLevel  CefrLevel @map("current_cefr_level")
   learningGoal      String?   @map("learning_goal") @db.Text
+  dailyStudyMinutes Int?      @map("daily_study_minutes") @db.SmallInt
   preferredLanguage String    @default("vi") @map("preferred_language") @db.VarChar(20)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)

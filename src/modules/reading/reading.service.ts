@@ -11,7 +11,7 @@ import {
   AiGenerationStatus,
   ReadingStatus,
 } from '../../../generated/prisma/enums';
-import { isCefrAtOrAbove } from '../../common/utils/cefr-level.util';
+import { isCefrInLearningRange } from '../../common/utils/cefr-level.util';
 import type { TermEnrichmentResult } from '../ai/ai.contracts';
 import { AiService } from '../ai/ai.service';
 import { ArticleContentService } from '../articles/services/article-content.service';
@@ -50,6 +50,7 @@ export class ReadingService {
       throw new NotFoundException('User profile not found');
     }
     const userCefrLevel = result.userCefrLevel;
+    const userTargetCefrLevel = result.userTargetCefrLevel;
 
     return {
       article: result.article,
@@ -57,7 +58,13 @@ export class ReadingService {
       highlightedTermIds: result.termCandidates
         .filter(
           ({ cefrLevel }) =>
-            cefrLevel !== null && isCefrAtOrAbove(cefrLevel, userCefrLevel),
+            cefrLevel !== null &&
+            userTargetCefrLevel !== null &&
+            isCefrInLearningRange(
+              cefrLevel,
+              userCefrLevel,
+              userTargetCefrLevel,
+            ),
         )
         .map(({ id }) => id),
       progress: this.mapProgress(result.article.id, result.progress),

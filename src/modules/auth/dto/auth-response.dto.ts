@@ -31,6 +31,19 @@ export class AuthSuccessResponseDto {
   data!: AuthDataDto;
 }
 
+export class RegistrationDataDto {
+  @ApiProperty({ type: PublicUserDto })
+  user!: PublicUserDto;
+}
+
+export class RegistrationSuccessResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ type: RegistrationDataDto })
+  data!: RegistrationDataDto;
+}
+
 export class AccessTokenDataDto {
   @ApiProperty({ example: '<jwt-access-token>' })
   accessToken!: string;

@@ -109,27 +109,19 @@ export interface TermEnrichmentResult {
 
 export interface ReviewQuestionGenerationInput {
   wordOrPhrase: string;
-  lemma: string;
-  partOfSpeech: string;
   contextualMeaningVi: string;
-  originalSentence: string;
-  articleTopic?: string;
+  partOfSpeech?: string;
+  originalSentence?: string;
   targetCefr: CefrLevel;
   requestedQuestionType: ReviewQuestionType;
   promptStyle: ReviewQuestionPromptStyle;
 }
 
-export interface ReviewQuestionGenerationOption {
-  optionText: string;
-  isCorrect: boolean;
-}
-
 export interface ReviewQuestionGenerationResult {
   prompt: string;
   blankSentence: string | null;
-  correctAnswerText: string | null;
   answerExplanation: string;
-  options: ReviewQuestionGenerationOption[];
+  distractors: string[];
 }
 
 export type ReviewQuestionBatchGenerationResult =

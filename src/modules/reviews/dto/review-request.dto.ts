@@ -35,6 +35,15 @@ const trimString = ({ value }: { value: unknown }): unknown =>
 
 export class StartReviewSessionDto {
   @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Client-generated identifier used to poll preparation progress while this request is pending.',
+  })
+  @IsOptional()
+  @IsUUID()
+  preparationId?: string;
+
+  @ApiPropertyOptional({
     enum: ReviewSessionType,
     default: ReviewSessionType.QUIZ,
     example: ReviewSessionType.DAILY_REVIEW,
@@ -133,6 +142,21 @@ export class ReviewSessionParamsDto {
   sessionId!: string;
 }
 
+export class ReviewSessionItemParamsDto extends ReviewSessionParamsDto {
+  @ApiProperty({
+    format: 'uuid',
+    example: '2f39d6c0-a2bc-4d3f-a3ae-e5844bf16e55',
+  })
+  @IsUUID()
+  reviewSessionItemId!: string;
+}
+
+export class ReviewPreparationParamsDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  preparationId!: string;
+}
+
 export class SubmitReviewAnswerDto {
   @ApiProperty({
     format: 'uuid',
@@ -192,6 +216,20 @@ export class SubmitReviewAnswerDto {
   @Min(0)
   @Max(32_767)
   hintsUsed?: number;
+}
+
+export class RevealReviewHintDto {
+  @ApiProperty({
+    minimum: 0,
+    maximum: 32_766,
+    example: 0,
+    description:
+      'Zero-based index of the next character in the question-specific shuffled hint order.',
+  })
+  @IsInt()
+  @Min(0)
+  @Max(32_766)
+  hintIndex!: number;
 }
 
 export class SkipReviewSessionItemDto {

@@ -1,6 +1,7 @@
 import {
   AiGenerationStatus,
   ArticleStatus,
+  CefrLevel,
 } from '../../../../../generated/prisma/enums';
 import type { PrismaService } from '../../../../../src/database/prisma.service';
 import {
@@ -12,7 +13,13 @@ interface StoredState {
   contentHtml: string;
   status: ArticleStatus;
   aiAnalysisStatus: AiGenerationStatus;
+  cefrLevel: CefrLevel;
   termCount: number;
+}
+
+interface ArticleUpdateManyArgs {
+  data: Record<string, unknown> & { cefrLevel?: CefrLevel };
+  where: Record<string, unknown>;
 }
 
 describe('ArticlesRepository article analysis persistence', () => {
@@ -35,12 +42,14 @@ describe('ArticlesRepository article analysis persistence', () => {
     annotatedContentHtml,
     actingAdminId: 'admin-id',
     expectedSentences,
+    articleCefrLevel: CefrLevel.A2,
     terms: [
       {
         id: 'term-id',
         sentenceId: 'sentence-id',
         value: 'ambitious',
         lemma: 'ambitious',
+        cefrLevel: CefrLevel.B1,
         createdByUserId: 'admin-id',
         updatedByUserId: 'admin-id',
       },
@@ -52,6 +61,7 @@ describe('ArticlesRepository article analysis persistence', () => {
       contentHtml: sourceContentHtml,
       status: ArticleStatus.DRAFT,
       aiAnalysisStatus: AiGenerationStatus.PROCESSING,
+      cefrLevel: CefrLevel.B1,
       termCount: 0,
     };
     const createMany = jest.fn<
@@ -60,7 +70,7 @@ describe('ArticlesRepository article analysis persistence', () => {
     >();
     const updateMany = jest.fn<
       Promise<{ count: number }>,
-      [Record<string, unknown>]
+      [ArticleUpdateManyArgs]
     >();
     const transaction = jest.fn(
       async (
@@ -71,7 +81,7 @@ describe('ArticlesRepository article analysis persistence', () => {
               id: string;
               contentVersion: number;
               aiAnalysisStatus: AiGenerationStatus;
-              cefrLevel: 'B1';
+              cefrLevel: CefrLevel;
               category: { id: string; slug: string; name: string };
             }>;
           };
@@ -88,9 +98,10 @@ describe('ArticlesRepository article analysis persistence', () => {
         const working = structuredClone(committed);
         const tx = {
           article: {
-            updateMany: updateMany.mockImplementation(() => {
+            updateMany: updateMany.mockImplementation((args) => {
               working.contentHtml = input.annotatedContentHtml;
               working.aiAnalysisStatus = AiGenerationStatus.READY;
+              working.cefrLevel = args.data.cefrLevel ?? working.cefrLevel;
               return Promise.resolve({ count: 1 });
             }),
             findUnique: () =>
@@ -98,7 +109,7 @@ describe('ArticlesRepository article analysis persistence', () => {
                 id: input.articleId,
                 contentVersion: input.contentVersion,
                 aiAnalysisStatus: working.aiAnalysisStatus,
-                cefrLevel: 'B1' as const,
+                cefrLevel: working.cefrLevel,
                 category: {
                   id: 'category-id',
                   slug: 'society',
@@ -140,7 +151,7 @@ describe('ArticlesRepository article analysis persistence', () => {
     };
   };
 
-  it('atomically stores marked HTML and active NLP terms with deferred metadata', async () => {
+  it('atomically stores marked HTML and local CEFR analysis with deferred enrichment', async () => {
     const context = createRepository();
 
     await expect(
@@ -149,6 +160,7 @@ describe('ArticlesRepository article analysis persistence', () => {
       articleId: 'article-id',
       contentVersion: 2,
       aiAnalysisStatus: AiGenerationStatus.READY,
+      cefrLevel: CefrLevel.A2,
       candidateCount: 1,
     });
 
@@ -159,6 +171,7 @@ describe('ArticlesRepository article analysis persistence', () => {
     });
     expect(articleUpdate.data).toMatchObject({
       contentHtml: annotatedContentHtml,
+      cefrLevel: CefrLevel.A2,
     });
     expect(context.createMany.mock.calls[0][0].data[0]).toMatchObject({
       id: 'term-id',
@@ -169,7 +182,7 @@ describe('ArticlesRepository article analysis persistence', () => {
       normalizedLemma: null,
       unitType: 'WORD',
       partOfSpeech: null,
-      cefrLevel: null,
+      cefrLevel: CefrLevel.B1,
       origin: 'NLP',
       reviewStatus: 'APPROVED',
       explanationStatus: 'PENDING',
@@ -192,6 +205,7 @@ describe('ArticlesRepository article analysis persistence', () => {
       contentHtml: annotatedContentHtml,
       status: ArticleStatus.DRAFT,
       aiAnalysisStatus: AiGenerationStatus.READY,
+      cefrLevel: CefrLevel.A2,
       termCount: 1,
     });
   });
@@ -206,6 +220,7 @@ describe('ArticlesRepository article analysis persistence', () => {
       contentHtml: sourceContentHtml,
       status: ArticleStatus.DRAFT,
       aiAnalysisStatus: AiGenerationStatus.PROCESSING,
+      cefrLevel: CefrLevel.B1,
       termCount: 0,
     });
   });

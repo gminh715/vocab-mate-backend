@@ -20,6 +20,7 @@ import type {
   IssuedTokens,
   JwtPayload,
 } from './auth.types';
+import type { PublicUserRecord } from '../users/users.repository';
 
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
 const DUMMY_PASSWORD_HASH =
@@ -33,23 +34,18 @@ export class AuthService {
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResult> {
+  async register(dto: RegisterDto): Promise<PublicUserRecord> {
     const email = dto.email.trim().toLowerCase();
     const passwordHash = await bcrypt.hash(
       dto.password,
       this.config.bcryptRounds,
     );
-    const user = await this.usersService.createRegisteredUser({
+    return this.usersService.createRegisteredUser({
       email,
       passwordHash,
       displayName: dto.displayName,
-      currentCefrLevel: dto.currentCefrLevel,
-      learningGoal: dto.learningGoal,
       preferredLanguage: dto.preferredLanguage,
     });
-    const tokens = await this.issueTokens(user.id);
-
-    return { user, ...tokens };
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {

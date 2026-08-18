@@ -13,3 +13,14 @@ export const isCefrAtOrAbove = (
   candidate: CefrLevel,
   threshold: CefrLevel,
 ): boolean => CEFR_RANK[candidate] >= CEFR_RANK[threshold];
+
+export const isCefrLevel = (value: unknown): value is CefrLevel =>
+  typeof value === 'string' && Object.hasOwn(CEFR_RANK, value);
+
+export const isCefrInLearningRange = (
+  candidate: CefrLevel,
+  current: CefrLevel,
+  target: CefrLevel,
+): boolean =>
+  CEFR_RANK[candidate] >= CEFR_RANK[current] &&
+  CEFR_RANK[candidate] <= CEFR_RANK[target];

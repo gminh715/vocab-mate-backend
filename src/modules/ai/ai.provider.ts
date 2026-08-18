@@ -82,8 +82,18 @@ export interface StructuredAiRequest {
   maxOutputTokens: number;
 }
 
+export interface StructuredAiResponse {
+  content: string;
+  usage: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}
+
 export interface AiProvider {
-  generateStructured(request: StructuredAiRequest): Promise<string>;
+  generateStructured(
+    request: StructuredAiRequest,
+  ): Promise<string | StructuredAiResponse>;
 }
 
 const errorName = (error: unknown): string | undefined =>
@@ -210,7 +220,9 @@ export class GeminiAiProvider implements AiProvider {
     });
   }
 
-  async generateStructured(request: StructuredAiRequest): Promise<string> {
+  async generateStructured(
+    request: StructuredAiRequest,
+  ): Promise<StructuredAiResponse> {
     try {
       const response = await this.client.models.generateContent({
         model: this.config.geminiModel,
@@ -229,7 +241,13 @@ export class GeminiAiProvider implements AiProvider {
         throw new ProviderCallError('unusable-output');
       }
 
-      return response.text;
+      return {
+        content: response.text,
+        usage: {
+          inputTokens: response.usageMetadata?.promptTokenCount ?? null,
+          outputTokens: response.usageMetadata?.candidatesTokenCount ?? null,
+        },
+      };
     } catch (error: unknown) {
       if (error instanceof ProviderCallError) {
         throw error;
@@ -251,7 +269,9 @@ export class GroqAiProvider implements AiProvider {
     });
   }
 
-  async generateStructured(request: StructuredAiRequest): Promise<string> {
+  async generateStructured(
+    request: StructuredAiRequest,
+  ): Promise<StructuredAiResponse> {
     let lastError = new ProviderCallError('unusable-output');
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -273,7 +293,7 @@ export class GroqAiProvider implements AiProvider {
 
   private async generateStructuredOnce(
     request: StructuredAiRequest,
-  ): Promise<string> {
+  ): Promise<StructuredAiResponse> {
     try {
       const supportsStrictSchema = GROQ_STRICT_SCHEMA_MODELS.has(
         this.config.groqModel,
@@ -321,7 +341,13 @@ export class GroqAiProvider implements AiProvider {
         throw new ProviderCallError('unusable-output');
       }
 
-      return content;
+      return {
+        content,
+        usage: {
+          inputTokens: response.usage?.prompt_tokens ?? null,
+          outputTokens: response.usage?.completion_tokens ?? null,
+        },
+      };
     } catch (error: unknown) {
       if (error instanceof ProviderCallError) {
         throw error;

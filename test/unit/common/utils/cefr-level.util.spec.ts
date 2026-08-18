@@ -1,5 +1,9 @@
 import { CefrLevel } from '../../../../generated/prisma/enums';
-import { isCefrAtOrAbove } from '../../../../src/common/utils/cefr-level.util';
+import {
+  isCefrAtOrAbove,
+  isCefrInLearningRange,
+  isCefrLevel,
+} from '../../../../src/common/utils/cefr-level.util';
 
 const levels = [
   CefrLevel.A1,
@@ -23,6 +27,35 @@ describe('CEFR ordering', () => {
     'returns $expected for $candidate >= $threshold',
     ({ candidate, threshold, expected }) => {
       expect(isCefrAtOrAbove(candidate, threshold)).toBe(expected);
+    },
+  );
+
+  it.each(
+    levels.flatMap((candidate, candidateRank) =>
+      levels.flatMap((current, currentRank) =>
+        levels.map((target, targetRank) => ({
+          candidate,
+          current,
+          target,
+          expected: candidateRank >= currentRank && candidateRank <= targetRank,
+        })),
+      ),
+    ),
+  )(
+    'returns $expected for $current <= $candidate <= $target',
+    ({ candidate, current, target, expected }) => {
+      expect(isCefrInLearningRange(candidate, current, target)).toBe(expected);
+    },
+  );
+
+  it.each(levels)('recognizes %s as a CEFR level', (level) => {
+    expect(isCefrLevel(level)).toBe(true);
+  });
+
+  it.each([null, undefined, '', 'B3', 'native', 3])(
+    'rejects invalid CEFR value %p',
+    (value) => {
+      expect(isCefrLevel(value)).toBe(false);
     },
   );
 });

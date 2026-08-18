@@ -32,7 +32,13 @@ interface GeminiConstructorOptions {
 }
 
 const mockGeminiGenerate = jest.fn<
-  Promise<{ text: string }>,
+  Promise<{
+    text: string;
+    usageMetadata?: {
+      promptTokenCount: number;
+      candidatesTokenCount: number;
+    };
+  }>,
   [GeminiGenerateRequest]
 >();
 const mockGeminiConstructor = jest.fn<void, [GeminiConstructorOptions]>();
@@ -111,6 +117,11 @@ const request: StructuredAiRequest = {
   maxOutputTokens: 128,
 };
 
+const providerResponse = {
+  content: '{"ok":true}',
+  usage: { inputTokens: null, outputTokens: null },
+};
+
 describe('GroqAiProvider', () => {
   beforeEach(() => {
     groqCreate.mockReset();
@@ -120,12 +131,14 @@ describe('GroqAiProvider', () => {
   it('uses JSON Object Mode and supplies the schema in the bounded instruction', async () => {
     groqCreate.mockResolvedValue({
       choices: [{ message: { content: '{"ok":true}' } }],
+      usage: { prompt_tokens: 21, completion_tokens: 5 },
     });
     const provider = new GroqAiProvider(config);
 
-    await expect(provider.generateStructured(request)).resolves.toBe(
-      '{"ok":true}',
-    );
+    await expect(provider.generateStructured(request)).resolves.toEqual({
+      content: '{"ok":true}',
+      usage: { inputTokens: 21, outputTokens: 5 },
+    });
 
     expect(groqCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -163,8 +176,8 @@ describe('GroqAiProvider', () => {
     };
     const provider = new GroqAiProvider(strictConfig);
 
-    await expect(provider.generateStructured(request)).resolves.toBe(
-      '{"ok":true}',
+    await expect(provider.generateStructured(request)).resolves.toEqual(
+      providerResponse,
     );
 
     expect(groqCreate).toHaveBeenCalledWith(
@@ -270,8 +283,8 @@ describe('GroqAiProvider', () => {
       groqModel: 'openai/gpt-oss-20b',
     });
 
-    await expect(provider.generateStructured(request)).resolves.toBe(
-      '{"ok":true}',
+    await expect(provider.generateStructured(request)).resolves.toEqual(
+      providerResponse,
     );
     expect(groqCreate).toHaveBeenCalledTimes(2);
   });
@@ -284,16 +297,20 @@ describe('GeminiAiProvider', () => {
   });
 
   it('uses the stable low-latency model settings and bounded transient retries', async () => {
-    mockGeminiGenerate.mockResolvedValue({ text: '{"ok":true}' });
+    mockGeminiGenerate.mockResolvedValue({
+      text: '{"ok":true}',
+      usageMetadata: { promptTokenCount: 18, candidatesTokenCount: 4 },
+    });
     const provider = new GeminiAiProvider({
       ...config,
       geminiModel: 'gemini-3.5-flash-lite',
       requestTimeoutMs: 30000,
     });
 
-    await expect(provider.generateStructured(request)).resolves.toBe(
-      '{"ok":true}',
-    );
+    await expect(provider.generateStructured(request)).resolves.toEqual({
+      content: '{"ok":true}',
+      usage: { inputTokens: 18, outputTokens: 4 },
+    });
 
     const constructorOptions = mockGeminiConstructor.mock.calls[0]?.[0];
     expect(constructorOptions).toMatchObject({

@@ -75,7 +75,7 @@ flowchart TD
 
 - Guardian discovery returns metadata; sync imports up to 10 items using the official `/search` endpoint with `fields.body`.
 - HTML is sanitized, canonical URLs are normalized, and duplicate checks cover provider ID, URL, and content hash.
-- `POST /admin/articles/:articleId/analyze` is local NLP, not an LLM call. It creates approved, sentence-contextual candidates with stable `data-term-id` markers.
+- `POST /admin/articles/:articleId/analyze` is local NLP, not an LLM call. WinkNLP creates approved sentence-contextual candidates with stable `data-term-id` markers, while `cefr-analyzer` updates the article CEFR and assigns term CEFR when its local vocabulary recognizes the token. Unknown term CEFR stays null for lookup-time enrichment.
 - Published terms are enriched lazily on first lookup. The result includes Vietnamese contextual meaning and sentence translation, lexical data, and examples.
 - Provider output is validated in application code. Raw provider output is neither logged nor stored.
 

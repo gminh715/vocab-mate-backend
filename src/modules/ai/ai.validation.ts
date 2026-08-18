@@ -19,7 +19,6 @@ import {
   type TermEnrichmentResult,
   type TermExample,
   type ReviewQuestionGenerationInput,
-  type ReviewQuestionGenerationOption,
   type ReviewQuestionGenerationResult,
   type ReviewSessionPlanResult,
   type ReviewSkillAggregate,
@@ -344,33 +343,33 @@ export const validateReviewQuestionGenerationInput = (
   if (!isRecord(input)) {
     fail('input', 'reviewQuestion');
   }
-  const allowedKeys = [
+  const commonKeys = [
     'wordOrPhrase',
-    'lemma',
-    'partOfSpeech',
     'contextualMeaningVi',
-    'originalSentence',
-    'articleTopic',
     'targetCefr',
     'requestedQuestionType',
     'promptStyle',
   ];
-  const requiredKeys = allowedKeys.filter((key) => key !== 'articleTopic');
+  const conditionalKeys =
+    input.requestedQuestionType === 'SELECT_WORD' ||
+    input.requestedQuestionType === 'FILL_BLANK'
+      ? ['partOfSpeech']
+      : ['originalSentence'];
+  const allowedKeys = [...commonKeys, ...conditionalKeys];
   const actualKeys = Object.keys(input);
   if (
     actualKeys.some((key) => !allowedKeys.includes(key)) ||
-    requiredKeys.some((key) => !actualKeys.includes(key))
+    allowedKeys.some((key) => !actualKeys.includes(key))
   ) {
     fail('input', 'reviewQuestion');
   }
 
   stringValue(input.wordOrPhrase, 'wordOrPhrase', 200, 'input');
-  stringValue(input.lemma, 'lemma', 200, 'input');
-  stringValue(input.partOfSpeech, 'partOfSpeech', 100, 'input');
   stringValue(input.contextualMeaningVi, 'contextualMeaningVi', 2000, 'input');
-  stringValue(input.originalSentence, 'originalSentence', 10000, 'input');
-  if (input.articleTopic !== undefined) {
-    stringValue(input.articleTopic, 'articleTopic', 200, 'input');
+  if (conditionalKeys[0] === 'partOfSpeech') {
+    stringValue(input.partOfSpeech, 'partOfSpeech', 100, 'input');
+  } else {
+    stringValue(input.originalSentence, 'originalSentence', 10000, 'input');
   }
   enumValue(input.targetCefr, 'targetCefr', CEFR_LEVELS, 'input');
   enumValue(
@@ -928,7 +927,7 @@ const expectedPromptAnswer = (input: ReviewQuestionGenerationInput): string =>
   input.requestedQuestionType === 'SELECT_MEANING'
     ? input.contextualMeaningVi
     : input.requestedQuestionType === 'SELECT_CORRECT_CONTEXT'
-      ? input.originalSentence
+      ? (input.originalSentence ?? '')
       : input.wordOrPhrase;
 
 const validateReviewPromptQuality = (
@@ -970,31 +969,6 @@ const validateShortExplanation = (value: unknown): string => {
   return explanation;
 };
 
-const parseReviewOption = (
-  value: unknown,
-  index: number,
-): ReviewQuestionGenerationOption => {
-  const option = recordValue(
-    value,
-    `options[${index}]`,
-    ['optionText', 'isCorrect'],
-    'output',
-  );
-  const isCorrect = option.isCorrect;
-  if (typeof isCorrect === 'boolean') {
-    return {
-      optionText: stringValue(
-        option.optionText,
-        `options[${index}].optionText`,
-        AI_OUTPUT_LIMITS.reviewAnswer,
-        'output',
-      ),
-      isCorrect,
-    };
-  }
-  return fail('output', `options[${index}].isCorrect`);
-};
-
 export const parseReviewQuestionGenerationResult = (
   raw: unknown,
   input: ReviewQuestionGenerationInput,
@@ -1002,13 +976,7 @@ export const parseReviewQuestionGenerationResult = (
   const result = recordValue(
     raw,
     'result',
-    [
-      'prompt',
-      'blankSentence',
-      'correctAnswerText',
-      'answerExplanation',
-      'options',
-    ],
+    ['prompt', 'blankSentence', 'answerExplanation', 'distractors'],
     'output',
   );
   const prompt = stringValue(
@@ -1019,13 +987,22 @@ export const parseReviewQuestionGenerationResult = (
   );
   validateReviewPromptQuality(prompt, input);
   const answerExplanation = validateShortExplanation(result.answerExplanation);
-  const rawOptions = arrayValue(
-    result.options,
-    'options',
+  const rawDistractors = arrayValue(
+    result.distractors,
+    'distractors',
     AI_OUTPUT_LIMITS.reviewOptions,
     'output',
   );
-  const options = rawOptions.map(parseReviewOption);
+  const distractors = rawDistractors.map((value, index) => {
+    const distractor = stringValue(
+      value,
+      `distractors[${index}]`,
+      AI_OUTPUT_LIMITS.reviewAnswer,
+      'output',
+    );
+    validatePlainGeneratedText(distractor, `distractors[${index}]`);
+    return distractor;
+  });
 
   if (input.requestedQuestionType === 'FILL_BLANK') {
     const blankSentence = stringValue(
@@ -1034,15 +1011,9 @@ export const parseReviewQuestionGenerationResult = (
       AI_OUTPUT_LIMITS.reviewAnswer,
       'output',
     );
-    stringValue(
-      result.correctAnswerText,
-      'correctAnswerText',
-      AI_OUTPUT_LIMITS.reviewAnswer,
-      'output',
-    );
     if (
       (blankSentence.match(/___/gu) ?? []).length !== 1 ||
-      options.length !== 0 ||
+      distractors.length !== 0 ||
       containsNormalizedText(blankSentence, input.wordOrPhrase)
     ) {
       fail('output', 'fillBlank');
@@ -1054,50 +1025,36 @@ export const parseReviewQuestionGenerationResult = (
     return {
       prompt,
       blankSentence,
-      correctAnswerText: input.wordOrPhrase,
       answerExplanation,
-      options,
+      distractors,
     };
   }
 
   if (
     result.blankSentence !== null ||
-    result.correctAnswerText !== null ||
-    options.length < 3
+    distractors.length < 2 ||
+    distractors.length > 3
   ) {
-    fail('output', 'options');
-  }
-  const correct = options.filter(({ isCorrect }) => isCorrect);
-  if (correct.length !== 1) {
-    fail('output', 'options.isCorrect');
+    fail('output', 'distractors');
   }
   const expectedAnswer =
     input.requestedQuestionType === 'SELECT_MEANING'
       ? input.contextualMeaningVi
       : input.requestedQuestionType === 'SELECT_WORD'
         ? input.wordOrPhrase
-        : input.originalSentence;
-  options
-    .filter(({ isCorrect }) => !isCorrect)
-    .forEach(({ optionText }, index) =>
-      validatePlainGeneratedText(optionText, `options[${index}].optionText`),
-    );
-  const canonicalOptions = options.map((option) =>
-    option.isCorrect ? { ...option, optionText: expectedAnswer } : option,
+        : (input.originalSentence ?? '');
+  const normalizedOptions = [expectedAnswer, ...distractors].map(
+    normalizeAnswer,
   );
-  const normalizedOptions = canonicalOptions.map(({ optionText }) =>
-    normalizeAnswer(optionText),
-  );
-  if (new Set(normalizedOptions).size !== canonicalOptions.length) {
-    fail('output', 'options');
+  if (new Set(normalizedOptions).size !== normalizedOptions.length) {
+    fail('output', 'distractors');
   }
 
   return {
     prompt,
     blankSentence: null,
-    correctAnswerText: null,
     answerExplanation,
-    options: canonicalOptions,
+    distractors,
   };
 };
 
@@ -1125,9 +1082,8 @@ export const parseReviewQuestionBatchGenerationResult = (
         'inputIndex',
         'prompt',
         'blankSentence',
-        'correctAnswerText',
         'answerExplanation',
-        'options',
+        'distractors',
       ],
       'output',
     );
@@ -1149,9 +1105,8 @@ export const parseReviewQuestionBatchGenerationResult = (
       {
         prompt: item.prompt,
         blankSentence: item.blankSentence,
-        correctAnswerText: item.correctAnswerText,
         answerExplanation: item.answerExplanation,
-        options: item.options,
+        distractors: item.distractors,
       },
       input,
     );

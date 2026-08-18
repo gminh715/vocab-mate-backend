@@ -36,6 +36,7 @@ const SENTENCE_ID = '22222222-2222-4222-8222-222222222222';
 const A2_TERM_ID = '33333333-3333-4333-8333-333333333333';
 const B1_TERM_ID = '44444444-4444-4444-8444-444444444444';
 const C1_TERM_ID = '55555555-5555-4555-8555-555555555555';
+const C2_TERM_ID = '56565656-5656-4565-8565-565656565656';
 const DISABLED_TERM_ID = '66666666-6666-4666-8666-666666666666';
 const INACTIVE_TERM_ID = '77777777-7777-4777-8777-777777777777';
 const STALE_TERM_ID = '88888888-8888-4888-8888-888888888888';
@@ -145,10 +146,12 @@ class InMemoryReadingRepository {
       contentHtml:
         '<p onclick="bad()">Technology <strong>changes</strong> learning.</p><script>bad()</script>',
       userCefrLevel: userId === 'user-c1' ? CefrLevel.C1 : CefrLevel.B1,
+      userTargetCefrLevel: userId === 'user-c1' ? CefrLevel.C2 : CefrLevel.C1,
       termCandidates: [
         { id: A2_TERM_ID, cefrLevel: CefrLevel.A2 },
         { id: B1_TERM_ID, cefrLevel: CefrLevel.B1 },
         { id: C1_TERM_ID, cefrLevel: CefrLevel.C1 },
+        { id: C2_TERM_ID, cefrLevel: CefrLevel.C2 },
       ],
       progress:
         this.progressRows.get(this.progressKey(userId, ARTICLE_ID)) ?? null,
@@ -497,7 +500,7 @@ describe('Reading APIs (e2e)', () => {
     }
   });
 
-  it('uses the current profile CEFR level for deterministic highlights', async () => {
+  it('uses the current and target profile CEFR levels for deterministic highlights', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/reading/articles/how-technology-changes-learning')
       .set('Authorization', 'Bearer user-c1')
@@ -505,7 +508,7 @@ describe('Reading APIs (e2e)', () => {
     const body =
       responseBody<SuccessBody<{ highlightedTermIds: string[] }>>(response);
 
-    expect(body.data.highlightedTermIds).toEqual([C1_TERM_ID]);
+    expect(body.data.highlightedTermIds).toEqual([C1_TERM_ID, C2_TERM_ID]);
   });
 
   it.each(['draft-article', 'archived-article'])(

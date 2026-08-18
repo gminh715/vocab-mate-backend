@@ -4,12 +4,17 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import cefrAnalyzer, {
+  calculateComplexityScore,
+  type CEFRLevel as AnalyzerCefrLevel,
+} from 'cefr-analyzer';
 import { randomUUID } from 'node:crypto';
 import winkNLP, { type ItemToken } from 'wink-nlp';
 import winkEnglishModel from 'wink-eng-lite-web-model';
 import {
   AiGenerationStatus,
   ArticleStatus,
+  CefrLevel,
 } from '../../../../generated/prisma/enums';
 import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import { TermMarkerHelper } from '../helpers/term-marker.helper';
@@ -24,8 +29,21 @@ import {
 
 const MAX_STORED_ANALYSIS_ERROR_LENGTH = 500;
 const ENGLISH_VOCABULARY_TOKEN = /^[A-Za-z]+(?:['’][A-Za-z]+)*$/u;
+const ANALYZER_CEFR_LEVELS = [
+  'a1',
+  'a2',
+  'b1',
+  'b2',
+  'c1',
+  'c2',
+] as const satisfies readonly AnalyzerCefrLevel[];
 const nlp = winkNLP(winkEnglishModel);
 const { its } = nlp;
+
+interface LocalCefrAnalysis {
+  articleCefrLevel: CefrLevel;
+  termLevels: ReadonlyMap<string, CefrLevel>;
+}
 
 @Injectable()
 export class ArticleAnalysisService {
@@ -52,8 +70,15 @@ export class ArticleAnalysisService {
 
     let terms: AnalyzedTermInput[];
     let annotatedContentHtml: string;
+    let articleCefrLevel: CefrLevel;
     try {
-      terms = this.extractTerms(snapshot.sentences, actingAdminId);
+      const cefrAnalysis = this.analyzeCefr(snapshot.sentences);
+      articleCefrLevel = cefrAnalysis.articleCefrLevel;
+      terms = this.extractTerms(
+        snapshot.sentences,
+        actingAdminId,
+        cefrAnalysis.termLevels,
+      );
       annotatedContentHtml = HtmlSanitizerHelper.sanitize(
         terms.reduce(
           (contentHtml, term) =>
@@ -84,6 +109,7 @@ export class ArticleAnalysisService {
         annotatedContentHtml,
         actingAdminId,
         expectedSentences: snapshot.sentences,
+        articleCefrLevel,
         terms,
       });
     } catch (error: unknown) {
@@ -137,6 +163,7 @@ export class ArticleAnalysisService {
   private extractTerms(
     sentences: ArticleAnalysisSentenceRecord[],
     actingAdminId: string,
+    termCefrLevels: ReadonlyMap<string, CefrLevel>,
   ): AnalyzedTermInput[] {
     const terms: AnalyzedTermInput[] = [];
 
@@ -173,6 +200,8 @@ export class ArticleAnalysisService {
         const lemma = String(token.out(its.lemma))
           .trim()
           .toLocaleLowerCase('en-US');
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        const partOfSpeech = String(token.out(its.pos)).trim();
         if (
           !ENGLISH_VOCABULARY_TOKEN.test(surface) ||
           !ENGLISH_VOCABULARY_TOKEN.test(normalizedSurface) ||
@@ -191,6 +220,8 @@ export class ArticleAnalysisService {
           sentenceId: sentence.id,
           value: surface,
           lemma,
+          cefrLevel:
+            termCefrLevels.get(this.cefrTermKey(surface, partOfSpeech)) ?? null,
           createdByUserId: actingAdminId,
           updatedByUserId: actingAdminId,
         });
@@ -198,6 +229,71 @@ export class ArticleAnalysisService {
     }
 
     return terms;
+  }
+
+  private analyzeCefr(
+    sentences: ArticleAnalysisSentenceRecord[],
+  ): LocalCefrAnalysis {
+    const analysis = cefrAnalyzer.analyze(
+      sentences.map(({ sentenceText }) => sentenceText).join(' '),
+      {
+        caseSensitive: false,
+        includeUnknownWords: true,
+        analyzeByPartOfSpeech: true,
+      },
+    );
+    const termLevels = new Map<string, CefrLevel>();
+    let classifiedWordCount = 0;
+
+    for (const analyzerLevel of ANALYZER_CEFR_LEVELS) {
+      classifiedWordCount += analysis.levelCounts[analyzerLevel];
+      const cefrLevel = this.toCefrLevel(analyzerLevel);
+      if (!cefrLevel) continue;
+
+      for (const word of analysis.wordsAtLevel[analyzerLevel]) {
+        termLevels.set(this.cefrTermKey(word.word, word.pos), cefrLevel);
+      }
+    }
+
+    if (classifiedWordCount === 0) {
+      throw new UnprocessableEntityException(
+        'CEFR analysis could not classify any vocabulary in the article',
+      );
+    }
+
+    const articleCefrLevel = this.toCefrLevel(
+      calculateComplexityScore(analysis).level,
+    );
+    if (!articleCefrLevel) {
+      throw new UnprocessableEntityException(
+        'CEFR analysis returned an unsupported article level',
+      );
+    }
+
+    return { articleCefrLevel, termLevels };
+  }
+
+  private cefrTermKey(value: string, partOfSpeech: string): string {
+    return `${this.duplicateKey(value)}\u0000${partOfSpeech.trim().toUpperCase()}`;
+  }
+
+  private toCefrLevel(value: unknown): CefrLevel | null {
+    switch (value) {
+      case 'a1':
+        return CefrLevel.A1;
+      case 'a2':
+        return CefrLevel.A2;
+      case 'b1':
+        return CefrLevel.B1;
+      case 'b2':
+        return CefrLevel.B2;
+      case 'c1':
+        return CefrLevel.C1;
+      case 'c2':
+        return CefrLevel.C2;
+      default:
+        return null;
+    }
   }
 
   private duplicateKey(value: string): string {
