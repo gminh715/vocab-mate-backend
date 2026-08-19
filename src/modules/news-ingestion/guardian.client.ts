@@ -275,7 +275,9 @@ export class GuardianClient {
     const q = input.q?.trim();
     const section = input.section?.trim().toLowerCase();
     const articleIds = Array.isArray(input.articleIds)
-      ? input.articleIds.filter((id) => typeof id === 'string' && Boolean(id.trim()))
+      ? input.articleIds.filter(
+          (id) => typeof id === 'string' && Boolean(id.trim()),
+        )
       : undefined;
 
     if (q && q.length > MAX_QUERY_LENGTH) {
@@ -317,7 +319,8 @@ export class GuardianClient {
     }
 
     const page = input.page ?? 1;
-    const pageSize = articleIds?.length ?? input.pageSize ?? this.config.defaultPageSize;
+    const pageSize =
+      articleIds?.length ?? input.pageSize ?? this.config.defaultPageSize;
     const orderBy = input.orderBy ?? 'newest';
     if (!Number.isInteger(page) || page < 1 || page > MAX_PAGE) {
       throw new NewsIngestionError(

@@ -148,7 +148,11 @@ export class AdminNewsSyncDto extends NewsDiscoveryFieldsDto {
   @IsArray()
   @IsString({ each: true })
   @Transform(({ value }: { value: unknown }) =>
-    Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && Boolean(v.trim())) : value,
+    Array.isArray(value)
+      ? value.filter(
+          (v): v is string => typeof v === 'string' && Boolean(v.trim()),
+        )
+      : value,
   )
   articleIds?: string[];
 }

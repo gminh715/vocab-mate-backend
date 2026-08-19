@@ -198,9 +198,8 @@ export class ArticlesService {
     defaultCategoryId?: string | null,
   ): Promise<string> {
     if (defaultCategoryId) {
-      const active = await this.categoriesRepository.findActiveById(
-        defaultCategoryId,
-      );
+      const active =
+        await this.categoriesRepository.findActiveById(defaultCategoryId);
       if (active) return active.id;
     }
 

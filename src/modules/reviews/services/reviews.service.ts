@@ -88,8 +88,6 @@ export class ReviewsService {
         dto.sessionType === ReviewSessionType.DAILY_REVIEW
           ? {
               ...dto,
-              targetDurationMinutes: undefined,
-              reviewGoal: undefined,
               limit: Math.max(dueVocabularyCount ?? 0, 1),
             }
           : dto;

@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '../../../../../generated/prisma/client';
-import { ArticleStatus, QuizStatus } from '../../../../../generated/prisma/enums';
+import {
+  ArticleStatus,
+  QuizStatus,
+} from '../../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../../src/database/prisma.service';
 import { ArticlesRepository } from '../../../../../src/modules/articles/repositories/articles.repository';
 

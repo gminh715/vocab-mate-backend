@@ -1252,6 +1252,8 @@ export class ReviewsRepository {
           collectionId: source.collectionId,
           status: ReviewSessionStatus.IN_PROGRESS,
           completedAt: null,
+          targetDurationMinutes: dto.targetDurationMinutes,
+          reviewGoal: dto.reviewGoal,
           aiCallCount: initialAiCallCount,
         },
         select: sessionSelect,

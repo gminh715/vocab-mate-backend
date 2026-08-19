@@ -1,6 +1,9 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { AdminNewsSearchQueryDto, AdminNewsSyncDto } from '../../../../../src/modules/news-ingestion/dto/admin-news.dto';
+import {
+  AdminNewsSearchQueryDto,
+  AdminNewsSyncDto,
+} from '../../../../../src/modules/news-ingestion/dto/admin-news.dto';
 
 describe('admin news DTOs', () => {
   it('applies bounded Guardian search defaults', async () => {

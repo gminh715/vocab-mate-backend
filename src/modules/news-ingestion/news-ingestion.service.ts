@@ -100,7 +100,7 @@ export class NewsIngestionService {
     private readonly newsContentService: NewsContentService,
     private readonly articlesService: ArticlesService,
     private readonly articleSentencesService: ArticleSentencesService,
-  ) { }
+  ) {}
 
   async search(query: AdminNewsSearchQueryDto): Promise<GuardianSearchResult> {
     try {
