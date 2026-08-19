@@ -13,7 +13,10 @@ import {
 } from '../../../../generated/prisma/enums';
 import { APP_CONFIG } from '../../../../src/config/config.module';
 import { PrismaService } from '../../../../src/database/prisma.service';
-import { AnalyticsService, toSafeCount } from '../../../../src/modules/analytics/analytics.service';
+import {
+  AnalyticsService,
+  toSafeCount,
+} from '../../../../src/modules/analytics/analytics.service';
 import { AnalyticsGroupBy } from '../../../../src/modules/analytics/dto/analytics-query.dto';
 
 describe('AnalyticsService', () => {

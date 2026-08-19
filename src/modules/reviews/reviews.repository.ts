@@ -1239,7 +1239,7 @@ export class ReviewsRepository {
         preparedAiQuestions,
         dto.reviewGoal,
       );
-      if (assignedQuestions.length === 0) {
+      if (assignedQuestions.length !== vocabularies.length) {
         throw new NoUsableReviewQuestionError();
       }
 
@@ -1252,6 +1252,8 @@ export class ReviewsRepository {
           collectionId: source.collectionId,
           status: ReviewSessionStatus.IN_PROGRESS,
           completedAt: null,
+          targetDurationMinutes: dto.targetDurationMinutes,
+          reviewGoal: dto.reviewGoal,
           aiCallCount: initialAiCallCount,
         },
         select: sessionSelect,

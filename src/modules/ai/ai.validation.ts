@@ -29,6 +29,7 @@ export const AI_OUTPUT_LIMITS = {
   termText: 200,
   partOfSpeech: 100,
   enrichmentText: 2000,
+  contextualMeaningWords: 4,
   ipa: 100,
   listItems: 8,
   listItemText: 200,
@@ -834,6 +835,19 @@ export const parseTermEnrichmentResult = (
     fail('output', 'normalizedLemma');
   }
 
+  const contextualMeaningVi = stringValue(
+    result.contextualMeaningVi,
+    'contextualMeaningVi',
+    AI_OUTPUT_LIMITS.enrichmentText,
+    'output',
+  );
+  if (
+    contextualMeaningVi.trim().split(/\s+/u).length >
+    AI_OUTPUT_LIMITS.contextualMeaningWords
+  ) {
+    fail('output', 'contextualMeaningVi');
+  }
+
   return {
     wordDisplay: stringValue(
       result.wordDisplay,
@@ -849,12 +863,7 @@ export const parseTermEnrichmentResult = (
       'output',
     ).toLocaleLowerCase('en-US'),
     cefrLevel: enumValue(result.cefrLevel, 'cefrLevel', CEFR_LEVELS, 'output'),
-    contextualMeaningVi: stringValue(
-      result.contextualMeaningVi,
-      'contextualMeaningVi',
-      AI_OUTPUT_LIMITS.enrichmentText,
-      'output',
-    ),
+    contextualMeaningVi,
     definitionEn: stringValue(
       result.definitionEn,
       'definitionEn',

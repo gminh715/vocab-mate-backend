@@ -1128,7 +1128,7 @@ CREATE TABLE review_session_items (
         ON DELETE RESTRICT,
     CONSTRAINT fk_review_session_items_user_vocabulary
         FOREIGN KEY (user_vocabulary_id) REFERENCES user_vocabularies(id)
-        ON DELETE RESTRICT,
+        ON DELETE SET NULL,
     CONSTRAINT fk_review_session_items_quiz_question
         FOREIGN KEY (quiz_question_id) REFERENCES quiz_questions(id)
         ON DELETE RESTRICT,

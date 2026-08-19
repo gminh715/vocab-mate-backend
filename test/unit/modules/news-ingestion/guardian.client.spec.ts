@@ -3,7 +3,10 @@ import type { NewsConfig } from '../../../../src/config/news.config';
 import { NEWS_CONFIG } from '../../../../src/config/config.module';
 import { GuardianClient } from '../../../../src/modules/news-ingestion/guardian.client';
 import { NewsIngestionError } from '../../../../src/modules/news-ingestion/news-ingestion.errors';
-import { NEWS_FETCH, type NewsFetch } from '../../../../src/modules/news-ingestion/news-http.tokens';
+import {
+  NEWS_FETCH,
+  type NewsFetch,
+} from '../../../../src/modules/news-ingestion/news-http.tokens';
 
 const config: NewsConfig = {
   guardianApiKey: 'secret-test-key',
