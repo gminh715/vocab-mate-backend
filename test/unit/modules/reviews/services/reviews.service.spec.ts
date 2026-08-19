@@ -138,7 +138,10 @@ describe('ReviewsService', () => {
       abandonSession: jest.fn(),
       listHistory: jest.fn(),
       getCompletedResult: jest.fn(),
-      getDueRecommendations: jest.fn(),
+      getDueRecommendations: jest.fn().mockResolvedValue({
+        dueVocabularyCount: 0,
+        recommendedQuizzes: [],
+      }),
       getRecentReviewTimingStats: jest.fn().mockResolvedValue({
         attemptCount: 0,
         averageResponseTimeMs: null,
@@ -261,7 +264,11 @@ describe('ReviewsService', () => {
     });
   });
 
-  it('bounds a daily session from personal timing and preserves the selected goal', async () => {
+  it('reviews every due item without applying legacy timing options', async () => {
+    repository.getDueRecommendations.mockResolvedValue({
+      dueVocabularyCount: 137,
+      recommendedQuizzes: [],
+    });
     repository.getRecentReviewTimingStats.mockResolvedValue({
       attemptCount: 8,
       averageResponseTimeMs: 25_000,
@@ -287,9 +294,9 @@ describe('ReviewsService', () => {
     expect(aiQuestionGenerator.warmCache).toHaveBeenCalledWith(
       'user',
       expect.objectContaining({
-        limit: 8,
-        targetDurationMinutes: 5,
-        reviewGoal: ReviewGoal.SPELLING,
+        limit: 137,
+        targetDurationMinutes: undefined,
+        reviewGoal: undefined,
       }),
       expect.any(Date),
       expect.any(Function),
@@ -298,19 +305,15 @@ describe('ReviewsService', () => {
     expect(repository.startSession).toHaveBeenCalledWith(
       'user',
       expect.objectContaining({
-        limit: 8,
-        targetDurationMinutes: 5,
-        reviewGoal: ReviewGoal.SPELLING,
+        limit: 137,
+        targetDurationMinutes: undefined,
+        reviewGoal: undefined,
       }),
       expect.any(Date),
       expect.any(Array),
       0,
     );
-    expect(repository.getRecentReviewTimingStats).toHaveBeenCalledWith(
-      'user',
-      expect.any(Date),
-      ReviewSkillDimension.SPELLING,
-    );
+    expect(repository.getRecentReviewTimingStats).not.toHaveBeenCalled();
   });
 
   it('finishes AI preparation before entering the session transaction', async () => {
@@ -411,7 +414,7 @@ describe('ReviewsService', () => {
     );
   });
 
-  it('plans a newly committed session from a bounded ID-free snapshot and persists the plan', async () => {
+  it('uses the committed due-vocabulary order without creating a timed plan', async () => {
     const callOrder: string[] = [];
     const committedState = {
       session: {
@@ -537,25 +540,13 @@ describe('ReviewsService', () => {
         reviewGoal: ReviewGoal.CONTEXT,
       }),
     ).resolves.toMatchObject({
-      session: { planSummary: 'Prioritize the overdue item.' },
-      nextItem: { id: 'item-2' },
+      session: { planSummary: null },
+      nextItem: { id: 'item-1' },
     });
-    expect(callOrder).toEqual([
-      'session-committed',
-      'snapshot-loaded',
-      'deterministic-plan-built',
-      'plan-persisted',
-    ]);
-    expect(repository.applySessionPlanDecision).toHaveBeenCalledWith(
-      'user',
-      expect.objectContaining({
-        targetDurationMinutes: 15,
-        reviewGoal: ReviewGoal.CONTEXT,
-        plannedItemCount: 2,
-        agentVersion: 'review-agent-rule-v1',
-        orderedSessionItemIds: ['item-2', 'item-1'],
-      }),
-    );
+    expect(callOrder).toEqual(['session-committed']);
+    expect(repository.getSessionPlanningSnapshot).not.toHaveBeenCalled();
+    expect(repository.applySessionPlanDecision).not.toHaveBeenCalled();
+    expect(reviewAgent.planSessionDeterministically).not.toHaveBeenCalled();
     expect(reviewAgent.planSession).not.toHaveBeenCalled();
   });
 
@@ -585,7 +576,7 @@ describe('ReviewsService', () => {
     });
   });
 
-  it('returns bounded 5, 10, and 15 minute estimates for the Dashboard', async () => {
+  it('returns the due count without time-based estimates', async () => {
     repository.getDueRecommendations.mockResolvedValue({
       dueVocabularyCount: 8,
       recommendedQuizzes: [],
@@ -595,87 +586,10 @@ describe('ReviewsService', () => {
       service.getToday('user', { limit: 10 }),
     ).resolves.toMatchObject({
       dueVocabularyCount: 8,
-      dailyReviewEstimates: [
-        {
-          targetDurationMinutes: 5,
-          estimatedItemCount: 6,
-          goalEstimates: [
-            { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 6 },
-            { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 7 },
-            { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 5 },
-            { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 5 },
-          ],
-        },
-        {
-          targetDurationMinutes: 10,
-          estimatedItemCount: 8,
-          goalEstimates: [
-            { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 8 },
-            { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 8 },
-            { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 8 },
-            { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 8 },
-          ],
-        },
-        {
-          targetDurationMinutes: 15,
-          estimatedItemCount: 8,
-          goalEstimates: [
-            { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 8 },
-            { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 8 },
-            { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 8 },
-            { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 8 },
-          ],
-        },
-      ],
-    });
-    expect(repository.getRecentReviewTimingStats.mock.calls).toEqual([
-      ['user', expect.any(Date), undefined],
-      ['user', expect.any(Date), ReviewSkillDimension.RECALL],
-      ['user', expect.any(Date), ReviewSkillDimension.SPELLING],
-      ['user', expect.any(Date), ReviewSkillDimension.CONTEXT],
-    ]);
-  });
-
-  it('uses goal-specific fallback interaction times before the due-count cap', async () => {
-    repository.getDueRecommendations.mockResolvedValue({
-      dueVocabularyCount: 100,
       recommendedQuizzes: [],
+      dailyReviewEstimates: [],
     });
-
-    const result = await service.getToday('user', { limit: 10 });
-
-    expect(result.dailyReviewEstimates).toEqual([
-      {
-        targetDurationMinutes: 5,
-        estimatedItemCount: 6,
-        goalEstimates: [
-          { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 6 },
-          { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 7 },
-          { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 5 },
-          { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 5 },
-        ],
-      },
-      {
-        targetDurationMinutes: 10,
-        estimatedItemCount: 13,
-        goalEstimates: [
-          { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 13 },
-          { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 15 },
-          { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 10 },
-          { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 10 },
-        ],
-      },
-      {
-        targetDurationMinutes: 15,
-        estimatedItemCount: 20,
-        goalEstimates: [
-          { reviewGoal: ReviewGoal.BALANCED, estimatedItemCount: 20 },
-          { reviewGoal: ReviewGoal.RECALL, estimatedItemCount: 20 },
-          { reviewGoal: ReviewGoal.SPELLING, estimatedItemCount: 15 },
-          { reviewGoal: ReviewGoal.CONTEXT, estimatedItemCount: 16 },
-        ],
-      },
-    ]);
+    expect(repository.getRecentReviewTimingStats).not.toHaveBeenCalled();
   });
 
   it('returns a retryable 503 when eligible vocabulary has no usable AI question', async () => {

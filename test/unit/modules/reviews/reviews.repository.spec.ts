@@ -1632,7 +1632,7 @@ describe('ReviewsRepository', () => {
     );
   });
 
-  it('omits an eligible candidate whose prepared AI question is unavailable', async () => {
+  it('refuses to create a partial session when a prepared AI question is unavailable', async () => {
     const target = {
       ...reviewVocabulary,
       learningStatus: LearningStatus.NEW,
@@ -1673,40 +1673,36 @@ describe('ReviewsRepository', () => {
     });
     itemCreateMany.mockResolvedValue({ count: 1 });
 
-    await repository.startSession(
-      'owner',
-      {
-        sessionType: ReviewSessionType.ARTICLE_REVIEW,
-        articleId: 'article',
-        limit: 2,
-      },
-      new Date('2026-08-03T00:00:00Z'),
-      [
+    await expect(
+      repository.startSession(
+        'owner',
         {
-          userVocabularyId: 'vocabulary',
-          quizQuestionId: 'available-question',
-          articleSentenceTermId: 'term',
-          difficultyCefr: CefrLevel.B1,
-          questionType: QuestionType.SELECT_MEANING,
+          sessionType: ReviewSessionType.ARTICLE_REVIEW,
+          articleId: 'article',
+          limit: 2,
         },
-        {
-          userVocabularyId: 'distractor',
-          quizQuestionId: 'missing-question',
-          articleSentenceTermId: 'distractor-term',
-          difficultyCefr: CefrLevel.B1,
-          questionType: QuestionType.SELECT_MEANING,
-        },
-      ],
-    );
+        new Date('2026-08-03T00:00:00Z'),
+        [
+          {
+            userVocabularyId: 'vocabulary',
+            quizQuestionId: 'available-question',
+            articleSentenceTermId: 'term',
+            difficultyCefr: CefrLevel.B1,
+            questionType: QuestionType.SELECT_MEANING,
+          },
+          {
+            userVocabularyId: 'distractor',
+            quizQuestionId: 'missing-question',
+            articleSentenceTermId: 'distractor-term',
+            difficultyCefr: CefrLevel.B1,
+            questionType: QuestionType.SELECT_MEANING,
+          },
+        ],
+      ),
+    ).rejects.toBeInstanceOf(NoUsableReviewQuestionError);
 
-    expect(itemCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          userVocabularyId: 'vocabulary',
-          quizQuestionId: 'available-question',
-        }),
-      ],
-    });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(itemCreateMany).not.toHaveBeenCalled();
     expect(questionCreateManyAndReturn).not.toHaveBeenCalled();
     expect(optionCreateMany).not.toHaveBeenCalled();
   });

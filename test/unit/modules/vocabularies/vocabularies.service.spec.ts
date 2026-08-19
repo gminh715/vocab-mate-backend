@@ -117,6 +117,7 @@ describe('VocabulariesService', () => {
     list: jest.Mock;
     findOwnedById: jest.Mock;
     createWithCollections: jest.Mock;
+    deleteOwned: jest.Mock;
   };
   let readingService: { getContextualTermForSave: jest.Mock };
 
@@ -125,6 +126,7 @@ describe('VocabulariesService', () => {
       list: jest.fn(),
       findOwnedById: jest.fn(),
       createWithCollections: jest.fn(),
+      deleteOwned: jest.fn(),
     };
     readingService = {
       getContextualTermForSave: jest.fn(),
@@ -211,6 +213,26 @@ describe('VocabulariesService', () => {
     repository.findOwnedById.mockResolvedValue(null);
 
     await expect(service.findOne('owner-id', VOCABULARY_ID)).rejects.toThrow(
+      new NotFoundException('Saved vocabulary not found'),
+    );
+  });
+
+  it('deletes owned vocabulary regardless of review history references', async () => {
+    repository.deleteOwned.mockResolvedValue(true);
+
+    await expect(
+      service.remove('owner-id', VOCABULARY_ID),
+    ).resolves.toBeUndefined();
+    expect(repository.deleteOwned).toHaveBeenCalledWith(
+      'owner-id',
+      VOCABULARY_ID,
+    );
+  });
+
+  it('returns generic not found when deleting missing or non-owned vocabulary', async () => {
+    repository.deleteOwned.mockResolvedValue(false);
+
+    await expect(service.remove('owner-id', VOCABULARY_ID)).rejects.toThrow(
       new NotFoundException('Saved vocabulary not found'),
     );
   });

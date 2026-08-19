@@ -110,16 +110,12 @@ export class VocabulariesService {
   }
 
   async remove(userId: string, userVocabularyId: string) {
-    await this.findOne(userId, userVocabularyId);
-    try {
-      await this.vocabulariesRepository.deleteOwned(userId, userVocabularyId);
-    } catch (error: unknown) {
-      if (hasPrismaCode(error, 'P2003')) {
-        throw new ConflictException(
-          'Saved vocabulary is referenced in review history',
-        );
-      }
-      throw error;
+    const deleted = await this.vocabulariesRepository.deleteOwned(
+      userId,
+      userVocabularyId,
+    );
+    if (!deleted) {
+      throw new NotFoundException('Saved vocabulary not found');
     }
   }
 

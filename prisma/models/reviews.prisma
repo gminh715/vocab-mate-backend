@@ -50,7 +50,7 @@ model ReviewSessionItem {
   updatedAt          DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   reviewSession  ReviewSession         @relation(fields: [reviewSessionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_session")
-  userVocabulary UserVocabulary?       @relation(fields: [userVocabularyId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_user_vocabulary")
+  userVocabulary UserVocabulary?       @relation(fields: [userVocabularyId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_review_session_items_user_vocabulary")
   quizQuestion   QuizQuestion          @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_quiz_question")
   answers        ReviewAnswer[]
   agentDecisions ReviewAgentDecision[]

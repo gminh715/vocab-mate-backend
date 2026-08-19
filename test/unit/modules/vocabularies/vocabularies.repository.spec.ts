@@ -27,6 +27,7 @@ describe('VocabulariesRepository', () => {
   const vocabularyCount: QueryMock = jest.fn();
   const vocabularyFindFirst: QueryMock = jest.fn();
   const vocabularyCreate: QueryMock = jest.fn();
+  const vocabularyDeleteMany: QueryMock = jest.fn();
   const collectionFindMany: QueryMock = jest.fn();
   const transaction = jest.fn(
     (input: Promise<unknown>[] | ((client: object) => Promise<unknown>)) =>
@@ -62,6 +63,7 @@ describe('VocabulariesRepository', () => {
     vocabularyFindMany.mockResolvedValue([]);
     vocabularyCount.mockResolvedValue(0);
     vocabularyFindFirst.mockResolvedValue(null);
+    vocabularyDeleteMany.mockResolvedValue({ count: 0 });
     collectionFindMany.mockResolvedValue([]);
     transaction.mockImplementation(
       (input: Promise<unknown>[] | ((client: object) => Promise<unknown>)) =>
@@ -82,6 +84,7 @@ describe('VocabulariesRepository', () => {
               findMany: vocabularyFindMany,
               count: vocabularyCount,
               findFirst: vocabularyFindFirst,
+              deleteMany: vocabularyDeleteMany,
             },
             $transaction: transaction,
           },
@@ -268,5 +271,22 @@ describe('VocabulariesRepository', () => {
         repository.createWithCollections('owner-id', snapshotInput(), []),
       ]),
     ).rejects.toBe(duplicate);
+  });
+
+  it('deletes vocabulary atomically within the authenticated owner scope', async () => {
+    vocabularyDeleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      repository.deleteOwned('owner-id', 'vocabulary-id'),
+    ).resolves.toBe(true);
+    expect(vocabularyDeleteMany).toHaveBeenCalledWith({
+      where: { id: 'vocabulary-id', userId: 'owner-id' },
+    });
+  });
+
+  it('does not delete missing or non-owned vocabulary', async () => {
+    await expect(
+      repository.deleteOwned('owner-id', 'other-vocabulary-id'),
+    ).resolves.toBe(false);
   });
 });

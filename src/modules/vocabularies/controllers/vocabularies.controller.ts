@@ -203,7 +203,6 @@ export class VocabulariesController {
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
   @ApiNotFoundResponse({ type: ApiErrorResponseDto })
-  @ApiConflictResponse({ type: ApiErrorResponseDto })
   remove(
     @CurrentUser() user: AuthenticatedUser,
     @Param() params: VocabularyParamsDto,

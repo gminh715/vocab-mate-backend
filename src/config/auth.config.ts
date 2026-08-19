@@ -55,7 +55,9 @@ const booleanValue = (name: string, defaultValue: boolean): boolean => {
 };
 
 const cookieSameSite = (): CookieSameSite => {
-  const value = process.env.COOKIE_SAME_SITE?.trim().toLowerCase() ?? 'lax';
+  const defaultValue = process.env.NODE_ENV === 'production' ? 'none' : 'lax';
+  const value =
+    process.env.COOKIE_SAME_SITE?.trim().toLowerCase() ?? defaultValue;
 
   if (value !== 'lax' && value !== 'strict' && value !== 'none') {
     throw new Error('COOKIE_SAME_SITE must be lax, strict, or none');

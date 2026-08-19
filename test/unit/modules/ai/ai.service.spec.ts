@@ -543,6 +543,38 @@ describe('AiService', () => {
     expect(groq.generateStructured.mock.calls).toHaveLength(1);
   });
 
+  it('requests and accepts a Vietnamese contextual meaning of at most four words', async () => {
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(enrichmentResult),
+    );
+
+    await expect(
+      service.enrichContextualTerm(enrichmentInput),
+    ).resolves.toEqual(enrichmentResult);
+
+    const request = gemini.generateStructured.mock.calls[0][0];
+    expect(request.systemInstruction).toContain('at most four words');
+    expect(JSON.stringify(request.schema)).toContain(
+      'at most four whitespace-separated words',
+    );
+  });
+
+  it('rejects a Vietnamese contextual meaning longer than four words', async () => {
+    const overlongMeaning = {
+      ...enrichmentResult,
+      contextualMeaningVi: 'một kế hoạch đầy tham vọng',
+    };
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(overlongMeaning),
+    );
+    groq.generateStructured.mockResolvedValue(JSON.stringify(overlongMeaning));
+
+    await expect(
+      service.enrichContextualTerm(enrichmentInput),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
+  });
+
   it('enforces output array bounds and accepts the canonical example shape', async () => {
     gemini.generateStructured.mockResolvedValue(
       JSON.stringify({

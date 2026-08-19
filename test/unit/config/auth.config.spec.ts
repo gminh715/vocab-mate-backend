@@ -8,6 +8,7 @@ const variableNames = [
   'BCRYPT_ROUNDS',
   'COOKIE_SECURE',
   'COOKIE_SAME_SITE',
+  'NODE_ENV',
 ] as const;
 
 describe('authConfig', () => {
@@ -24,6 +25,7 @@ describe('authConfig', () => {
     delete process.env.BCRYPT_ROUNDS;
     delete process.env.COOKIE_SECURE;
     delete process.env.COOKIE_SAME_SITE;
+    process.env.NODE_ENV = 'test';
   });
 
   afterAll(() => {
@@ -43,6 +45,15 @@ describe('authConfig', () => {
       refreshExpiresInSeconds: 604800,
       bcryptRounds: 12,
       cookieSameSite: 'lax',
+    });
+  });
+
+  it('uses a secure cross-site refresh cookie by default in production', () => {
+    process.env.NODE_ENV = 'production';
+
+    expect(authConfig()).toMatchObject({
+      cookieSecure: true,
+      cookieSameSite: 'none',
     });
   });
 

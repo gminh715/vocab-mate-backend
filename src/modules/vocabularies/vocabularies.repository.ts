@@ -286,14 +286,9 @@ export class VocabulariesRepository {
   }
 
   async deleteOwned(userId: string, id: string) {
-    const record = await this.prisma.userVocabulary.findFirst({
+    const result = await this.prisma.userVocabulary.deleteMany({
       where: { id, userId },
     });
-    if (!record) return false;
-
-    await this.prisma.userVocabulary.delete({
-      where: { id },
-    });
-    return true;
+    return result.count === 1;
   }
 }

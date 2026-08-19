@@ -17,6 +17,7 @@ import { AiService } from '../../../../../src/modules/ai/ai.service';
 import {
   type AiQuestionGenerationCandidate,
   type PreparedAiReviewQuestion,
+  NoUsableReviewQuestionError,
   ReviewsRepository,
 } from '../../../../../src/modules/reviews/reviews.repository';
 import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
@@ -262,7 +263,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
   });
 
-  it('omits a failed batch but continues with the next bounded batch', async () => {
+  it('retries every uncached candidate individually after a batch failure', async () => {
     config.reviewQuestionWarmLimit = 2;
     repository.getAiQuestionGenerationCandidates.mockResolvedValue([
       makeCandidate(1),
@@ -280,11 +281,10 @@ describe('AiAssistedQuestionGeneratorService', () => {
       )
       .mockResolvedValueOnce([generated]);
 
-    await expect(warmCache()).resolves.toEqual([
-      expect.objectContaining({ userVocabularyId: 'vocabulary-5' }),
-    ]);
+    await expect(warmCache()).resolves.toHaveLength(5);
     expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(2);
-    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
+    expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(4);
+    expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(5);
   });
 
   it('caps synchronous generation attempts for a 20-word session', async () => {
@@ -385,7 +385,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     ]);
   });
 
-  it('caps warm reservations by the shared per-session AI budget', async () => {
+  it('generates every cold batch even when the legacy warm limit is lower', async () => {
     config.reviewQuestionWarmLimit = 4;
     config.reviewMaxCallsPerSession = 1;
     repository.getAiQuestionGenerationCandidates.mockResolvedValue(
@@ -400,9 +400,33 @@ describe('AiAssistedQuestionGeneratorService', () => {
       onAiCallReserved,
     );
 
-    expect(onAiCallReserved).toHaveBeenCalledTimes(1);
-    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(1);
-    expect(prepared).toHaveLength(4);
+    expect(onAiCallReserved).toHaveBeenCalledTimes(5);
+    expect(ai.generateReviewQuestions).toHaveBeenCalledTimes(5);
+    expect(prepared).toHaveLength(20);
+  });
+
+  it('refuses to return a partial set when batch and individual AI generation fail', async () => {
+    repository.getAiQuestionGenerationCandidates.mockResolvedValue([
+      makeCandidate(1),
+      makeCandidate(2),
+    ]);
+    ai.generateReviewQuestions.mockRejectedValue(
+      new AiError(
+        'PROVIDER_UNAVAILABLE',
+        'AI service is temporarily unavailable',
+      ),
+    );
+    ai.generateReviewQuestion.mockRejectedValue(
+      new AiError(
+        'PROVIDER_UNAVAILABLE',
+        'AI service is temporarily unavailable',
+      ),
+    );
+
+    await expect(warmCache()).rejects.toBeInstanceOf(
+      NoUsableReviewQuestionError,
+    );
+    expect(repository.cacheAiQuestion).not.toHaveBeenCalled();
   });
 
   it('prepares a requested retest type through the same cache-first AI path', async () => {

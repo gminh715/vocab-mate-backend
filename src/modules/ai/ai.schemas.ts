@@ -54,7 +54,7 @@ export const termEnrichmentSchema: JsonSchema = strictObject({
     description: 'CEFR difficulty of this contextual term.',
   },
   contextualMeaningVi: requiredString(
-    'The Vietnamese meaning in this exact sentence context.',
+    'One concise Vietnamese meaning in this exact sentence context, using at most four whitespace-separated words and no alternatives, commentary, or parenthetical text.',
   ),
   definitionEn: requiredString('A concise English definition.'),
   contextualExplanation: requiredString(

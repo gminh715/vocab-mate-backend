@@ -1239,7 +1239,7 @@ export class ReviewsRepository {
         preparedAiQuestions,
         dto.reviewGoal,
       );
-      if (assignedQuestions.length === 0) {
+      if (assignedQuestions.length !== vocabularies.length) {
         throw new NoUsableReviewQuestionError();
       }
 

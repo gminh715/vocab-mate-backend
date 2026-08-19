@@ -22,6 +22,7 @@ import {
   type GeneratedAiQuestionSpec,
   type AiQuestionGenerationCandidate,
   type PreparedAiReviewQuestion,
+  NoUsableReviewQuestionError,
   ReviewsRepository,
 } from '../reviews.repository';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
@@ -70,11 +71,6 @@ export class AiAssistedQuestionGeneratorService {
         now,
       );
     const prepared = candidates.map(({ cachedQuestion }) => cachedQuestion);
-    let generatedBatchCount = 0;
-    const batchLimit = Math.min(
-      this.config.reviewQuestionWarmLimit,
-      this.config.reviewMaxCallsPerSession,
-    );
     const missing = candidates.flatMap((candidate, index) =>
       prepared[index] ? [] : [{ candidate, index }],
     );
@@ -123,8 +119,6 @@ export class AiAssistedQuestionGeneratorService {
           .join('|');
         let generation = this.batchInFlight.get(batchKey);
         if (!generation) {
-          if (generatedBatchCount >= batchLimit) return;
-          generatedBatchCount += 1;
           onAiCallReserved();
           generation = this.generateAndCacheBatch(unresolved).finally(() =>
             this.batchInFlight.delete(batchKey),
@@ -143,7 +137,7 @@ export class AiAssistedQuestionGeneratorService {
           if (!(error instanceof AiError)) throw error;
           const failureReason = error.providerFailureReason ?? 'unknown';
           this.logger.warn(
-            `AI review question batch unavailable; omitting candidates without a compatible cache (${error.code}: ${failureReason})`,
+            `AI review question batch unavailable; retrying uncached candidates individually (${error.code}: ${failureReason})`,
           );
           const fallbacks = await Promise.all(
             unresolved.map(({ candidate }) =>
@@ -155,9 +149,33 @@ export class AiAssistedQuestionGeneratorService {
               ),
             ),
           );
-          unresolved.forEach(({ index }, fallbackIndex) => {
-            prepared[index] = fallbacks[fallbackIndex];
-          });
+          for (const [fallbackIndex, entry] of unresolved.entries()) {
+            const fallback = fallbacks[fallbackIndex];
+            if (fallback) {
+              prepared[entry.index] = fallback;
+              continue;
+            }
+            try {
+              const question = await this.ensureCached(
+                entry.candidate,
+                entry.candidate.questionType,
+                () => {
+                  onAiCallReserved();
+                  return Promise.resolve(true);
+                },
+              );
+              prepared[entry.index] = this.toPreparedQuestion(
+                entry.candidate,
+                question.id,
+              );
+            } catch (retryError: unknown) {
+              if (!(retryError instanceof AiError)) throw retryError;
+              this.logger.warn(
+                `AI review question retry unavailable; refusing to create a partial session (${retryError.code})`,
+              );
+              throw new NoUsableReviewQuestionError();
+            }
+          }
         }
       } finally {
         processedMissingItems += batch.length;
@@ -180,9 +198,13 @@ export class AiAssistedQuestionGeneratorService {
     );
     await Promise.all(workers);
 
-    return prepared.filter(
+    const complete = prepared.filter(
       (question): question is PreparedAiReviewQuestion => question !== null,
     );
+    if (complete.length !== candidates.length) {
+      throw new NoUsableReviewQuestionError();
+    }
+    return complete;
   }
 
   async prepareRetestQuestion(
