@@ -945,10 +945,45 @@ const validateReviewPromptQuality = (
 ): void => {
   validatePlainGeneratedText(prompt, 'prompt');
   const normalizedPrompt = normalizeForPromptInspection(prompt);
+  const normalizedTerm = normalizeForPromptInspection(input.wordOrPhrase);
+  const promptContainsTerm = ` ${normalizedPrompt} `.includes(
+    ` ${normalizedTerm} `,
+  );
+  const taskMatchesAnswerKind = (() => {
+    switch (input.requestedQuestionType) {
+      case 'SELECT_MEANING':
+        return (
+          normalizedPrompt.startsWith('which vietnamese meaning') &&
+          promptContainsTerm
+        );
+      case 'SELECT_WORD':
+        return normalizedPrompt.includes('which english word or phrase');
+      case 'SELECT_CORRECT_CONTEXT':
+        return (
+          normalizedPrompt.startsWith('which sentence') && promptContainsTerm
+        );
+      case 'FILL_BLANK':
+        return normalizedPrompt.startsWith(
+          'complete the sentence with your saved word or phrase',
+        );
+    }
+  })();
+  const forbiddenMetaPhrases = [
+    'based on the clue',
+    'strong contextual clue',
+    'which term fits this action',
+    'in the supplied usage',
+  ];
   if (
+    !taskMatchesAnswerKind ||
+    (prompt.match(/\?/gu) ?? []).length > 1 ||
     /\bwhat\s+(?:is|does)\b.*\b(?:mean|meaning)\b/u.test(normalizedPrompt) ||
+    /^(?:quick match|context clue|contextual clue|mini challenge|real world use)\b/u.test(
+      normalizedPrompt,
+    ) ||
     normalizedPrompt.includes('in the context of the sentence') ||
     normalizedPrompt.includes('provided context') ||
+    forbiddenMetaPhrases.some((phrase) => normalizedPrompt.includes(phrase)) ||
     containsNormalizedText(prompt, expectedPromptAnswer(input))
   ) {
     fail('output', 'prompt');

@@ -57,7 +57,7 @@ export const REVIEW_SESSION_PLAN_PROMPT_VERSION =
 export const REVIEW_ANSWER_DIAGNOSIS_PROMPT_VERSION =
   'review-answer-diagnosis-v1' as const;
 export const REVIEW_QUESTION_PROMPT_VERSION =
-  'review-question-generation-v2' as const;
+  'review-question-generation-v4' as const;
 export const REVIEW_QUESTION_BATCH_MAX_SIZE = 4;
 
 export type CefrLevel = (typeof CEFR_LEVELS)[number];

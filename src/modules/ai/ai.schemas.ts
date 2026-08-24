@@ -90,13 +90,13 @@ export const termEnrichmentSchema: JsonSchema = strictObject({
 const promptStyleGuidance = (style: ReviewQuestionPromptStyle): string => {
   switch (style) {
     case 'QUICK_MATCH':
-      return 'Frame the task as a quick, direct match.';
+      return 'Use only a direct cue and the mandatory question-type wording; add no story or warm-up.';
     case 'CONTEXT_CLUE':
-      return 'Invite the learner to use a concise contextual clue.';
+      return 'Use one short exact source clause when originalSentence is supplied, or one short concrete situation otherwise.';
     case 'MINI_CHALLENGE':
-      return 'Frame the task as a short, friendly challenge.';
+      return 'Add only one fair distinction, intent, contrast, cause, result, or collocation signal before the mandatory question-type wording.';
     case 'REAL_WORLD_USE':
-      return 'Use a practical everyday-use framing without inventing facts.';
+      return 'Use one short fictional message, class, travel, or workplace situation only when the question type permits fresh context; never rewrite a named source subject into a new event.';
   }
 };
 
@@ -105,24 +105,27 @@ const questionTypePromptGuidance = (
 ): string => {
   switch (input.requestedQuestionType) {
     case 'SELECT_MEANING':
-      return 'Ask the learner to choose the saved Vietnamese meaning using the supplied sentence as evidence; the prompt may name wordOrPhrase but must not reveal contextualMeaningVi.';
+      return 'Use the clear form Which Vietnamese meaning best matches "wordOrPhrase" in "short exact source clause"? Start with Which Vietnamese meaning, and use the shortest exact clause from originalSentence that contains wordOrPhrase. Do not paraphrase the source or turn the task into a question about what happened, what someone did, or what someone endured.';
     case 'SELECT_WORD':
-      return 'Ask the learner to identify the saved word or phrase from its meaning or use; do not include wordOrPhrase in the prompt.';
+      return 'Give one short concrete cue based on contextualMeaningVi and partOfSpeech, then explicitly ask: Which English word or phrase fits? Do not include wordOrPhrase in the prompt.';
     case 'SELECT_CORRECT_CONTEXT':
-      return 'Ask which option uses wordOrPhrase with the supplied meaning; do not copy originalSentence into the prompt.';
+      return 'Explicitly ask: Which sentence uses "wordOrPhrase" with the same meaning? Include wordOrPhrase but do not copy originalSentence into the prompt.';
     case 'FILL_BLANK':
-      return 'Invite the learner to complete a fresh natural sentence; do not include wordOrPhrase in the prompt or outside the blank.';
+      return 'Use the clear prompt Complete the sentence with your saved word or phrase. Let blankSentence provide enough semantic or collocational evidence; do not include wordOrPhrase in the prompt or outside the blank.';
   }
 };
 
 const promptDescription = (input: ReviewQuestionGenerationInput): string =>
   [
-    `One engaging learner-facing sentence no harder than ${input.targetCefr}.`,
+    `One immediately understandable learner-facing task in one or two short sentences, no harder than ${input.targetCefr}.`,
     `Follow promptStyle ${input.promptStyle}.`,
     promptStyleGuidance(input.promptStyle),
     questionTypePromptGuidance(input),
+    'The question-type wording and grammatical answer kind are mandatory and take priority over stylistic variety.',
+    'Use only the shortest context needed for one unambiguous choice; do not retell the source or stack clauses.',
+    'Do not name the style or add decorative quiz language.',
     'Do not use raw Markdown.',
-    'Do not use generic What is/does ... mean/meaning wording, in the context of the sentence, or provided context.',
+    'Do not use generic What is/does ... mean/meaning wording, based on the clue, strong contextual clue, which term fits this action, in the supplied usage, or provided context.',
   ].join(' ');
 
 const reviewQuestionProperties = (
@@ -134,7 +137,7 @@ const reviewQuestionProperties = (
       type: input.requestedQuestionType === 'FILL_BLANK' ? 'string' : 'null',
       description:
         input.requestedQuestionType === 'FILL_BLANK'
-          ? 'One fresh, natural target-level example sentence with exactly one ___ blank and no other copy of wordOrPhrase.'
+          ? 'One fresh, natural target-level message, thought, or situation with decisive semantic or collocational evidence, exactly one ___ blank, and no other copy of wordOrPhrase.'
           : 'Must be null for an option-based question.',
     },
     answerExplanation: requiredString(
@@ -147,8 +150,10 @@ const reviewQuestionProperties = (
       description:
         input.requestedQuestionType === 'FILL_BLANK'
           ? 'Must be empty.'
-          : 'Two or three distinct plain-text incorrect options. Never include or paraphrase the authoritative correct answer.',
-      items: requiredString('One distinct, plausible, but incorrect option.'),
+          : 'Two or three distinct plain-text incorrect options parallel to the authoritative answer in language, answer kind, grammatical role, and approximate detail. Each must reflect a believable confusion without being absurd or broken. Never include or paraphrase the authoritative correct answer.',
+      items: requiredString(
+        'One distinct, plausible, parallel, but clearly incorrect option.',
+      ),
     },
   };
 };
@@ -176,12 +181,12 @@ export const reviewQuestionBatchGenerationSchema = (
             'The zero-based position of the matching input; items must remain in exact input order.',
         },
         prompt: requiredString(
-          'One engaging plain-text prompt that follows the matching input promptStyle, requestedQuestionType and targetCefr. Do not use generic What is/does ... mean/meaning wording, in the context of the sentence, or provided context. Never reveal the matching correct answer.',
+          'One immediately understandable plain-text task in one or two short sentences. For SELECT_MEANING, start with Which Vietnamese meaning and include wordOrPhrase; for SELECT_WORD, include Which English word or phrase; for SELECT_CORRECT_CONTEXT, start with Which sentence and include wordOrPhrase; for FILL_BLANK, start with Complete the sentence with your saved word or phrase. requestedQuestionType determines the grammatical answer kind, while promptStyle may shape only the shortest supporting cue. Do not name the style, retell the source, add decorative quiz language, or reveal the matching correct answer.',
         ),
         blankSentence: {
           type: ['string', 'null'],
           description:
-            'For FILL_BLANK, one fresh sentence with exactly one ___ blank; otherwise null.',
+            'For FILL_BLANK, one fresh concrete sentence with decisive semantic or collocational evidence and exactly one ___ blank; otherwise null.',
         },
         answerExplanation: requiredString(
           'Exactly two or three short plain-text sentences explaining the correct answer.',
@@ -190,9 +195,9 @@ export const reviewQuestionBatchGenerationSchema = (
           type: 'array',
           maxItems: 3,
           description:
-            'For an option question, two or three distinct plausible but incorrect options; for FILL_BLANK, empty. Never return the authoritative correct answer.',
+            'For an option question, two or three distinct, plausible, parallel but incorrect options that reflect believable confusion; for FILL_BLANK, empty. Never return the authoritative correct answer.',
           items: requiredString(
-            'One distinct, plausible, but incorrect option.',
+            'One distinct, plausible, parallel, but clearly incorrect option.',
           ),
         },
       }),

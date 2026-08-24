@@ -87,7 +87,7 @@ const reviewQuestionInput: ReviewQuestionGenerationInput = {
 
 const reviewQuestionResult: ReviewQuestionGenerationResult = {
   prompt:
-    'Use the lesson clue to pick the Vietnamese option that best fits "engaging".',
+    'Which Vietnamese meaning best matches "engaging" in "The lesson was engaging for everyone"?',
   blankSentence: null,
   answerExplanation:
     'The word describes something that keeps your interest. It is positive in this lesson context.',
@@ -125,7 +125,8 @@ const reviewQuestionBatchInputs: ReviewQuestionGenerationInput[] = [
 const reviewQuestionBatchResult: ReviewQuestionGenerationResult[] = [
   reviewQuestionResult,
   {
-    prompt: 'Quick match: choose the saved English item for “day tham vong”.',
+    prompt:
+      'A city plans a bold project with difficult goals. Which English word or phrase fits?',
     blankSentence: null,
     answerExplanation:
       'Ambitious describes a goal that is difficult and important. It fits a plan that aims for a major result.',
@@ -133,7 +134,7 @@ const reviewQuestionBatchResult: ReviewQuestionGenerationResult[] = [
   },
   {
     prompt:
-      'Mini challenge: spot the sentence where “network” keeps its article usage.',
+      'Which sentence uses “network” with the same meaning as connected transport links?',
     blankSentence: null,
     answerExplanation:
       'Network refers to a connected transport system here. The correct sentence keeps that same use.',
@@ -143,9 +144,9 @@ const reviewQuestionBatchResult: ReviewQuestionGenerationResult[] = [
     ],
   },
   {
-    prompt:
-      'Complete this everyday-use sentence with the saved vocabulary item.',
-    blankSentence: 'The small business stayed ___ after a difficult year.',
+    prompt: 'Complete the sentence with your saved word or phrase.',
+    blankSentence:
+      'Our small business stayed ___ and recovered after a difficult year.',
     answerExplanation:
       'Resilient describes someone or something that recovers from difficulty. It completes this sentence naturally.',
     distractors: [],
@@ -318,7 +319,29 @@ describe('AiService', () => {
     expect(request.systemInstruction).toContain('two or three short sentences');
     expect(request.systemInstruction).toContain('target CEFR');
     expect(request.systemInstruction).toContain(REVIEW_QUESTION_PROMPT_VERSION);
+    expect(REVIEW_QUESTION_PROMPT_VERSION).toBe(
+      'review-question-generation-v4',
+    );
     expect(request.systemInstruction).toContain('promptStyle');
+    expect(request.systemInstruction).toContain(
+      'Clarity and answer-type alignment are more important',
+    );
+    expect(request.systemInstruction).toContain(
+      'For QUICK_MATCH, use only a direct cue',
+    );
+    expect(request.systemInstruction).toContain(
+      'For CONTEXT_CLUE, use one short exact source clause',
+    );
+    expect(request.systemInstruction).toContain(
+      'For MINI_CHALLENGE, add only one fair distinction',
+    );
+    expect(request.systemInstruction).toContain(
+      'For REAL_WORLD_USE, use one short believable fictional',
+    );
+    expect(request.systemInstruction).toContain(
+      'For SELECT_MEANING, use this clear form',
+    );
+    expect(request.systemInstruction).toContain('which term fits this action');
     expect(request.systemInstruction).toContain(
       'Never use generic What is/does ... mean/meaning wording',
     );
@@ -327,9 +350,10 @@ describe('AiService', () => {
       'return only two or three distinct',
     );
     expect(JSON.stringify(request.schema)).toContain(
-      'plausible, but incorrect option',
+      'plausible, parallel, but clearly incorrect option',
     );
     expect(JSON.stringify(request.schema)).toContain('CONTEXT_CLUE');
+    expect(JSON.stringify(request.schema)).toContain('grammatical answer kind');
   });
 
   it('logs bounded provider latency and token metrics without prompt content', async () => {
@@ -412,6 +436,12 @@ describe('AiService', () => {
     'Choose a meaning in the context of the sentence.',
     'Pick the **best** Vietnamese option for "engaging".',
     'Pick "HAP-DAN" for this clue.',
+    'Based on the strong contextual clue of answering criticism, which term fits this action?',
+    'Quick match: pick the word that fits.',
+    'Context clue: choose the closest answer.',
+    'Mini challenge: find the right sentence.',
+    'Real-world use: choose the saved word.',
+    'When the class found the lesson engaging, what did the class experience regarding their attention?',
   ])('rejects unsafe or generic review prompt output: %s', async (prompt) => {
     const invalid = { ...reviewQuestionResult, prompt };
     gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
@@ -419,6 +449,37 @@ describe('AiService', () => {
 
     await expect(
       service.generateReviewQuestion(reviewQuestionInput),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(groq.generateStructured.mock.calls).toHaveLength(1);
+  });
+
+  it('rejects a SELECT_MEANING content question whose options are meanings', async () => {
+    const endureInput: ReviewQuestionGenerationInput = {
+      wordOrPhrase: 'endure',
+      contextualMeaningVi: 'trải qua khó khăn',
+      originalSentence:
+        'Aston Martin had to endure a savage comedown after investing heavily in personnel and infrastructure.',
+      targetCefr: 'B2',
+      requestedQuestionType: 'SELECT_MEANING',
+      promptStyle: 'REAL_WORLD_USE',
+    };
+    const mismatchedQuestion: ReviewQuestionGenerationResult = {
+      prompt:
+        'When Aston Martin experienced a savage comedown after investing heavily in personnel and infrastructure, what did the team endure regarding their difficulties?',
+      blankSentence: null,
+      answerExplanation:
+        'Endure means to experience something difficult. It describes going through hardship here.',
+      distractors: ['tránh né', 'đạt được', 'gây ra'],
+    };
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(mismatchedQuestion),
+    );
+    groq.generateStructured.mockResolvedValue(
+      JSON.stringify(mismatchedQuestion),
+    );
+
+    await expect(
+      service.generateReviewQuestion(endureInput),
     ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
     expect(groq.generateStructured.mock.calls).toHaveLength(1);
   });
@@ -433,7 +494,7 @@ describe('AiService', () => {
       promptStyle: 'QUICK_MATCH',
     };
     const shortAnswerResult: ReviewQuestionGenerationResult = {
-      prompt: 'Quick match: choose “go” for the clue “di”.',
+      prompt: 'Which English word or phrase matches “di”: “go”?',
       blankSentence: null,
       answerExplanation:
         'Go describes moving from one place to another. It matches this short clue.',
