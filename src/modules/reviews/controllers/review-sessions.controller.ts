@@ -23,10 +23,13 @@ import {
   ApiOperation,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '../../../../generated/prisma/enums';
 import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
+import { AuthenticatedUserThrottlerGuard } from '../../../common/guards/authenticated-user-throttler.guard';
 import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
 import type { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -90,6 +93,8 @@ export class ReviewSessionsController {
 
   @Post()
   @Version('1')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'createReviewSession',
     summary: 'Create or resume a review session',
@@ -118,6 +123,7 @@ export class ReviewSessionsController {
       'Eligible vocabulary exists, but no valid AI question is currently available. The request can be retried.',
     type: ApiErrorResponseDto,
   })
+  @ApiTooManyRequestsResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({
     description: 'Unexpected persistence failure.',
     type: ApiErrorResponseDto,
@@ -217,6 +223,8 @@ export class ReviewSessionsController {
   @Post(':sessionId/answers')
   @Version('1')
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'submitReviewAnswer',
     summary: 'Submit and transactionally apply the active answer attempt',
@@ -241,6 +249,7 @@ export class ReviewSessionsController {
     type: ApiErrorResponseDto,
     example: conflictErrorExample,
   })
+  @ApiTooManyRequestsResponse({ type: ApiErrorResponseDto })
   submitAnswer(
     @CurrentUser() user: AuthenticatedUser,
     @Param() params: ReviewSessionParamsDto,

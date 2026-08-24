@@ -22,6 +22,7 @@ import {
 import { ApiExceptionFilter } from '../../../src/common/filters/api-exception.filter';
 import { SuccessResponseInterceptor } from '../../../src/common/interceptors/success-response.interceptor';
 import { configureApp } from '../../../src/app.setup';
+import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import type { NewsConfig } from '../../../src/config/news.config';
 import { ArticleContentService } from '../../../src/modules/articles/services/article-content.service';
 import { AdminArticleTermsController } from '../../../src/modules/articles/controllers/admin-article-terms.controller';
@@ -545,6 +546,8 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
     })
       .overrideGuard(JwtAuthGuard)
       .useClass(HeaderAuthGuard)
+      .overrideGuard(AuthenticatedUserThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = module.createNestApplication();

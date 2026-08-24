@@ -1,6 +1,13 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import {
+  BASELINE_RATE_LIMIT,
+  BaselineThrottlerGuard,
+} from './common/guards/baseline-throttler.guard';
+import { RateLimitingModule } from './common/guards/rate-limiting.module';
 import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './database/prisma.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
@@ -19,6 +26,14 @@ import { VocabulariesModule } from './modules/vocabularies/vocabularies.module';
 @Module({
   imports: [
     ConfigModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: BASELINE_RATE_LIMIT.ttl,
+        limit: BASELINE_RATE_LIMIT.limit,
+      },
+    ]),
+    RateLimitingModule,
     PrismaModule,
     HealthModule,
     NewsIngestionModule,
@@ -34,6 +49,12 @@ import { VocabulariesModule } from './modules/vocabularies/vocabularies.module';
     AnalyticsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: BaselineThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

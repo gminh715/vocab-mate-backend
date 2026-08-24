@@ -1,12 +1,12 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ThrottlerGuard } from '@nestjs/throttler';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../../../src/app.module';
 import { configureApp, setupSwagger } from '../../../src/app.setup';
+import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import type { AuthConfig } from '../../../src/config/auth.config';
 import { AUTH_CONFIG } from '../../../src/config/config.module';
 import { PrismaService } from '../../../src/database/prisma.service';
@@ -141,6 +141,12 @@ interface CategoryStatusResponseBody {
 const responseBody = <T>(response: { text: string }): T =>
   JSON.parse(response.text) as T;
 
+const refreshTokenFromCookie = (cookie: string): string =>
+  cookie.split(';', 1)[0].replace('refreshToken=', '');
+
+const refreshTokenHash = (tokenId: string): string =>
+  createHash('sha256').update(tokenId).digest('hex');
+
 class InMemoryUsersRepository {
   private readonly users = new Map<string, AuthUserRecord>();
   private readonly profiles = new Map<string, UserProfileRecord>();
@@ -148,11 +154,16 @@ class InMemoryUsersRepository {
     string,
     { createdAt: Date; lastLoginAt: Date | null; updatedAt: Date }
   >();
+  private readonly refreshSessions = new Map<
+    string,
+    { userId: string; expiresAt: Date; revokedAt: Date | null }
+  >();
 
   reset(): void {
     this.users.clear();
     this.profiles.clear();
     this.accountDates.clear();
+    this.refreshSessions.clear();
   }
 
   findByEmailWithPassword(email: string): Promise<AuthUserRecord | null> {
@@ -294,6 +305,9 @@ class InMemoryUsersRepository {
 
     user.status = status;
     dates.updatedAt = new Date();
+    if (status !== 'ACTIVE') {
+      this.revokeAllRefreshSessions(userId);
+    }
     return Promise.resolve({
       outcome: 'success',
       user: { id: user.id, status: user.status, updatedAt: dates.updatedAt },
@@ -389,7 +403,60 @@ class InMemoryUsersRepository {
     }
 
     user.passwordHash = passwordHash;
+    this.revokeAllRefreshSessions(id);
     return Promise.resolve(this.toSafeUser(user));
+  }
+
+  createRefreshSession(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    this.refreshSessions.set(input.tokenHash, {
+      userId: input.userId,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+    });
+    return Promise.resolve();
+  }
+
+  isRefreshSessionActive(userId: string, tokenHash: string): Promise<boolean> {
+    const session = this.refreshSessions.get(tokenHash);
+    return Promise.resolve(
+      session?.userId === userId &&
+        session.revokedAt === null &&
+        session.expiresAt > new Date(),
+    );
+  }
+
+  async rotateRefreshSession(
+    userId: string,
+    previousTokenHash: string,
+    nextSession: { userId: string; tokenHash: string; expiresAt: Date },
+  ): Promise<boolean> {
+    if (!(await this.isRefreshSessionActive(userId, previousTokenHash))) {
+      return false;
+    }
+
+    const previous = this.refreshSessions.get(previousTokenHash);
+    if (!previous) return false;
+
+    previous.revokedAt = new Date();
+    await this.createRefreshSession(nextSession);
+    return true;
+  }
+
+  revokeRefreshSession(userId: string, tokenHash: string): Promise<void> {
+    const session = this.refreshSessions.get(tokenHash);
+    if (session?.userId === userId && session.revokedAt === null) {
+      session.revokedAt = new Date();
+    }
+    return Promise.resolve();
+  }
+
+  expireRefreshSession(tokenHash: string): void {
+    const session = this.refreshSessions.get(tokenHash);
+    if (session) session.expiresAt = new Date(0);
   }
 
   setStatusByEmail(email: string, status: AuthUserRecord['status']): void {
@@ -399,6 +466,9 @@ class InMemoryUsersRepository {
 
     if (user) {
       user.status = status;
+      if (status !== 'ACTIVE') {
+        this.revokeAllRefreshSessions(user.id);
+      }
     }
   }
 
@@ -442,6 +512,14 @@ class InMemoryUsersRepository {
     ).length;
   }
 
+  private revokeAllRefreshSessions(userId: string): void {
+    for (const session of this.refreshSessions.values()) {
+      if (session.userId === userId && session.revokedAt === null) {
+        session.revokedAt = new Date();
+      }
+    }
+  }
+
   private toSafeUser(user: AuthUserRecord): PublicUserRecord {
     return {
       id: user.id,
@@ -475,7 +553,7 @@ describe('Auth and Users APIs (e2e)', () => {
       .useValue(categoriesRepository)
       .overrideProvider(ArticlesRepository)
       .useValue(articlesRepository)
-      .overrideGuard(ThrottlerGuard)
+      .overrideGuard(AuthenticatedUserThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -2924,7 +3002,7 @@ describe('Auth and Users APIs (e2e)', () => {
     ).toBe(secondRegistration.displayName);
   });
 
-  it('AUT-001 registers a normalized USER without starting a session', async () => {
+  it('AUT-001 registers a normalized USER and starts a session', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
       .send({ ...registration, email: '  User@Example.COM ' })
@@ -2941,9 +3019,9 @@ describe('Auth and Users APIs (e2e)', () => {
         },
       },
     });
-    expect(body.data).not.toHaveProperty('accessToken');
+    expect(body.data.accessToken).toEqual(expect.any(String));
     expect(body.data.user).not.toHaveProperty('passwordHash');
-    expect(response.headers['set-cookie']).toBeUndefined();
+    expect(response.headers['set-cookie']?.[0]).toContain('refreshToken=');
   });
 
   it('AUT-001 rejects duplicate email and client-controlled role', async () => {
@@ -3029,6 +3107,10 @@ describe('Auth and Users APIs (e2e)', () => {
       responseBody<AccessTokenResponseBody>(refreshed).data.accessToken,
     ).toEqual(expect.any(String));
     expect(rotatedCookie).not.toBe(originalCookie);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', `refreshToken=${refreshTokenFromCookie(originalCookie)}`)
+      .expect(403);
   });
 
   it('AUT-003 maps missing tokens to 401 and invalid or expired tokens to 403', async () => {
@@ -3061,6 +3143,23 @@ describe('Auth and Users APIs (e2e)', () => {
     await agent.post('/api/v1/auth/refresh').expect(403);
   });
 
+  it('AUT-003 rejects an expired server-side refresh session', async () => {
+    const agent = request.agent(app.getHttpServer());
+    await agent.post('/api/v1/auth/register').send(registration).expect(201);
+    const login = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: registration.email, password: registration.password })
+      .expect(200);
+    const refreshToken = refreshTokenFromCookie(login.headers['set-cookie'][0]);
+    const payload = await new JwtService().verifyAsync<{ jti: string }>(
+      refreshToken,
+      { secret: authConfig.refreshSecret },
+    );
+    repository.expireRefreshSession(refreshTokenHash(payload.jti));
+
+    await agent.post('/api/v1/auth/refresh').expect(403);
+  });
+
   it('AUT-004 clears the cookie and remains idempotent with a valid access token', async () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/v1/auth/register').send(registration).expect(201);
@@ -3069,6 +3168,7 @@ describe('Auth and Users APIs (e2e)', () => {
       .send({ email: registration.email, password: registration.password })
       .expect(200);
     const accessToken = responseBody<AuthResponseBody>(login).data.accessToken;
+    const refreshCookie = login.headers['set-cookie'][0];
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const logout = await agent
@@ -3081,6 +3181,10 @@ describe('Auth and Users APIs (e2e)', () => {
     }
 
     await agent.post('/api/v1/auth/refresh').expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', `refreshToken=${refreshTokenFromCookie(refreshCookie)}`)
+      .expect(403);
   });
 
   it('AUT-004 requires a valid access token', async () => {
@@ -3095,6 +3199,7 @@ describe('Auth and Users APIs (e2e)', () => {
       .send({ email: registration.email, password: registration.password })
       .expect(200);
     const accessToken = responseBody<AuthResponseBody>(login).data.accessToken;
+    const refreshCookie = login.headers['set-cookie'][0];
 
     await agent
       .patch('/api/v1/auth/change-password')
@@ -3106,6 +3211,10 @@ describe('Auth and Users APIs (e2e)', () => {
       .expect(200);
 
     await agent.post('/api/v1/auth/refresh').expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', `refreshToken=${refreshTokenFromCookie(refreshCookie)}`)
+      .expect(403);
     await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: registration.email, password: registration.password })

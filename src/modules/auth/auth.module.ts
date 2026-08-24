@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
 import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { UsersModule } from '../users/users.module';
@@ -13,12 +12,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
 
 @Module({
-  imports: [
-    UsersModule,
-    PassportModule,
-    JwtModule.register({}),
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 10 }]),
-  ],
+  imports: [UsersModule, PassportModule, JwtModule.register({})],
   controllers: [AuthController],
   providers: [
     AuthService,

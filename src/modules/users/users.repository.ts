@@ -97,6 +97,12 @@ export interface UpdatedAdminUserRoleRecord {
   updatedAt: Date;
 }
 
+export interface CreateRefreshSessionInput {
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}
+
 export type AdminUserMutationResult<T> =
   | { outcome: 'success'; user: T }
   | { outcome: 'not_found' }
@@ -342,6 +348,13 @@ export class UsersRepository {
         select: { id: true, status: true, updatedAt: true },
       });
 
+      if (status !== 'ACTIVE') {
+        await transaction.refreshSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
       return { outcome: 'success', user };
     });
   }
@@ -422,11 +435,86 @@ export class UsersRepository {
   }
 
   updatePassword(id: string, passwordHash: string): Promise<PublicUserRecord> {
-    return this.prisma.user.update({
-      where: { id },
-      data: { passwordHash },
-      select: publicUserSelect,
+    return this.prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.update({
+        where: { id },
+        data: { passwordHash },
+        select: publicUserSelect,
+      });
+      await transaction.refreshSession.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return user;
     });
+  }
+
+  createRefreshSession(input: CreateRefreshSessionInput): Promise<void> {
+    return this.prisma.refreshSession
+      .create({ data: input, select: { id: true } })
+      .then(() => undefined);
+  }
+
+  async isRefreshSessionActive(
+    userId: string,
+    tokenHash: string,
+  ): Promise<boolean> {
+    const session = await this.prisma.refreshSession.findFirst({
+      where: {
+        userId,
+        tokenHash,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    return session !== null;
+  }
+
+  async rotateRefreshSession(
+    userId: string,
+    previousTokenHash: string,
+    nextSession: CreateRefreshSessionInput,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (transaction) => {
+      const revokedAt = new Date();
+      const revoked = await transaction.refreshSession.updateMany({
+        where: {
+          userId,
+          tokenHash: previousTokenHash,
+          revokedAt: null,
+          expiresAt: { gt: revokedAt },
+        },
+        data: { revokedAt },
+      });
+
+      if (revoked.count !== 1) {
+        return false;
+      }
+
+      const previous = await transaction.refreshSession.findUniqueOrThrow({
+        where: { tokenHash: previousTokenHash },
+        select: { id: true },
+      });
+      const replacement = await transaction.refreshSession.create({
+        data: nextSession,
+        select: { id: true },
+      });
+      await transaction.refreshSession.update({
+        where: { id: previous.id },
+        data: { replacedBySessionId: replacement.id },
+      });
+      return true;
+    });
+  }
+
+  revokeRefreshSession(userId: string, tokenHash: string): Promise<void> {
+    return this.prisma.refreshSession
+      .updateMany({
+        where: { userId, tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
+      .then(() => undefined);
   }
 
   private countActiveAdmins(transaction: Prisma.TransactionClient) {

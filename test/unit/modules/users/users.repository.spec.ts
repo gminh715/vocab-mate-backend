@@ -23,19 +23,38 @@ describe('UsersRepository', () => {
   const articleProgressCount: jest.MockedFunction<
     (query: object) => Promise<unknown>
   > = jest.fn();
-  type TransactionCallback = (client: {
-    user: {
-      findUnique: typeof findUnique;
-      update: typeof userUpdate;
-      count: typeof userCount;
-    };
-  }) => Promise<unknown>;
+  const refreshSessionCreate: jest.MockedFunction<
+    (query: object) => Promise<unknown>
+  > = jest.fn();
+  const refreshSessionFindFirst: jest.MockedFunction<
+    (query: object) => Promise<unknown>
+  > = jest.fn();
+  const refreshSessionFindUniqueOrThrow: jest.MockedFunction<
+    (query: object) => Promise<unknown>
+  > = jest.fn();
+  const refreshSessionUpdate: jest.MockedFunction<
+    (query: object) => Promise<unknown>
+  > = jest.fn();
+  const refreshSessionUpdateMany: jest.MockedFunction<
+    (query: object) => Promise<unknown>
+  > = jest.fn();
+  const transactionClient = () => ({
+    user: { findUnique, update: userUpdate, count: userCount },
+    refreshSession: {
+      create: refreshSessionCreate,
+      findFirst: refreshSessionFindFirst,
+      findUniqueOrThrow: refreshSessionFindUniqueOrThrow,
+      update: refreshSessionUpdate,
+      updateMany: refreshSessionUpdateMany,
+    },
+  });
+  type TransactionCallback = (
+    client: ReturnType<typeof transactionClient>,
+  ) => Promise<unknown>;
   const transaction = jest.fn(
     (input: Promise<unknown>[] | TransactionCallback): Promise<unknown> =>
       typeof input === 'function'
-        ? input({
-            user: { findUnique, update: userUpdate, count: userCount },
-          })
+        ? input(transactionClient())
         : Promise.all(input),
   );
   let repository: UsersRepository;
@@ -46,7 +65,7 @@ describe('UsersRepository', () => {
       (input: Promise<unknown>[] | TransactionCallback): Promise<unknown> =>
         typeof input === 'function'
           ? input({
-              user: { findUnique, update: userUpdate, count: userCount },
+              ...transactionClient(),
             })
           : Promise.all(input),
     );
@@ -55,6 +74,7 @@ describe('UsersRepository', () => {
     userCount.mockResolvedValue(0);
     vocabularyCount.mockResolvedValue(0);
     articleProgressCount.mockResolvedValue(0);
+    refreshSessionUpdateMany.mockResolvedValue({ count: 0 });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersRepository,
@@ -70,6 +90,7 @@ describe('UsersRepository', () => {
             userProfile: { update: profileUpdate },
             userVocabulary: { count: vocabularyCount },
             userArticleProgress: { count: articleProgressCount },
+            refreshSession: transactionClient().refreshSession,
             $transaction: transaction,
           },
         },
@@ -147,6 +168,41 @@ describe('UsersRepository', () => {
         preferredLanguage: 'vi',
       },
     });
+  });
+
+  it('rotates exactly one active refresh session before creating its replacement', async () => {
+    refreshSessionUpdateMany.mockResolvedValue({ count: 1 });
+    refreshSessionFindUniqueOrThrow.mockResolvedValue({ id: 'previous-id' });
+    refreshSessionCreate.mockResolvedValue({ id: 'replacement-id' });
+
+    await expect(
+      repository.rotateRefreshSession('user-id', 'previous-hash', {
+        userId: 'user-id',
+        tokenHash: 'replacement-hash',
+        expiresAt: new Date('2026-08-31T10:00:00Z'),
+      }),
+    ).resolves.toBe(true);
+
+    expect(refreshSessionUpdateMany).toHaveBeenCalledTimes(1);
+    expect(refreshSessionCreate).toHaveBeenCalledTimes(1);
+    expect(refreshSessionUpdate).toHaveBeenCalledWith({
+      where: { id: 'previous-id' },
+      data: { replacedBySessionId: 'replacement-id' },
+    });
+  });
+
+  it('does not issue a replacement for a revoked or expired refresh session', async () => {
+    refreshSessionUpdateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      repository.rotateRefreshSession('user-id', 'previous-hash', {
+        userId: 'user-id',
+        tokenHash: 'replacement-hash',
+        expiresAt: new Date('2026-08-31T10:00:00Z'),
+      }),
+    ).resolves.toBe(false);
+
+    expect(refreshSessionCreate).not.toHaveBeenCalled();
   });
 
   it('applies combined filters, email/display-name search, stable pagination, and safe projection', async () => {
@@ -431,13 +487,7 @@ describe('UsersRepository', () => {
         .mockImplementationOnce(
           (input: Promise<unknown>[] | TransactionCallback) =>
             typeof input === 'function'
-              ? input({
-                  user: {
-                    findUnique,
-                    update: userUpdate,
-                    count: userCount,
-                  },
-                })
+              ? input(transactionClient())
               : Promise.all(input),
         );
       findUnique.mockResolvedValue({

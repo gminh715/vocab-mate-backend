@@ -21,6 +21,7 @@ import {
 } from '../../../generated/prisma/enums';
 import { AppModule } from '../../../src/app.module';
 import { configureApp, setupSwagger } from '../../../src/app.setup';
+import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import { PrismaService } from '../../../src/database/prisma.service';
 import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
@@ -420,6 +421,8 @@ describe('Review REST APIs (e2e)', () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideGuard(JwtAuthGuard)
       .useClass(ReviewAuthGuard)
+      .overrideGuard(AuthenticatedUserThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .overrideProvider(ReviewsService)
       .useValue(reviews)
       .overrideProvider(PrismaService)

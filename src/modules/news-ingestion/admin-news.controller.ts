@@ -26,8 +26,10 @@ import {
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '../../../generated/prisma/enums';
 import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
+import { AuthenticatedUserThrottlerGuard } from '../../common/guards/authenticated-user-throttler.guard';
 import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -58,6 +60,8 @@ export class AdminNewsController {
   @Get('search')
   @Version('1')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'getAdminNewsSearch',
     summary: 'Discover normalized Guardian articles',
@@ -79,6 +83,8 @@ export class AdminNewsController {
   @Post('sync')
   @Version('1')
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 4, ttl: 600000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'postAdminNewsSync',
     summary: 'Import discovered Guardian news as parsed drafts',

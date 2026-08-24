@@ -12,6 +12,7 @@ import type { App } from 'supertest/types';
 import { ApiExceptionFilter } from '../../../src/common/filters/api-exception.filter';
 import { SuccessResponseInterceptor } from '../../../src/common/interceptors/success-response.interceptor';
 import { configureApp } from '../../../src/app.setup';
+import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../src/modules/auth/guards/roles.guard';
 import { AdminNewsController } from '../../../src/modules/news-ingestion/admin-news.controller';
@@ -57,6 +58,8 @@ describe('Admin news ingestion API (e2e)', () => {
     const module: TestingModule = await moduleBuilder
       .overrideGuard(JwtAuthGuard)
       .useClass(HeaderAuthGuard)
+      .overrideGuard(AuthenticatedUserThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = module.createNestApplication();

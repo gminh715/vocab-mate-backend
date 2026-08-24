@@ -26,9 +26,12 @@ import {
   ApiOperation,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
+import { AuthenticatedUserThrottlerGuard } from '../../../common/guards/authenticated-user-throttler.guard';
 import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
 import type { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -230,6 +233,8 @@ export class ReadingController {
   @Get('articles/:articleId/terms/:termId')
   @Version('1')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 12, ttl: 60000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'getReadingArticlesByArticleIdTermsByTermId',
     summary: 'Get or lazily enrich an approved exact contextual term',
@@ -256,6 +261,7 @@ export class ReadingController {
     description:
       'Enrichment is already processing or the provider could not produce a safe result. The request may be retried later.',
   })
+  @ApiTooManyRequestsResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   getContextualTerm(
     @CurrentUser() user: AuthenticatedUser,

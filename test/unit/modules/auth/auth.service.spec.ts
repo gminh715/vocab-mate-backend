@@ -55,6 +55,16 @@ interface UsersServiceMock {
   updatePassword: jest.MockedFunction<
     (id: string, passwordHash: string) => Promise<PublicUserRecord>
   >;
+  createRefreshSession: jest.MockedFunction<(input: object) => Promise<void>>;
+  isRefreshSessionActive: jest.MockedFunction<
+    (userId: string, tokenHash: string) => Promise<boolean>
+  >;
+  rotateRefreshSession: jest.MockedFunction<
+    (userId: string, tokenHash: string, input: object) => Promise<boolean>
+  >;
+  revokeRefreshSession: jest.MockedFunction<
+    (userId: string, tokenHash: string) => Promise<void>
+  >;
 }
 
 describe('AuthService', () => {
@@ -70,6 +80,10 @@ describe('AuthService', () => {
       findSafeById: jest.fn(),
       updateLastLogin: jest.fn(),
       updatePassword: jest.fn(),
+      createRefreshSession: jest.fn().mockResolvedValue(undefined),
+      isRefreshSessionActive: jest.fn().mockResolvedValue(true),
+      rotateRefreshSession: jest.fn().mockResolvedValue(true),
+      revokeRefreshSession: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -107,8 +121,11 @@ describe('AuthService', () => {
       await expect(
         bcrypt.compare(dto.password, createInput.passwordHash),
       ).resolves.toBe(true);
-      expect(result).toEqual(safeUser);
-      expect(result).not.toHaveProperty('passwordHash');
+      expect(result.user).toEqual(safeUser);
+      expect(result.user).not.toHaveProperty('passwordHash');
+      expect(usersService.createRefreshSession).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: safeUser.id }),
+      );
     });
 
     it('preserves duplicate-email conflict errors', async () => {
@@ -185,8 +202,9 @@ describe('AuthService', () => {
   });
 
   it('rotates refresh tokens and issues verifiable token types', async () => {
-    const first = await service.refresh(safeUser);
-    const second = await service.refresh(safeUser);
+    const refreshUser = { ...safeUser, refreshTokenId: 'first-token-id' };
+    const first = await service.refresh(refreshUser);
+    const second = await service.refresh(refreshUser);
     const accessPayload = await jwtService.verifyAsync<JwtPayload>(
       first.accessToken,
       { secret: config.accessSecret },
@@ -197,6 +215,7 @@ describe('AuthService', () => {
     );
 
     expect(second.refreshToken).not.toBe(first.refreshToken);
+    expect(usersService.rotateRefreshSession).toHaveBeenCalledTimes(2);
     expect(accessPayload).toMatchObject({ sub: safeUser.id, type: 'access' });
     expect(refreshPayload).toMatchObject({ sub: safeUser.id, type: 'refresh' });
   });
@@ -210,10 +229,19 @@ describe('AuthService', () => {
       });
 
     await expect(
-      service.validateRefreshUser(safeUser.id),
+      service.validateRefreshUser(safeUser.id, 'refresh-token-id'),
     ).rejects.toBeInstanceOf(ForbiddenException);
     await expect(
-      service.validateRefreshUser(safeUser.id),
+      service.validateRefreshUser(safeUser.id, 'refresh-token-id'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects a refresh token whose server-side session is inactive', async () => {
+    usersService.findSafeById.mockResolvedValue(safeUser);
+    usersService.isRefreshSessionActive.mockResolvedValue(false);
+
+    await expect(
+      service.validateRefreshUser(safeUser.id, 'revoked-token-id'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 

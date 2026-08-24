@@ -1,10 +1,13 @@
 import {
   INestApplication,
+  RequestMethod,
   ValidationPipe,
   VersioningType,
 } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import type { NextFunction, Request, Response } from 'express';
+import helmet from 'helmet';
 
 const defaultAllowedOrigins = [
   'http://localhost:5173',
@@ -16,7 +19,26 @@ export const configureApp = (
   app: INestApplication,
   corsOrigins?: string[],
 ): void => {
-  app.setGlobalPrefix('api');
+  const standardSecurityHeaders = helmet();
+  const swaggerSecurityHeaders = helmet({
+    // Swagger UI renders inline bootstrap code. Keep the CSP exception scoped
+    // to the documentation route while retaining Helmet's other protections.
+    contentSecurityPolicy: false,
+  });
+
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const securityHeaders = request.originalUrl.startsWith('/api/docs')
+      ? swaggerSecurityHeaders
+      : standardSecurityHeaders;
+
+    securityHeaders(request, response, next);
+  });
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'health/live', method: RequestMethod.GET },
+      { path: 'health/ready', method: RequestMethod.GET },
+    ],
+  });
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',

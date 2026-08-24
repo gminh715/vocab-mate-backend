@@ -10,6 +10,7 @@ async function bootstrap() {
 
   configureApp(app, config.corsOrigins);
   setupSwagger(app);
+  app.enableShutdownHooks();
 
   await app.listen(config.port);
 }

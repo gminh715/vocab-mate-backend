@@ -13,6 +13,7 @@ import {
   PublicUserRecord,
   UpdatedMyProfileRecord,
   UpdateMyProfileInput,
+  CreateRefreshSessionInput,
   UsersRepository,
 } from './users.repository';
 
@@ -158,5 +159,29 @@ export class UsersService {
 
   updatePassword(id: string, passwordHash: string): Promise<PublicUserRecord> {
     return this.usersRepository.updatePassword(id, passwordHash);
+  }
+
+  createRefreshSession(input: CreateRefreshSessionInput): Promise<void> {
+    return this.usersRepository.createRefreshSession(input);
+  }
+
+  isRefreshSessionActive(userId: string, tokenHash: string): Promise<boolean> {
+    return this.usersRepository.isRefreshSessionActive(userId, tokenHash);
+  }
+
+  rotateRefreshSession(
+    userId: string,
+    previousTokenHash: string,
+    nextSession: CreateRefreshSessionInput,
+  ): Promise<boolean> {
+    return this.usersRepository.rotateRefreshSession(
+      userId,
+      previousTokenHash,
+      nextSession,
+    );
+  }
+
+  revokeRefreshSession(userId: string, tokenHash: string): Promise<void> {
+    return this.usersRepository.revokeRefreshSession(userId, tokenHash);
   }
 }

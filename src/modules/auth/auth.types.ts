@@ -13,6 +13,10 @@ export interface JwtPayload {
 
 export type AuthenticatedUser = PublicUserRecord;
 
+export interface RefreshAuthenticatedUser extends AuthenticatedUser {
+  refreshTokenId: string;
+}
+
 export interface RequestWithUser extends Request {
   user: AuthenticatedUser;
 }

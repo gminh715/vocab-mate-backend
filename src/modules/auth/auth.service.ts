@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AuthConfig } from '../../config/auth.config';
 import { AUTH_CONFIG } from '../../config/config.module';
 import { UsersService } from '../users/users.service';
@@ -19,8 +19,8 @@ import type {
   AuthenticatedUser,
   IssuedTokens,
   JwtPayload,
+  RefreshAuthenticatedUser,
 } from './auth.types';
-import type { PublicUserRecord } from '../users/users.repository';
 
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
 const DUMMY_PASSWORD_HASH =
@@ -34,18 +34,20 @@ export class AuthService {
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
   ) {}
 
-  async register(dto: RegisterDto): Promise<PublicUserRecord> {
+  async register(dto: RegisterDto): Promise<AuthResult> {
     const email = dto.email.trim().toLowerCase();
     const passwordHash = await bcrypt.hash(
       dto.password,
       this.config.bcryptRounds,
     );
-    return this.usersService.createRegisteredUser({
+    const user = await this.usersService.createRegisteredUser({
       email,
       passwordHash,
       displayName: dto.displayName,
       preferredLanguage: dto.preferredLanguage,
     });
+    const tokens = await this.issueTokens(user.id);
+    return { user, ...tokens };
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {
@@ -76,8 +78,30 @@ export class AuthService {
     return { user: safeUser, ...tokens };
   }
 
-  async refresh(user: AuthenticatedUser): Promise<IssuedTokens> {
-    return this.issueTokens(user.id);
+  async refresh(user: RefreshAuthenticatedUser): Promise<IssuedTokens> {
+    return this.issueTokens(user.id, user.refreshTokenId);
+  }
+
+  async logout(
+    userId: string,
+    refreshToken: string | undefined,
+  ): Promise<void> {
+    if (!refreshToken) return;
+
+    try {
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        refreshToken,
+        { secret: this.config.refreshSecret },
+      );
+      if (payload.type !== 'refresh' || payload.sub !== userId) return;
+
+      await this.usersService.revokeRefreshSession(
+        userId,
+        this.hashRefreshTokenId(payload.jti),
+      );
+    } catch {
+      // Clearing a malformed or expired cookie must remain idempotent.
+    }
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
@@ -119,17 +143,31 @@ export class AuthService {
     return user;
   }
 
-  async validateRefreshUser(userId: string): Promise<AuthenticatedUser> {
+  async validateRefreshUser(
+    userId: string,
+    refreshTokenId: string,
+  ): Promise<RefreshAuthenticatedUser> {
     const user = await this.usersService.findSafeById(userId);
 
     if (!user || user.status !== 'ACTIVE') {
       throw new ForbiddenException('Refresh token is invalid or expired');
     }
 
-    return user;
+    const activeSession = await this.usersService.isRefreshSessionActive(
+      userId,
+      this.hashRefreshTokenId(refreshTokenId),
+    );
+    if (!activeSession) {
+      throw new ForbiddenException('Refresh token is invalid or expired');
+    }
+
+    return { ...user, refreshTokenId };
   }
 
-  private async issueTokens(userId: string): Promise<IssuedTokens> {
+  private async issueTokens(
+    userId: string,
+    previousRefreshTokenId?: string,
+  ): Promise<IssuedTokens> {
     const accessPayload: JwtPayload = {
       sub: userId,
       type: 'access',
@@ -140,6 +178,26 @@ export class AuthService {
       type: 'refresh',
       jti: randomUUID(),
     };
+    const refreshSession = {
+      userId,
+      tokenHash: this.hashRefreshTokenId(refreshPayload.jti),
+      expiresAt: new Date(
+        Date.now() + this.config.refreshExpiresInSeconds * 1000,
+      ),
+    };
+
+    if (previousRefreshTokenId) {
+      const rotated = await this.usersService.rotateRefreshSession(
+        userId,
+        this.hashRefreshTokenId(previousRefreshTokenId),
+        refreshSession,
+      );
+      if (!rotated) {
+        throw new ForbiddenException('Refresh token is invalid or expired');
+      }
+    } else {
+      await this.usersService.createRefreshSession(refreshSession);
+    }
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(accessPayload, {
         secret: this.config.accessSecret,
@@ -152,5 +210,9 @@ export class AuthService {
     ]);
 
     return { accessToken, refreshToken };
+  }
+
+  private hashRefreshTokenId(tokenId: string): string {
+    return createHash('sha256').update(tokenId).digest('hex');
   }
 }
