@@ -13,9 +13,9 @@ import type {
   AuthUserRecord,
   CreateRegisteredUserInput,
   PublicUserRecord,
-} from '../../../../src/modules/users/users.repository';
-import { UsersService } from '../../../../src/modules/users/users.service';
-import { AuthService } from '../../../../src/modules/auth/auth.service';
+} from '../../../../src/modules/users/repositories/users.repository';
+import { UsersService } from '../../../../src/modules/users/services/users.service';
+import { AuthService } from '../../../../src/modules/auth/services/auth.service';
 import type { JwtPayload } from '../../../../src/modules/auth/auth.types';
 import type { RegisterDto } from '../../../../src/modules/auth/dto/register.dto';
 

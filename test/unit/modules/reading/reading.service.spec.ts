@@ -10,8 +10,8 @@ import { ArticleContentService } from '../../../../src/modules/articles/services
 import {
   type ReaderArticleRecord,
   ReadingRepository,
-} from '../../../../src/modules/reading/reading.repository';
-import { ReadingService } from '../../../../src/modules/reading/reading.service';
+} from '../../../../src/modules/reading/repositories/reading.repository';
+import { ReadingService } from '../../../../src/modules/reading/services/reading.service';
 
 const articleId = '550e8400-e29b-41d4-a716-446655440000';
 

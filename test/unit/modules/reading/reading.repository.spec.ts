@@ -6,8 +6,8 @@ import {
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../src/database/prisma.service';
-import { ContextualTermsRepository } from '../../../../src/modules/reading/contextual-terms.repository';
-import { ReadingRepository } from '../../../../src/modules/reading/reading.repository';
+import { ContextualTermsRepository } from '../../../../src/modules/reading/repositories/contextual-terms.repository';
+import { ReadingRepository } from '../../../../src/modules/reading/repositories/reading.repository';
 
 interface QueryMockArgs {
   where?: Record<string, unknown>;

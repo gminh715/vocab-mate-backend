@@ -13,8 +13,8 @@ import { configureApp } from '../../../src/app.setup';
 import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../src/modules/auth/guards/roles.guard';
-import { AdminNewsController } from '../../../src/modules/news-ingestion/admin-news.controller';
-import { NewsIngestionService } from '../../../src/modules/news-ingestion/news-ingestion.service';
+import { AdminNewsController } from '../../../src/modules/news-ingestion/controllers/admin-news.controller';
+import { NewsIngestionService } from '../../../src/modules/news-ingestion/services/news-ingestion.service';
 
 interface RequestWithTestUser {
   headers: { authorization?: string };

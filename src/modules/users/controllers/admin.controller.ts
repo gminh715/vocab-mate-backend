@@ -29,7 +29,7 @@ import type { AuthenticatedUser } from '../../auth/auth.types';
 import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { AdminService } from '../admin.service';
+import { AdminService } from '../services/admin.service';
 import { AdminUserListQueryDto } from '../dto/admin-user-list-query.dto';
 import { AdminUserParamsDto } from '../dto/admin-user-params.dto';
 import {

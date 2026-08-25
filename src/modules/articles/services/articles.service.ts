@@ -9,7 +9,7 @@ import {
   ArticleStatus,
   CefrLevel,
 } from '../../../../generated/prisma/enums';
-import { CategoriesService } from '../../categories/categories.service';
+import { CategoriesService } from '../../categories/services/categories.service';
 import type { GetArticlesQueryDto } from '../dto/get-articles-query.dto';
 import { normalizeCategorySlug } from '../../categories/category-slug';
 import type {

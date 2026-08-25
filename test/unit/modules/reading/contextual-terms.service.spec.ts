@@ -11,14 +11,14 @@ import {
   LearningStatus,
   LexicalUnitType,
 } from '../../../../generated/prisma/enums';
-import { AiService } from '../../../../src/modules/ai/ai.service';
+import { AiService } from '../../../../src/modules/ai/services/ai.service';
 import {
   type ContextualTermEnrichmentClaimRecord,
   ContextualTermEnrichmentStateConflictError,
   type ContextualTermLookupRecord,
   ContextualTermsRepository,
-} from '../../../../src/modules/reading/contextual-terms.repository';
-import { ContextualTermsService } from '../../../../src/modules/reading/contextual-terms.service';
+} from '../../../../src/modules/reading/repositories/contextual-terms.repository';
+import { ContextualTermsService } from '../../../../src/modules/reading/services/contextual-terms.service';
 
 const articleId = '550e8400-e29b-41d4-a716-446655440000';
 const termId = '550e8400-e29b-41d4-a716-446655440002';

@@ -23,7 +23,7 @@ import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import {
   type ContextualTermLookupRecord,
   ContextualTermsRepository,
-} from '../../../src/modules/reading/contextual-terms.repository';
+} from '../../../src/modules/reading/repositories/contextual-terms.repository';
 import {
   type ReadingHistoryRecord,
   type ReaderArticleRecord,
@@ -31,7 +31,7 @@ import {
   type UpsertUserArticleProgressInput,
   type UserArticleProgressResult,
   ReadingRepository,
-} from '../../../src/modules/reading/reading.repository';
+} from '../../../src/modules/reading/repositories/reading.repository';
 
 const ARTICLE_ID = '11111111-1111-4111-8111-111111111111';
 const ARCHIVED_ARTICLE_ID = '12121212-1212-4121-8121-121212121212';

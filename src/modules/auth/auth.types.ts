@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { PublicUserRecord } from '../users/users.repository';
+import type { PublicUserRecord } from '../users/repositories/users.repository';
 
 export type TokenType = 'access' | 'refresh';
 

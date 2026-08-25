@@ -27,7 +27,7 @@ import {
   UpdateMyProfileSuccessResponseDto,
 } from '../dto/my-profile-response.dto';
 import { UpdateMyProfileDto } from '../dto/update-my-profile.dto';
-import { UsersService } from '../users.service';
+import { UsersService } from '../services/users.service';
 
 /**
  * HTTP boundary for the authenticated user's own account and profile.

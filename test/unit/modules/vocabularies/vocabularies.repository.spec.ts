@@ -6,7 +6,7 @@ import {
   type CreateVocabularySnapshotInput,
   InvalidVocabularyCollectionsError,
   VocabulariesRepository,
-} from '../../../../src/modules/vocabularies/vocabularies.repository';
+} from '../../../../src/modules/vocabularies/repositories/vocabularies.repository';
 
 const TERM_ID = '11111111-1111-4111-8111-111111111111';
 const COLLECTION_ID = '22222222-2222-4222-8222-222222222222';

@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../src/database/prisma.service';
 import {
   ConcurrentAdminMutationError,
   UsersRepository,
-} from '../../../../src/modules/users/users.repository';
+} from '../../../../src/modules/users/repositories/users.repository';
 
 describe('UsersRepository', () => {
   const findUnique: jest.MockedFunction<(query: object) => Promise<unknown>> =

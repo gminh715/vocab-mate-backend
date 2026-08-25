@@ -11,8 +11,8 @@ import {
   CollectionNotAccessibleError,
   CollectionsRepository,
   CollectionVocabulariesNotAccessibleError,
-} from '../../../../src/modules/collections/collections.repository';
-import { CollectionsService } from '../../../../src/modules/collections/collections.service';
+} from '../../../../src/modules/collections/repositories/collections.repository';
+import { CollectionsService } from '../../../../src/modules/collections/services/collections.service';
 
 interface CollectionsRepositoryMock {
   list: jest.Mock;

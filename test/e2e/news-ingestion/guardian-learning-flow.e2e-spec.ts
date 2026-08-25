@@ -33,17 +33,17 @@ import { ArticleTermsService } from '../../../src/modules/articles/services/arti
 import { ArticlesService } from '../../../src/modules/articles/services/articles.service';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../src/modules/auth/guards/roles.guard';
-import { CategoriesService } from '../../../src/modules/categories/categories.service';
-import { AdminNewsController } from '../../../src/modules/news-ingestion/admin-news.controller';
+import { CategoriesService } from '../../../src/modules/categories/services/categories.service';
+import { AdminNewsController } from '../../../src/modules/news-ingestion/controllers/admin-news.controller';
 import { GuardianClient } from '../../../src/modules/news-ingestion/guardian.client';
-import { NewsContentService } from '../../../src/modules/news-ingestion/news-content.service';
+import { NewsContentService } from '../../../src/modules/news-ingestion/services/news-content.service';
 import type { NewsFetch } from '../../../src/modules/news-ingestion/news-http.tokens';
-import { NewsIngestionService } from '../../../src/modules/news-ingestion/news-ingestion.service';
-import { ReadingController } from '../../../src/modules/reading/reading.controller';
-import { ContextualTermsService } from '../../../src/modules/reading/contextual-terms.service';
-import { ReadingService } from '../../../src/modules/reading/reading.service';
-import { VocabulariesController } from '../../../src/modules/vocabularies/vocabularies.controller';
-import { VocabulariesService } from '../../../src/modules/vocabularies/vocabularies.service';
+import { NewsIngestionService } from '../../../src/modules/news-ingestion/services/news-ingestion.service';
+import { ReadingController } from '../../../src/modules/reading/controllers/reading.controller';
+import { ContextualTermsService } from '../../../src/modules/reading/services/contextual-terms.service';
+import { ReadingService } from '../../../src/modules/reading/services/reading.service';
+import { VocabulariesController } from '../../../src/modules/vocabularies/controllers/vocabularies.controller';
+import { VocabulariesService } from '../../../src/modules/vocabularies/services/vocabularies.service';
 
 const articleId = '11111111-1111-4111-8111-111111111111';
 const sentenceId = '22222222-2222-4222-8222-222222222222';

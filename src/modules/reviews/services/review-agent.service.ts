@@ -9,7 +9,7 @@ import type {
   ReviewSessionPlanResult,
   ReviewSkillDimension as AiReviewSkillDimension,
 } from '../../ai/ai.contracts';
-import { AiService } from '../../ai/ai.service';
+import { AiService } from '../../ai/services/ai.service';
 import {
   parseReviewAnswerDiagnosisResult,
   parseReviewSessionPlanResult,

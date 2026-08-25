@@ -9,7 +9,7 @@ import type {
   PublicCategoryRecord,
   UpdateCategoryInput,
   UpdateCategoryStatusInput,
-} from '../../src/modules/categories/categories.repository';
+} from '../../src/modules/categories/repositories/categories.repository';
 
 class PrismaLikeError extends Error {
   constructor(readonly code: string) {

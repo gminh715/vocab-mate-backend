@@ -14,7 +14,7 @@ import {
   REVIEW_QUESTION_PROMPT_VERSION,
 } from '../../../../../src/modules/ai/ai.contracts';
 import { AiError } from '../../../../../src/modules/ai/ai.errors';
-import { AiService } from '../../../../../src/modules/ai/ai.service';
+import { AiService } from '../../../../../src/modules/ai/services/ai.service';
 import { NoUsableReviewQuestionError } from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
 import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
 import {

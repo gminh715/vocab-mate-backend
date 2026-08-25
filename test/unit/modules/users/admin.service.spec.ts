@@ -1,12 +1,12 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminUserSort } from '../../../../src/modules/users/dto/admin-user-list-query.dto';
-import type { AdminUserDetailRecord } from '../../../../src/modules/users/users.repository';
+import type { AdminUserDetailRecord } from '../../../../src/modules/users/repositories/users.repository';
 import {
   ConcurrentAdminMutationError,
   UsersRepository,
-} from '../../../../src/modules/users/users.repository';
-import { AdminService } from '../../../../src/modules/users/admin.service';
+} from '../../../../src/modules/users/repositories/users.repository';
+import { AdminService } from '../../../../src/modules/users/services/admin.service';
 
 describe('AdminService', () => {
   const repository = {

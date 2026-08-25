@@ -7,9 +7,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type {
   MyAccountRecord,
   UpdatedMyProfileRecord,
-} from '../../../../src/modules/users/users.repository';
-import { UsersRepository } from '../../../../src/modules/users/users.repository';
-import { UsersService } from '../../../../src/modules/users/users.service';
+} from '../../../../src/modules/users/repositories/users.repository';
+import { UsersRepository } from '../../../../src/modules/users/repositories/users.repository';
+import { UsersService } from '../../../../src/modules/users/services/users.service';
 
 const account: MyAccountRecord & {
   profile: NonNullable<MyAccountRecord['profile']>;

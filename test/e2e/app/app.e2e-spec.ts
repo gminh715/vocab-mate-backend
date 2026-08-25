@@ -15,7 +15,7 @@ import {
   type AdminCategoryRecord,
   CategoriesRepository,
   type PublicCategoryRecord,
-} from '../../../src/modules/categories/categories.repository';
+} from '../../../src/modules/categories/repositories/categories.repository';
 import type {
   AdminUserDetailRecord,
   AdminUserListQuery,
@@ -30,8 +30,8 @@ import type {
   UpdatedAdminUserStatusRecord,
   UpdateMyProfileInput,
   UserProfileRecord,
-} from '../../../src/modules/users/users.repository';
-import { UsersRepository } from '../../../src/modules/users/users.repository';
+} from '../../../src/modules/users/repositories/users.repository';
+import { UsersRepository } from '../../../src/modules/users/repositories/users.repository';
 import { InMemoryCategoriesRepository } from '../../support/in-memory-categories.repository';
 import { InMemoryArticlesRepository } from '../../support/in-memory-articles.repository';
 

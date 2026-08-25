@@ -8,7 +8,7 @@ import type { PrismaService } from '../../../../src/database/prisma.service';
 import {
   ContextualTermEnrichmentStateConflictError,
   ContextualTermsRepository,
-} from '../../../../src/modules/reading/contextual-terms.repository';
+} from '../../../../src/modules/reading/repositories/contextual-terms.repository';
 
 interface UpdateManyArgs {
   where: Record<string, unknown>;

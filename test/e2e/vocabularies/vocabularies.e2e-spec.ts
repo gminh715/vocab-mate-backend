@@ -17,15 +17,15 @@ import { configureApp, setupSwagger } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
 import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
-import { ContextualTermsService } from '../../../src/modules/reading/contextual-terms.service';
+import { ContextualTermsService } from '../../../src/modules/reading/services/contextual-terms.service';
 import type {
   CreateVocabularySnapshotInput,
   VocabularyListQuery,
-} from '../../../src/modules/vocabularies/vocabularies.repository';
+} from '../../../src/modules/vocabularies/repositories/vocabularies.repository';
 import {
   InvalidVocabularyCollectionsError,
   VocabulariesRepository,
-} from '../../../src/modules/vocabularies/vocabularies.repository';
+} from '../../../src/modules/vocabularies/repositories/vocabularies.repository';
 import { VocabularySort } from '../../../src/modules/vocabularies/dto/vocabulary-request.dto';
 
 const TERM_ID = '11111111-1111-4111-8111-111111111111';

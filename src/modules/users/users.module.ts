@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { AdminService } from './admin.service';
+import { AdminService } from './services/admin.service';
 import { AdminController } from './controllers/admin.controller';
 import { UsersController } from './controllers/users.controller';
-import { UsersRepository } from './users.repository';
-import { UsersService } from './users.service';
+import { UsersRepository } from './repositories/users.repository';
+import { UsersService } from './services/users.service';
 
 /**
  * Owns self-service and administrative user-management use cases.

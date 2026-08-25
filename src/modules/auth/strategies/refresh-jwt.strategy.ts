@@ -4,7 +4,7 @@ import { Strategy } from 'passport-jwt';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../../config/auth.config';
 import { AUTH_CONFIG } from '../../../config/config.module';
-import { AuthService } from '../auth.service';
+import { AuthService } from '../services/auth.service';
 import type { JwtPayload, RefreshAuthenticatedUser } from '../auth.types';
 
 const refreshTokenFromCookie = (request: Request): string | null => {

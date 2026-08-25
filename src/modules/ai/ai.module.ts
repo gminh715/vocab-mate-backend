@@ -7,7 +7,7 @@ import {
 } from './providers/ai-provider.contract';
 import { GeminiAiProvider } from './providers/gemini.provider';
 import { GroqAiProvider } from './providers/groq.provider';
-import { AiService } from './ai.service';
+import { AiService } from './services/ai.service';
 
 @Module({
   providers: [

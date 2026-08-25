@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ReadingModule } from '../reading/reading.module';
-import { VocabulariesController } from './vocabularies.controller';
-import { VocabulariesRepository } from './vocabularies.repository';
-import { VocabulariesService } from './vocabularies.service';
+import { VocabulariesController } from './controllers/vocabularies.controller';
+import { VocabulariesRepository } from './repositories/vocabularies.repository';
+import { VocabulariesService } from './services/vocabularies.service';
 
 @Module({
   imports: [ReadingModule],

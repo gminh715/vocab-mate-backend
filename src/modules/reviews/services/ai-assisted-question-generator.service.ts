@@ -18,7 +18,7 @@ import {
   REVIEW_QUESTION_PROMPT_VERSION,
 } from '../../ai/ai.contracts';
 import { AiError } from '../../ai/ai.errors';
-import { AiService } from '../../ai/ai.service';
+import { AiService } from '../../ai/services/ai.service';
 import { NoUsableReviewQuestionError } from '../repositories/review-sessions.repository';
 import {
   ReviewQuestionsRepository,

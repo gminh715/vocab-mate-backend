@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { CategoriesRepository } from '../../../../src/modules/categories/categories.repository';
-import { CategoriesService } from '../../../../src/modules/categories/categories.service';
+import { CategoriesRepository } from '../../../../src/modules/categories/repositories/categories.repository';
+import { CategoriesService } from '../../../../src/modules/categories/services/categories.service';
 
 interface CategoriesRepositoryMock {
   findActive: jest.Mock;

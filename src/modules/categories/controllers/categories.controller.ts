@@ -16,7 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
-import { CategoriesService } from '../categories.service';
+import { CategoriesService } from '../services/categories.service';
 import {
   CategorySlugParamsDto,
   GetCategoriesQueryDto,

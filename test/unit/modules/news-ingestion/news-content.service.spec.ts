@@ -2,7 +2,7 @@ import type { NewsConfig } from '../../../../src/config/news.config';
 import { ArticleContentService } from '../../../../src/modules/articles/services/article-content.service';
 import { NewsIngestionError } from '../../../../src/modules/news-ingestion/news-ingestion.errors';
 import type { NormalizedNewsImportArticle } from '../../../../src/modules/news-ingestion/news-ingestion.types';
-import { NewsContentService } from '../../../../src/modules/news-ingestion/news-content.service';
+import { NewsContentService } from '../../../../src/modules/news-ingestion/services/news-content.service';
 
 const config: NewsConfig = {
   guardianApiKey: 'test',

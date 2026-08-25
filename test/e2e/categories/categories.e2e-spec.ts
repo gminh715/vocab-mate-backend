@@ -8,7 +8,7 @@ import { PrismaService } from '../../../src/database/prisma.service';
 import {
   CategoriesRepository,
   PublicCategoryRecord,
-} from '../../../src/modules/categories/categories.repository';
+} from '../../../src/modules/categories/repositories/categories.repository';
 import { InMemoryCategoriesRepository } from '../../support/in-memory-categories.repository';
 
 interface SuccessBody<T> {

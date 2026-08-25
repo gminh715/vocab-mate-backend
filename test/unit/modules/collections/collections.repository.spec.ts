@@ -5,7 +5,7 @@ import { CollectionItemSort } from '../../../../src/modules/collections/dto/coll
 import {
   CollectionsRepository,
   CollectionVocabulariesNotAccessibleError,
-} from '../../../../src/modules/collections/collections.repository';
+} from '../../../../src/modules/collections/repositories/collections.repository';
 
 interface QueryArgs {
   where?: Record<string, unknown>;

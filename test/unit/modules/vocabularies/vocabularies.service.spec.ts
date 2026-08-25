@@ -11,13 +11,13 @@ import {
   LearningStatus,
   LexicalUnitType,
 } from '../../../../generated/prisma/enums';
-import { ContextualTermsService } from '../../../../src/modules/reading/contextual-terms.service';
+import { ContextualTermsService } from '../../../../src/modules/reading/services/contextual-terms.service';
 import { VocabularySort } from '../../../../src/modules/vocabularies/dto/vocabulary-request.dto';
 import {
   InvalidVocabularyCollectionsError,
   VocabulariesRepository,
-} from '../../../../src/modules/vocabularies/vocabularies.repository';
-import { VocabulariesService } from '../../../../src/modules/vocabularies/vocabularies.service';
+} from '../../../../src/modules/vocabularies/repositories/vocabularies.repository';
+import { VocabulariesService } from '../../../../src/modules/vocabularies/services/vocabularies.service';
 
 const TERM_ID = '11111111-1111-4111-8111-111111111111';
 const VOCABULARY_ID = '22222222-2222-4222-8222-222222222222';

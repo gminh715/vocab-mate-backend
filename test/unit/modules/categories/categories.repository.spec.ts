@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../../src/database/prisma.service';
-import { CategoriesRepository } from '../../../../src/modules/categories/categories.repository';
+import { CategoriesRepository } from '../../../../src/modules/categories/repositories/categories.repository';
 
 describe('CategoriesRepository', () => {
   const findMany: jest.MockedFunction<(query: object) => Promise<unknown>> =

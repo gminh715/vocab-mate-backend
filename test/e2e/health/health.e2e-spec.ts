@@ -4,8 +4,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { configureApp } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
-import { HealthController } from '../../../src/modules/health/health.controller';
-import { HealthService } from '../../../src/modules/health/health.service';
+import { HealthController } from '../../../src/modules/health/controllers/health.controller';
+import { HealthService } from '../../../src/modules/health/services/health.service';
 
 describe('Health endpoints (e2e)', () => {
   let app: INestApplication<App>;

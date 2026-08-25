@@ -16,11 +16,11 @@ import type { App } from 'supertest/types';
 import { AppModule } from '../../../src/app.module';
 import { configureApp, setupSwagger } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
-import { AuthService } from '../../../src/modules/auth/auth.service';
+import { AuthService } from '../../../src/modules/auth/services/auth.service';
 import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
-import { NewsIngestionService } from '../../../src/modules/news-ingestion/news-ingestion.service';
-import { ReadingService } from '../../../src/modules/reading/reading.service';
+import { NewsIngestionService } from '../../../src/modules/news-ingestion/services/news-ingestion.service';
+import { ReadingService } from '../../../src/modules/reading/services/reading.service';
 import { ReviewsService } from '../../../src/modules/reviews/services/reviews.service';
 
 const ARTICLE_ID = '11111111-1111-4111-8111-111111111111';

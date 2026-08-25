@@ -7,11 +7,11 @@ import {
   ImportedArticleDuplicateError,
   type ImportedDraftInput,
 } from '../../../../src/modules/articles/services/articles.service';
-import { CategoriesService } from '../../../../src/modules/categories/categories.service';
+import { CategoriesService } from '../../../../src/modules/categories/services/categories.service';
 import { GuardianClient } from '../../../../src/modules/news-ingestion/guardian.client';
-import { NewsContentService } from '../../../../src/modules/news-ingestion/news-content.service';
+import { NewsContentService } from '../../../../src/modules/news-ingestion/services/news-content.service';
 import { NewsIngestionError } from '../../../../src/modules/news-ingestion/news-ingestion.errors';
-import { NewsIngestionService } from '../../../../src/modules/news-ingestion/news-ingestion.service';
+import { NewsIngestionService } from '../../../../src/modules/news-ingestion/services/news-ingestion.service';
 import type {
   ExtractedArticleContent,
   NormalizedNewsImportArticle,

@@ -21,7 +21,7 @@ import {
   type CreateCollectionInput,
   CollectionsRepository,
   type UpdateCollectionInput,
-} from '../../../src/modules/collections/collections.repository';
+} from '../../../src/modules/collections/repositories/collections.repository';
 import { CollectionItemSort } from '../../../src/modules/collections/dto/collection-request.dto';
 
 const COLLECTION_ID = '11111111-1111-4111-8111-111111111111';

@@ -34,7 +34,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { CategoriesService } from '../categories.service';
+import { CategoriesService } from '../services/categories.service';
 import {
   AdminCategoryListQueryDto,
   AdminCategoryParamsDto,

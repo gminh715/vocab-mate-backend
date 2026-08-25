@@ -7,7 +7,7 @@ import type {
   PlanReviewSessionInput,
   ReviewAnswerDiagnosisResult,
 } from '../../../../../src/modules/ai/ai.contracts';
-import { AiService } from '../../../../../src/modules/ai/ai.service';
+import { AiService } from '../../../../../src/modules/ai/services/ai.service';
 import {
   ReviewDecisionSource,
   ReviewErrorType,

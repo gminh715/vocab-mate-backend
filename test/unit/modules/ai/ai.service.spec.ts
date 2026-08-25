@@ -22,7 +22,7 @@ import {
   GEMINI_AI_PROVIDER,
   GROQ_AI_PROVIDER,
 } from '../../../../src/modules/ai/providers/ai-provider.contract';
-import { AiService } from '../../../../src/modules/ai/ai.service';
+import { AiService } from '../../../../src/modules/ai/services/ai.service';
 
 const config: AiConfig = {
   geminiApiKey: 'gemini-test-key',
