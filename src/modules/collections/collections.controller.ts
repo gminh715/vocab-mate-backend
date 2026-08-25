@@ -9,9 +9,7 @@ import {
   Patch,
   Post,
   Query,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -29,16 +27,14 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { UserRole } from '../../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
-import type { AuthenticatedUser } from '../../auth/auth.types';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { Roles } from '../../auth/decorators/roles.decorator';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../auth/guards/roles.guard';
-import { CollectionsService } from '../collections.service';
+import { UserRole } from '../../../generated/prisma/enums';
+import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { CollectionsService } from './collections.service';
 import {
   AddCollectionItemsDto,
   CollectionItemParamsDto,
@@ -47,19 +43,17 @@ import {
   GetCollectionItemsQueryDto,
   GetCollectionsQueryDto,
   UpdateCollectionDto,
-} from '../dto/collection-request.dto';
+} from './dto/collection-request.dto';
 import {
   CollectionDetailSuccessResponseDto,
   CollectionItemsAddSuccessResponseDto,
   CollectionItemsListSuccessResponseDto,
   CollectionListSuccessResponseDto,
   CollectionMutationSuccessResponseDto,
-} from '../dto/collection-response.dto';
+} from './dto/collection-response.dto';
 
 @ApiTags('Collections')
 @Controller('collections')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.USER, UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')

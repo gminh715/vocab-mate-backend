@@ -11,7 +11,7 @@ import {
 } from '../../../../generated/prisma/enums';
 import { CategoriesService } from '../../categories/categories.service';
 import type { GetArticlesQueryDto } from '../dto/get-articles-query.dto';
-import { normalizeCategorySlug } from '../../categories/dto/get-categories-query.dto';
+import { normalizeCategorySlug } from '../../categories/category-slug';
 import type {
   AdminArticleListQueryDto,
   CreateArticleDto,

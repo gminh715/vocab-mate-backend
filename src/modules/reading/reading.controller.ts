@@ -9,9 +9,7 @@ import {
   Post,
   Put,
   Query,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -30,31 +28,29 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { AuthenticatedUserThrottlerGuard } from '../../../common/guards/authenticated-user-throttler.guard';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
-import type { AuthenticatedUser } from '../../auth/auth.types';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { ArticleSlugParamsDto } from '../../articles/dto/get-articles-query.dto';
+import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
+import { AuthenticatedUserThrottlerGuard } from '../../common/guards/authenticated-user-throttler.guard';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ArticleSlugParamsDto } from '../articles/dto/get-articles-query.dto';
+import {
+  ReadingHistoryQueryDto,
+  ReadingProgressParamsDto,
+  ReadingTermParamsDto,
+  UpdateReadingProgressDto,
+} from './dto/reading-request.dto';
 import {
   ContextualTermLookupSuccessResponseDto,
   ReaderArticleSuccessResponseDto,
-  ReadingHistoryQueryDto,
   ReadingHistorySuccessResponseDto,
-  ReadingProgressParamsDto,
   ReadingProgressSuccessResponseDto,
-  ReadingTermParamsDto,
-  UpdateReadingProgressDto,
-} from '../dto/reading-response.dto';
-import { ContextualTermsService } from '../contextual-terms.service';
-import { ReadingService } from '../reading.service';
+} from './dto/reading-response.dto';
+import { ContextualTermsService } from './contextual-terms.service';
+import { ReadingService } from './reading.service';
 
 @ApiTags('Reading')
 @Controller('reading')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('BearerAuth')
 export class ReadingController {

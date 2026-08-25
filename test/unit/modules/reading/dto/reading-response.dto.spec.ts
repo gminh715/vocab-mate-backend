@@ -3,7 +3,7 @@ import { validate } from 'class-validator';
 import {
   ReadingHistoryQueryDto,
   UpdateReadingProgressDto,
-} from '../../../../../src/modules/reading/dto/reading-response.dto';
+} from '../../../../../src/modules/reading/dto/reading-request.dto';
 
 describe('Reading DTO validation', () => {
   it.each([0, 35.5, 100])('accepts progressPercent %s', async (value) => {

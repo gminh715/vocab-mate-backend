@@ -11,7 +11,7 @@ import type {
   UpdateCategoryStatusDto,
 } from './dto/admin-category.dto';
 import type { GetCategoriesQueryDto } from './dto/get-categories-query.dto';
-import { normalizeCategorySlug } from './dto/get-categories-query.dto';
+import { normalizeCategorySlug } from './category-slug';
 import {
   type AdminCategoryDetailRecord,
   type AdminCategoryRecord,

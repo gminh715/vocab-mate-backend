@@ -9,22 +9,13 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-
-export const normalizeCategorySlug = (value: string): string =>
-  value.trim().toLowerCase();
+import { transformCategorySlug } from '../category-slug';
 
 export const transformTrimmedCategoryString = ({
   value,
 }: {
   value: unknown;
 }): unknown => (typeof value === 'string' ? value.trim() : value);
-
-export const transformCategorySlug = ({
-  value,
-}: {
-  value: unknown;
-}): unknown =>
-  typeof value === 'string' ? normalizeCategorySlug(value) : value;
 
 export class GetCategoriesQueryDto {
   @ApiPropertyOptional({

@@ -5,9 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -20,11 +18,9 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
 import type { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import {
   MyAccountSuccessResponseDto,
@@ -39,8 +35,6 @@ import { UsersService } from '../users.service';
  */
 @ApiTags('Users')
 @Controller('users')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('BearerAuth')
 export class UsersController {

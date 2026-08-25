@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import {
   ArticleStatus,
   CefrLevel,
@@ -150,20 +151,6 @@ export class AdminQuizQuestionDto {
 
   @ApiProperty({ type: [AdminQuestionOptionDto] })
   options!: AdminQuestionOptionDto[];
-}
-
-export class PaginationMetaDto {
-  @ApiProperty({ example: 1 })
-  page!: number;
-
-  @ApiProperty({ example: 20 })
-  limit!: number;
-
-  @ApiProperty({ example: 42 })
-  total!: number;
-
-  @ApiProperty({ example: 3 })
-  totalPages!: number;
 }
 
 export class PublicQuizListDataDto {

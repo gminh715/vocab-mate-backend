@@ -14,10 +14,8 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { ArticleStatus, CefrLevel } from '../../../../generated/prisma/enums';
-import {
-  transformCategorySlug,
-  transformTrimmedCategoryString,
-} from '../../categories/dto/get-categories-query.dto';
+import { transformTrimmedCategoryString } from '../../categories/dto/get-categories-query.dto';
+import { transformCategorySlug } from '../../categories/category-slug';
 import { ArticleSort } from './get-articles-query.dto';
 
 const MAX_PAGE_SIZE = 100;

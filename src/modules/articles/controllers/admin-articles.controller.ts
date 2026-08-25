@@ -9,9 +9,7 @@ import {
   Patch,
   Post,
   Query,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -30,12 +28,10 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { UserRole } from '../../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
 import type { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import {
@@ -70,8 +66,6 @@ import { ArticleSentencesService } from '../services/article-sentences.service';
 
 @ApiTags('Admin Articles')
 @Controller('admin/articles')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')

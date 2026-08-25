@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CategoriesModule } from '../categories/categories.module';
@@ -40,8 +38,6 @@ import { ArticlePublicationValidator } from './validators/article-publication.va
     ArticleTermsService,
     ArticlePublicationValidator,
     ArticlePublicationService,
-    SuccessResponseInterceptor,
-    ApiExceptionFilter,
     JwtAuthGuard,
     RolesGuard,
   ],

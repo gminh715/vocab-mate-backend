@@ -22,7 +22,7 @@ import {
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
-import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import {
   ArticleSentenceDto,
   ArticleSentenceTermDto,

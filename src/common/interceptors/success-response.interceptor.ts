@@ -4,7 +4,9 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { map, Observable } from 'rxjs';
+import { SKIP_SUCCESS_RESPONSE_ENVELOPE } from '../decorators/skip-success-response-envelope.decorator';
 
 export interface ApiSuccessResponse<T> {
   success: true;
@@ -32,12 +34,23 @@ export const responseDataWithMeta = <T, M>(
 
 @Injectable()
 export class SuccessResponseInterceptor<T> implements NestInterceptor {
+  constructor(private readonly reflector: Reflector) {}
+
   intercept(
-    _context: ExecutionContext,
+    context: ExecutionContext,
     next: CallHandler<T>,
   ): Observable<
-    ApiSuccessResponse<T> | ApiSuccessResponseWithMeta<unknown, unknown>
+    T | ApiSuccessResponse<T> | ApiSuccessResponseWithMeta<unknown, unknown>
   > {
+    const skipEnvelope = this.reflector.getAllAndOverride<boolean>(
+      SKIP_SUCCESS_RESPONSE_ENVELOPE,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (skipEnvelope) {
+      return next.handle();
+    }
+
     return next
       .handle()
       .pipe(

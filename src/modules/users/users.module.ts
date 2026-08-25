@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminService } from './admin.service';
@@ -22,8 +20,6 @@ import { UsersService } from './users.service';
     JwtAuthGuard,
     RolesGuard,
     AdminService,
-    SuccessResponseInterceptor,
-    ApiExceptionFilter,
   ],
   exports: [UsersService],
 })

@@ -5,8 +5,6 @@ import {
   HttpStatus,
   Param,
   Query,
-  UseFilters,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -17,9 +15,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { CategoriesService } from '../categories.service';
 import {
   CategorySlugParamsDto,
@@ -32,8 +28,6 @@ import {
 
 @ApiTags('Categories')
 @Controller('categories')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 

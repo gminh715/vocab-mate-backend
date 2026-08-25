@@ -5,9 +5,12 @@ import {
   VersioningType,
 } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
+import { Reflector } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
+import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { SuccessResponseInterceptor } from './common/interceptors/success-response.interceptor';
 
 const defaultAllowedOrigins = [
   'http://localhost:5173',
@@ -58,6 +61,8 @@ export const configureApp = (
       transform: true,
     }),
   );
+  app.useGlobalInterceptors(new SuccessResponseInterceptor(app.get(Reflector)));
+  app.useGlobalFilters(new ApiExceptionFilter());
 };
 
 export const setupSwagger = (app: INestApplication): OpenAPIObject => {

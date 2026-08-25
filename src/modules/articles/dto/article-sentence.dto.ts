@@ -18,7 +18,7 @@ import {
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
-import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_METADATA_LENGTH = 20_000;

@@ -5,9 +5,7 @@ import {
   HttpStatus,
   Param,
   Query,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -22,10 +20,8 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { UserRole } from '../../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetQuizzesQueryDto, QuizParamsDto } from '../dto/quiz-request.dto';
@@ -37,8 +33,6 @@ import { QuizzesService } from '../services/quizzes.service';
 
 @ApiTags('Quizzes')
 @Controller('quizzes')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.USER, UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')

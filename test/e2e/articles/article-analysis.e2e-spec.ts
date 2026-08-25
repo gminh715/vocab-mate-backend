@@ -9,8 +9,6 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { UserRole } from '../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../src/common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../src/common/interceptors/success-response.interceptor';
 import { configureApp } from '../../../src/app.setup';
 import { AdminArticlesController } from '../../../src/modules/articles/controllers/admin-articles.controller';
 import { ArticleAnalysisService } from '../../../src/modules/articles/services/article-analysis.service';
@@ -53,8 +51,6 @@ describe('Admin article analysis API (e2e)', () => {
         { provide: ArticlePublicationService, useValue: {} },
         JwtAuthGuard,
         RolesGuard,
-        SuccessResponseInterceptor,
-        ApiExceptionFilter,
       ],
     })
       .overrideGuard(JwtAuthGuard)

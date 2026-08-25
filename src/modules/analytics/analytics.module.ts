@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminAnalyticsController } from './controllers/admin-analytics.controller';
@@ -23,8 +21,6 @@ import { ReviewAnalyticsService } from './services/review-analytics.service';
     AdminAnalyticsRepository,
     JwtAuthGuard,
     RolesGuard,
-    SuccessResponseInterceptor,
-    ApiExceptionFilter,
   ],
 })
 export class AnalyticsModule {}

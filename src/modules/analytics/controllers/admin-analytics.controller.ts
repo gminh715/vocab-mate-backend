@@ -4,9 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Query,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -19,10 +17,8 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { UserRole } from '../../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { ANALYTICS_TOP_CONTENT_LIMIT } from '../repositories/admin-analytics.repository';
@@ -40,8 +36,6 @@ import {
 
 @ApiTags('Admin Analytics')
 @Controller('admin/analytics')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')

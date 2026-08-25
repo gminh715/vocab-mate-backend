@@ -8,9 +8,7 @@ import {
   Post,
   Req,
   Res,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -29,33 +27,26 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Request, Response } from 'express';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { AuthenticatedUserThrottlerGuard } from '../../../common/guards/authenticated-user-throttler.guard';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
-import type { AuthConfig } from '../../../config/auth.config';
-import { AUTH_CONFIG } from '../../../config/config.module';
-import { AuthService } from '../auth.service';
-import type {
-  AuthenticatedUser,
-  RefreshAuthenticatedUser,
-} from '../auth.types';
-import { CurrentUser } from '../decorators/current-user.decorator';
-import { ChangePasswordDto } from '../dto/change-password.dto';
+import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
+import { AuthenticatedUserThrottlerGuard } from '../../common/guards/authenticated-user-throttler.guard';
+import type { AuthConfig } from '../../config/auth.config';
+import { AUTH_CONFIG } from '../../config/config.module';
+import { AuthService } from './auth.service';
+import type { AuthenticatedUser, RefreshAuthenticatedUser } from './auth.types';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import {
   AccessTokenSuccessResponseDto,
-  ApiErrorResponseDto,
   AuthSuccessResponseDto,
   MessageSuccessResponseDto,
-} from '../dto/auth-response.dto';
-import { LoginDto } from '../dto/login.dto';
-import { RegisterDto } from '../dto/register.dto';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { RefreshJwtGuard } from '../guards/refresh-jwt.guard';
+} from './dto/auth-response.dto';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RefreshJwtGuard } from './guards/refresh-jwt.guard';
 
 @ApiTags('Auth')
 @Controller('auth')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 export class AuthController {
   constructor(
     private readonly authService: AuthService,

@@ -4,8 +4,15 @@ import {
   CategorySlugParamsDto,
   GetCategoriesQueryDto,
 } from '../../../../../src/modules/categories/dto/get-categories-query.dto';
+import { normalizeCategorySlug } from '../../../../../src/modules/categories/category-slug';
 
 describe('category request DTOs', () => {
+  it('normalizes category slugs through the Categories-owned helper', () => {
+    expect(normalizeCategorySlug('  Web-Development  ')).toBe(
+      'web-development',
+    );
+  });
+
   it('trims a valid search query', async () => {
     const dto = plainToInstance(GetCategoriesQueryDto, {
       q: '  technology  ',

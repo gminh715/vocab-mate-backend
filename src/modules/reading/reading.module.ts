@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { ArticlesModule } from '../articles/articles.module';
 import { AiModule } from '../ai/ai.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ReadingController } from './controllers/reading.controller';
+import { ReadingController } from './reading.controller';
 import { ContextualTermsRepository } from './contextual-terms.repository';
 import { ContextualTermsService } from './contextual-terms.service';
 import { ReadingRepository } from './reading.repository';
@@ -19,8 +17,6 @@ import { ReadingService } from './reading.service';
     ContextualTermsRepository,
     ContextualTermsService,
     JwtAuthGuard,
-    SuccessResponseInterceptor,
-    ApiExceptionFilter,
   ],
   exports: [ContextualTermsService],
 })

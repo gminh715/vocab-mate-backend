@@ -5,8 +5,6 @@ import {
   HttpStatus,
   Param,
   Query,
-  UseFilters,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -17,9 +15,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
-import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import {
   ArticleDetailSuccessResponseDto,
   ArticleListSuccessResponseDto,
@@ -32,8 +28,6 @@ import { ArticlesService } from '../services/articles.service';
 
 @ApiTags('Articles')
 @Controller('articles')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 export class ArticlesController {
   constructor(private readonly articlesService: ArticlesService) {}
 

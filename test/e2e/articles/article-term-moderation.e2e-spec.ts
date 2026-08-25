@@ -15,8 +15,6 @@ import {
   TermReviewStatus,
   UserRole,
 } from '../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../src/common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../src/common/interceptors/success-response.interceptor';
 import { configureApp } from '../../../src/app.setup';
 import { AdminArticleTermsController } from '../../../src/modules/articles/controllers/admin-article-terms.controller';
 import { ArticleTermsService } from '../../../src/modules/articles/services/article-terms.service';
@@ -63,8 +61,6 @@ describe('Admin article term moderation API (e2e)', () => {
         { provide: ArticleTermsService, useValue: termsService },
         JwtAuthGuard,
         RolesGuard,
-        SuccessResponseInterceptor,
-        ApiExceptionFilter,
       ],
     })
       .overrideGuard(JwtAuthGuard)

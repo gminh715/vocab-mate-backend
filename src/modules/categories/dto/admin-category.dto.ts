@@ -13,10 +13,8 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import {
-  transformCategorySlug,
-  transformTrimmedCategoryString,
-} from './get-categories-query.dto';
+import { transformTrimmedCategoryString } from './get-categories-query.dto';
+import { transformCategorySlug } from '../category-slug';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_SEARCH_LENGTH = 320;

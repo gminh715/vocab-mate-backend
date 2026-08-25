@@ -19,8 +19,6 @@ import {
   TermReviewStatus,
   UserRole,
 } from '../../../generated/prisma/enums';
-import { ApiExceptionFilter } from '../../../src/common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../src/common/interceptors/success-response.interceptor';
 import { configureApp } from '../../../src/app.setup';
 import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import type { NewsConfig } from '../../../src/config/news.config';
@@ -41,10 +39,10 @@ import { GuardianClient } from '../../../src/modules/news-ingestion/guardian.cli
 import { NewsContentService } from '../../../src/modules/news-ingestion/news-content.service';
 import type { NewsFetch } from '../../../src/modules/news-ingestion/news-http.tokens';
 import { NewsIngestionService } from '../../../src/modules/news-ingestion/news-ingestion.service';
-import { ReadingController } from '../../../src/modules/reading/controllers/reading.controller';
+import { ReadingController } from '../../../src/modules/reading/reading.controller';
 import { ContextualTermsService } from '../../../src/modules/reading/contextual-terms.service';
 import { ReadingService } from '../../../src/modules/reading/reading.service';
-import { VocabulariesController } from '../../../src/modules/vocabularies/controllers/vocabularies.controller';
+import { VocabulariesController } from '../../../src/modules/vocabularies/vocabularies.controller';
 import { VocabulariesService } from '../../../src/modules/vocabularies/vocabularies.service';
 
 const articleId = '11111111-1111-4111-8111-111111111111';
@@ -547,8 +545,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
         { provide: VocabulariesService, useValue: vocabulariesService },
         JwtAuthGuard,
         RolesGuard,
-        SuccessResponseInterceptor,
-        ApiExceptionFilter,
       ],
     })
       .overrideGuard(JwtAuthGuard)

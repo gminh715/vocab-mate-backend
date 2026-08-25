@@ -5,7 +5,7 @@ import {
   CefrLevel,
 } from '../../../../generated/prisma/enums';
 import { PublicCategoryDto } from '../../categories/dto/category-response.dto';
-import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 
 export class PublicArticleCardDto {
   @ApiProperty({

@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import {
   BASELINE_RATE_LIMIT,
   BaselineThrottlerGuard,
@@ -48,9 +46,7 @@ import { VocabulariesModule } from './modules/vocabularies/vocabularies.module';
     ReviewsModule,
     AnalyticsModule,
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     {
       provide: APP_GUARD,
       useClass: BaselineThrottlerGuard,

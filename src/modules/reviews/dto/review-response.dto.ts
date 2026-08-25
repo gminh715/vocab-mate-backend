@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import {
   ArticleStatus,
   QuestionType,
@@ -301,17 +302,6 @@ export class ReviewHistoryItemDto {
   article!: ReviewHistoryArticleDto | null;
   @ApiProperty({ type: ReviewAggregateDto })
   aggregates!: ReviewAggregateDto;
-}
-
-export class PaginationMetaDto {
-  @ApiProperty()
-  page!: number;
-  @ApiProperty()
-  limit!: number;
-  @ApiProperty()
-  total!: number;
-  @ApiProperty()
-  totalPages!: number;
 }
 
 export class ReviewHistoryDataDto {

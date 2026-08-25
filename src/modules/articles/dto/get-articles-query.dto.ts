@@ -13,10 +13,8 @@ import {
   MinLength,
 } from 'class-validator';
 import { CefrLevel } from '../../../../generated/prisma/enums';
-import {
-  transformCategorySlug,
-  transformTrimmedCategoryString,
-} from '../../categories/dto/get-categories-query.dto';
+import { transformTrimmedCategoryString } from '../../categories/dto/get-categories-query.dto';
+import { transformCategorySlug } from '../../categories/category-slug';
 
 export enum ArticleSort {
   NEWEST = 'newest',

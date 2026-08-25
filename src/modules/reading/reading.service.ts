@@ -10,7 +10,7 @@ import { ArticleContentService } from '../articles/services/article-content.serv
 import type {
   ReadingHistoryQueryDto,
   UpdateReadingProgressDto,
-} from './dto/reading-response.dto';
+} from './dto/reading-request.dto';
 import {
   type ReadingHistoryRecord,
   ReadingProgressMutationConflictError,

@@ -9,8 +9,6 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { UserRole } from '../../../generated/prisma/enums';
 import request from 'supertest';
 import type { App } from 'supertest/types';
-import { ApiExceptionFilter } from '../../../src/common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../src/common/interceptors/success-response.interceptor';
 import { configureApp } from '../../../src/app.setup';
 import { AuthenticatedUserThrottlerGuard } from '../../../src/common/guards/authenticated-user-throttler.guard';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
@@ -51,8 +49,6 @@ describe('Admin news ingestion API (e2e)', () => {
         { provide: NewsIngestionService, useValue: service },
         JwtAuthGuard,
         RolesGuard,
-        SuccessResponseInterceptor,
-        ApiExceptionFilter,
       ],
     });
     const module: TestingModule = await moduleBuilder

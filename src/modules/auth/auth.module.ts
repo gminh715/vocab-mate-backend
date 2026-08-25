@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ApiExceptionFilter } from '../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../common/interceptors/success-response.interceptor';
 import { UsersModule } from '../users/users.module';
-import { AuthController } from './controllers/auth.controller';
+import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RefreshJwtGuard } from './guards/refresh-jwt.guard';
@@ -20,8 +18,6 @@ import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
     RefreshJwtStrategy,
     JwtAuthGuard,
     RefreshJwtGuard,
-    SuccessResponseInterceptor,
-    ApiExceptionFilter,
   ],
 })
 export class AuthModule {}

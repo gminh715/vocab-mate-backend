@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
-import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 
 export class VocabularyCollectionSummaryDto {
   @ApiProperty({ format: 'uuid' })

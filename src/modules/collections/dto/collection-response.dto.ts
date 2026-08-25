@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { PaginationMetaDto } from '../../users/dto/admin-response.dto';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import { VocabularySnapshotDto } from '../../vocabularies/dto/vocabulary-response.dto';
 
 export class CollectionDto {

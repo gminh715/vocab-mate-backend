@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole, UserStatus } from '../../../../generated/prisma/enums';
+import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import { PublicUserDto } from '../../auth/dto/auth-response.dto';
 import { MyProfileDto } from './my-profile-response.dto';
 
@@ -18,20 +19,6 @@ export class AdminUserListItemDto extends PublicUserDto {
 
   @ApiProperty({ type: AdminUserListProfileDto, nullable: true })
   profile!: AdminUserListProfileDto | null;
-}
-
-export class PaginationMetaDto {
-  @ApiProperty({ example: 1 })
-  page!: number;
-
-  @ApiProperty({ example: 20 })
-  limit!: number;
-
-  @ApiProperty({ example: 42 })
-  total!: number;
-
-  @ApiProperty({ example: 3 })
-  totalPages!: number;
 }
 
 export class AdminUserListDataDto {
