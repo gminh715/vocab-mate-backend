@@ -2,10 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import {
   type CefrLevel,
-  LearningStatus,
   type LearningStatus as LearningStatusType,
 } from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
+import { dueVocabularyWhere } from './due-vocabulary.where';
 import { VocabularySort } from './dto/vocabulary-request.dto';
 
 export interface VocabularyListQuery {
@@ -71,21 +71,6 @@ const collectionItemsSelect = (userId: string) =>
       },
     },
   }) as const;
-
-export const dueVocabularyWhere = (
-  now: Date,
-): Prisma.UserVocabularyWhereInput => ({
-  learningStatus: {
-    in: [LearningStatus.NEW, LearningStatus.LEARNING, LearningStatus.REVIEWING],
-  },
-  OR: [
-    { nextReviewAt: { lte: now } },
-    {
-      learningStatus: LearningStatus.NEW,
-      nextReviewAt: null,
-    },
-  ],
-});
 
 export const vocabularySnapshotListSelect = {
   id: true,

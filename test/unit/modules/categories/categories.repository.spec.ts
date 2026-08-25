@@ -99,6 +99,18 @@ describe('CategoriesRepository', () => {
     });
   });
 
+  it('finds an active category by name for import resolution', async () => {
+    await repository.findActiveByName('Technology');
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        name: { equals: 'Technology', mode: 'insensitive' },
+        isActive: true,
+      },
+      select: { id: true, name: true, slug: true },
+    });
+  });
+
   it('paginates and counts all matching admin categories with stable sorting', async () => {
     findMany.mockResolvedValue([]);
     count.mockResolvedValue(21);

@@ -48,6 +48,7 @@ import {
   ReadingTermParamsDto,
   UpdateReadingProgressDto,
 } from '../dto/reading-response.dto';
+import { ContextualTermsService } from '../contextual-terms.service';
 import { ReadingService } from '../reading.service';
 
 @ApiTags('Reading')
@@ -57,7 +58,10 @@ import { ReadingService } from '../reading.service';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('BearerAuth')
 export class ReadingController {
-  constructor(private readonly readingService: ReadingService) {}
+  constructor(
+    private readonly readingService: ReadingService,
+    private readonly contextualTermsService: ContextualTermsService,
+  ) {}
 
   @Get('history')
   @Version('1')
@@ -267,7 +271,7 @@ export class ReadingController {
     @CurrentUser() user: AuthenticatedUser,
     @Param() params: ReadingTermParamsDto,
   ) {
-    return this.readingService.getContextualTerm(
+    return this.contextualTermsService.getContextualTerm(
       user.id,
       params.articleId,
       params.termId,

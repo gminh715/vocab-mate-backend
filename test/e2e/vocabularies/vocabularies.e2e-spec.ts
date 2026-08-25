@@ -17,7 +17,7 @@ import { configureApp, setupSwagger } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
 import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
-import { ReadingService } from '../../../src/modules/reading/reading.service';
+import { ContextualTermsService } from '../../../src/modules/reading/contextual-terms.service';
 import type {
   CreateVocabularySnapshotInput,
   VocabularyListQuery,
@@ -344,7 +344,7 @@ describe('Vocabulary APIs (e2e)', () => {
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(VocabulariesRepository)
       .useValue(repository)
-      .overrideProvider(ReadingService)
+      .overrideProvider(ContextualTermsService)
       .useValue(readingService)
       .overrideGuard(JwtAuthGuard)
       .useClass(TestVocabularyAuthGuard)

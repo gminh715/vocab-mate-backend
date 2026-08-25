@@ -5,9 +5,9 @@ import {
 } from '../../../../../generated/prisma/enums';
 import type { PrismaService } from '../../../../../src/database/prisma.service';
 import {
-  ArticlesRepository,
+  ArticleAnalysisRepository,
   type CompleteArticleAnalysisInput,
-} from '../../../../../src/modules/articles/repositories/articles.repository';
+} from '../../../../../src/modules/articles/repositories/article-analysis.repository';
 
 interface StoredState {
   contentHtml: string;
@@ -22,7 +22,7 @@ interface ArticleUpdateManyArgs {
   where: Record<string, unknown>;
 }
 
-describe('ArticlesRepository article analysis persistence', () => {
+describe('ArticleAnalysisRepository', () => {
   const sourceContentHtml =
     '<p><span data-sentence-id="sentence-id">An ambitious plan.</span></p>';
   const annotatedContentHtml =
@@ -138,7 +138,7 @@ describe('ArticlesRepository article analysis persistence', () => {
         return result;
       },
     );
-    const repository = new ArticlesRepository({
+    const repository = new ArticleAnalysisRepository({
       $transaction: transaction,
     } as unknown as PrismaService);
 

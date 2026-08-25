@@ -11,9 +11,9 @@ import {
   ArticleAnalysisStateConflictError,
   type ArticleAnalysisCompletionRecord,
   type ArticleAnalysisSnapshot,
-  type ArticlesRepository,
   type CompleteArticleAnalysisInput,
-} from '../../../../../src/modules/articles/repositories/articles.repository';
+  ArticleAnalysisRepository,
+} from '../../../../../src/modules/articles/repositories/article-analysis.repository';
 import { ArticleAnalysisService } from '../../../../../src/modules/articles/services/article-analysis.service';
 
 const snapshot = (
@@ -56,7 +56,7 @@ describe('ArticleAnalysisService', () => {
     >(),
   };
   const service = new ArticleAnalysisService(
-    repository as unknown as ArticlesRepository,
+    repository as unknown as ArticleAnalysisRepository,
   );
 
   beforeEach(() => {

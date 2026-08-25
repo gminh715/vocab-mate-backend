@@ -6,6 +6,7 @@ import {
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../src/database/prisma.service';
+import { ContextualTermsRepository } from '../../../../src/modules/reading/contextual-terms.repository';
 import { ReadingRepository } from '../../../../src/modules/reading/reading.repository';
 
 interface QueryMockArgs {
@@ -54,6 +55,7 @@ describe('ReadingRepository', () => {
     Array.isArray(input) ? Promise.all(input) : input(transactionClient),
   );
   let repository: ReadingRepository;
+  let contextualTermsRepository: ContextualTermsRepository;
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -92,6 +94,10 @@ describe('ReadingRepository', () => {
     }).compile();
 
     repository = module.get(ReadingRepository);
+    contextualTermsRepository = new ContextualTermsRepository({
+      articleSentenceTerm: { findFirst: termFindFirst },
+      $transaction: transaction,
+    } as unknown as PrismaService);
   });
 
   it('selects only approved active current-version lookup terms for readers', async () => {
@@ -228,7 +234,11 @@ describe('ReadingRepository', () => {
     });
     termFindFirst.mockResolvedValue(null);
 
-    await repository.findContextualTerm('user-id', 'article-id', 'term-id');
+    await contextualTermsRepository.findContextualTerm(
+      'user-id',
+      'article-id',
+      'term-id',
+    );
 
     const query = termFindFirst.mock.calls[0][0];
     expect(query.where).toEqual({
@@ -282,7 +292,11 @@ describe('ReadingRepository', () => {
       },
     });
 
-    await repository.findContextualTerm('owner-id', 'article-id', 'term-id');
+    await contextualTermsRepository.findContextualTerm(
+      'owner-id',
+      'article-id',
+      'term-id',
+    );
 
     expect(vocabularyFindUnique).toHaveBeenCalledWith({
       where: {
@@ -309,7 +323,11 @@ describe('ReadingRepository', () => {
       sentence: { id: 'sentence-id' },
     });
 
-    await repository.findContextualTerm('owner-id', 'article-id', 'term-id');
+    await contextualTermsRepository.findContextualTerm(
+      'owner-id',
+      'article-id',
+      'term-id',
+    );
 
     expect(vocabularyFindUnique).not.toHaveBeenCalled();
   });
@@ -565,7 +583,7 @@ describe('ReadingRepository', () => {
     });
 
     await expect(
-      repository.findContextualTermForSave('term-id'),
+      contextualTermsRepository.findContextualTermForSave('term-id'),
     ).resolves.toMatchObject({
       term: { id: 'term-id' },
       parentSentence: { id: 'sentence-id', contentVersion: 4 },

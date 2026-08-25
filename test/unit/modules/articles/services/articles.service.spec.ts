@@ -9,7 +9,7 @@ import {
   ArticleStatus,
   CefrLevel,
 } from '../../../../../generated/prisma/enums';
-import { CategoriesRepository } from '../../../../../src/modules/categories/categories.repository';
+import { CategoriesService } from '../../../../../src/modules/categories/categories.service';
 import { ArticleSort } from '../../../../../src/modules/articles/dto/get-articles-query.dto';
 import { ArticlesRepository } from '../../../../../src/modules/articles/repositories/articles.repository';
 import { ArticleContentService } from '../../../../../src/modules/articles/services/article-content.service';
@@ -34,7 +34,7 @@ describe('ArticlesService', () => {
   let service: ArticlesService;
   let repository: ArticlesRepositoryMock;
   let contentService: { sanitize: jest.Mock };
-  let categoriesRepository: { findActiveById: jest.Mock };
+  let categoriesService: { requireActiveCategory: jest.Mock };
 
   beforeEach(async () => {
     repository = {
@@ -52,19 +52,15 @@ describe('ArticlesService', () => {
       delete: jest.fn(),
     };
     contentService = { sanitize: jest.fn((html: string) => html.trim()) };
-    categoriesRepository = {
-      findActiveById: jest.fn().mockResolvedValue({
-        id: 'category-id',
-        name: 'Technology',
-        slug: 'technology',
-      }),
+    categoriesService = {
+      requireActiveCategory: jest.fn().mockResolvedValue(undefined),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ArticlesService,
         { provide: ArticlesRepository, useValue: repository },
         { provide: ArticleContentService, useValue: contentService },
-        { provide: CategoriesRepository, useValue: categoriesRepository },
+        { provide: CategoriesService, useValue: categoriesService },
       ],
     }).compile();
 
@@ -198,7 +194,7 @@ describe('ArticlesService', () => {
       cefrLevel: 'B1',
     });
 
-    expect(categoriesRepository.findActiveById).toHaveBeenCalledWith(
+    expect(categoriesService.requireActiveCategory).toHaveBeenCalledWith(
       'category-id',
     );
     expect(repository.create).toHaveBeenCalledWith({
@@ -275,7 +271,9 @@ describe('ArticlesService', () => {
   });
 
   it('rejects missing or inactive categories before create', async () => {
-    categoriesRepository.findActiveById.mockResolvedValue(null);
+    categoriesService.requireActiveCategory.mockRejectedValue(
+      new NotFoundException('Active category not found'),
+    );
 
     await expect(
       service.create('admin-id', {
@@ -358,6 +356,28 @@ describe('ArticlesService', () => {
       updatedByUserId: 'admin-id',
     });
     expect(repository.updateContent).not.toHaveBeenCalled();
+  });
+
+  it('requires an active replacement category before an article update', async () => {
+    repository.findMutationState.mockResolvedValue({
+      id: 'article-id',
+      status: ArticleStatus.DRAFT,
+      contentHtml: '<p>Same</p>',
+      contentVersion: 1,
+    });
+    repository.update.mockResolvedValue({ id: 'article-id' });
+
+    await service.update('admin-id', 'article-id', {
+      categoryId: 'replacement-category-id',
+    });
+
+    expect(categoriesService.requireActiveCategory).toHaveBeenCalledWith(
+      'replacement-category-id',
+    );
+    expect(repository.update).toHaveBeenCalledWith('article-id', {
+      categoryId: 'replacement-category-id',
+      updatedByUserId: 'admin-id',
+    });
   });
 
   it('rejects empty PATCH and archived mutation', async () => {

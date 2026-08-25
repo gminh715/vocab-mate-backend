@@ -9,12 +9,16 @@ import { AdminArticleTermsController } from './controllers/admin-article-terms.c
 import { AdminArticlesController } from './controllers/admin-articles.controller';
 import { ArticlesController } from './controllers/articles.controller';
 import { ArticlesRepository } from './repositories/articles.repository';
+import { ArticleAnalysisRepository } from './repositories/article-analysis.repository';
+import { ArticleSentencesRepository } from './repositories/article-sentences.repository';
+import { ArticleTermsRepository } from './repositories/article-terms.repository';
 import { ArticleContentService } from './services/article-content.service';
 import { ArticleAnalysisService } from './services/article-analysis.service';
 import { ArticlePublicationService } from './services/article-publication.service';
 import { ArticleSentencesService } from './services/article-sentences.service';
 import { ArticleTermsService } from './services/article-terms.service';
 import { ArticlesService } from './services/articles.service';
+import { ArticlePublicationValidator } from './validators/article-publication.validator';
 
 @Module({
   imports: [CategoriesModule],
@@ -26,11 +30,15 @@ import { ArticlesService } from './services/articles.service';
   ],
   providers: [
     ArticlesRepository,
+    ArticleAnalysisRepository,
+    ArticleSentencesRepository,
+    ArticleTermsRepository,
     ArticlesService,
     ArticleAnalysisService,
     ArticleContentService,
     ArticleSentencesService,
     ArticleTermsService,
+    ArticlePublicationValidator,
     ArticlePublicationService,
     SuccessResponseInterceptor,
     ApiExceptionFilter,

@@ -5,10 +5,11 @@ import {
 import { ArticleStatus } from '../../../../../generated/prisma/enums';
 import { SentenceParserHelper } from '../../../../../src/modules/articles/helpers/sentence-parser.helper';
 import { HtmlSanitizerHelper } from '../../../../../src/modules/articles/helpers/html-sanitizer.helper';
+import { ArticlesRepository } from '../../../../../src/modules/articles/repositories/articles.repository';
 import {
-  ArticlesRepository,
+  ArticleSentencesRepository,
   type ReplaceParsedContentInput,
-} from '../../../../../src/modules/articles/repositories/articles.repository';
+} from '../../../../../src/modules/articles/repositories/article-sentences.repository';
 import { ArticleSentencesService } from '../../../../../src/modules/articles/services/article-sentences.service';
 
 describe('ArticleSentencesService', () => {
@@ -22,6 +23,7 @@ describe('ArticleSentencesService', () => {
   };
   const service = new ArticleSentencesService(
     repository as unknown as ArticlesRepository,
+    repository as unknown as ArticleSentencesRepository,
   );
 
   beforeEach(() => {

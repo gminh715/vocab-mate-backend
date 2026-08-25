@@ -18,9 +18,11 @@ import {
   type AiQuestionGenerationCandidate,
   type PreparedAiReviewQuestion,
   NoUsableReviewQuestionError,
-  ReviewsRepository,
-} from '../../../../../src/modules/reviews/reviews.repository';
+  ReviewSessionsRepository,
+} from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
 import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
+import { ReviewQuestionsRepository } from '../../../../../src/modules/reviews/repositories/review-questions.repository';
+import { ReviewAgentRepository } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
 
 describe('AiAssistedQuestionGeneratorService', () => {
   const config: AiConfig = {
@@ -82,7 +84,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     getAiQuestionGenerationCandidates: jest.Mock;
     findCachedAiQuestion: jest.Mock;
     findPreferredCachedAiQuestion: jest.Mock;
-    cacheAiQuestion: jest.MockedFunction<ReviewsRepository['cacheAiQuestion']>;
+    cacheAiQuestion: jest.MockedFunction<ReviewSessionsRepository['cacheAiQuestion']>;
     reserveAiCallSlot: jest.Mock;
   };
 
@@ -115,7 +117,19 @@ describe('AiAssistedQuestionGeneratorService', () => {
         AiAssistedQuestionGeneratorService,
         { provide: AI_CONFIG, useValue: config },
         { provide: AiService, useValue: ai },
-        { provide: ReviewsRepository, useValue: repository },
+        {
+          provide: ReviewQuestionsRepository,
+          useValue: {
+            getGenerationCandidates: (...args: unknown[]) => repository.getAiQuestionGenerationCandidates(...args),
+            findCached: (...args: unknown[]) => repository.findCachedAiQuestion(...args),
+            findPreferredCached: (...args: unknown[]) => repository.findPreferredCachedAiQuestion(...args),
+            cache: (...args: unknown[]) => repository.cacheAiQuestion(...args),
+          },
+        },
+        {
+          provide: ReviewAgentRepository,
+          useValue: { reserveCall: (...args: unknown[]) => repository.reserveAiCallSlot(...args) },
+        },
       ],
     }).compile();
     service = module.get(AiAssistedQuestionGeneratorService);

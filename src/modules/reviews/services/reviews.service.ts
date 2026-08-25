@@ -21,13 +21,15 @@ import {
   ReviewConcurrencyConflictError,
   ReviewAgentDecisionConflictError,
   ReviewResourceNotFoundError,
-  ReviewsRepository,
+  ReviewSessionsRepository,
   ReviewSessionStateConflictError,
   ReviewSubmissionConflictError,
   type PersistReviewAgentDecisionInput,
   type PostAnswerDiagnosisSnapshot,
   type PreparedAiReviewQuestion,
-} from '../reviews.repository';
+} from '../repositories/review-sessions.repository';
+import { ReviewAgentRepository } from '../repositories/review-agent.repository';
+import { ReviewAnswerTransactionService } from './review-answer-transaction.service';
 import {
   QuestionType,
   ReviewSessionType,
@@ -43,7 +45,9 @@ import { ReviewPreparationProgressService } from './review-preparation-progress.
 @Injectable()
 export class ReviewsService {
   constructor(
-    private readonly reviewsRepository: ReviewsRepository,
+    private readonly reviewsRepository: ReviewSessionsRepository,
+    private readonly agentRepository: ReviewAgentRepository,
+    private readonly answerTransactions: ReviewAnswerTransactionService,
     private readonly aiQuestionGenerator: AiAssistedQuestionGeneratorService,
     private readonly reviewAgent: ReviewAgentService,
     private readonly preparationProgress: ReviewPreparationProgressService,
@@ -51,7 +55,7 @@ export class ReviewsService {
 
   async createSessionPlanDecision(request: SessionPlanDecisionRequest) {
     const decision = await this.reviewAgent.planSession(request);
-    return this.reviewsRepository.persistAgentDecision(
+    return this.agentRepository.persist(
       request.userId,
       decision,
     );
@@ -61,7 +65,7 @@ export class ReviewsService {
     request: AnswerDiagnosisDecisionRequest,
   ) {
     const decision = await this.reviewAgent.diagnoseAnswer(request);
-    return this.reviewsRepository.persistAgentDecision(
+    return this.agentRepository.persist(
       request.userId,
       decision,
     );
@@ -194,7 +198,7 @@ export class ReviewsService {
     dto: SubmitReviewAnswerDto,
   ) {
     try {
-      const initialResult = await this.reviewsRepository.submitAnswer(
+      const initialResult = await this.answerTransactions.submit(
         userId,
         sessionId,
         dto,
@@ -232,7 +236,7 @@ export class ReviewsService {
 
         try {
           const enhancedState =
-            await this.reviewsRepository.applyAnswerAgentDecision(userId, {
+            await this.agentRepository.applyAnswerDecision(userId, {
               decision: applicableDecision,
               originalQuestionType: diagnosisSnapshot.originalQuestionType,
               expectedAttemptNumber: diagnosisSnapshot.attemptNumber,
@@ -309,7 +313,7 @@ export class ReviewsService {
     dto: SkipReviewSessionItemDto,
   ) {
     try {
-      const result = await this.reviewsRepository.skipItem(
+      const result = await this.answerTransactions.skip(
         userId,
         sessionId,
         dto,

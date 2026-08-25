@@ -24,8 +24,8 @@ import {
   type ArticleAnalysisSentenceRecord,
   type ArticleAnalysisSnapshot,
   type AnalyzedTermInput,
-  ArticlesRepository,
-} from '../repositories/articles.repository';
+  ArticleAnalysisRepository,
+} from '../repositories/article-analysis.repository';
 
 const MAX_STORED_ANALYSIS_ERROR_LENGTH = 500;
 const ENGLISH_VOCABULARY_TOKEN = /^[A-Za-z]+(?:['’][A-Za-z]+)*$/u;
@@ -47,18 +47,20 @@ interface LocalCefrAnalysis {
 
 @Injectable()
 export class ArticleAnalysisService {
-  constructor(private readonly articlesRepository: ArticlesRepository) {}
+  constructor(
+    private readonly articleAnalysisRepository: ArticleAnalysisRepository,
+  ) {}
 
   async analyze(
     actingAdminId: string,
     articleId: string,
   ): Promise<ArticleAnalysisCompletionRecord> {
     const snapshot =
-      await this.articlesRepository.findAnalysisSnapshot(articleId);
+      await this.articleAnalysisRepository.findAnalysisSnapshot(articleId);
     if (!snapshot) throw new NotFoundException('Article not found');
     this.requireEligibleSnapshot(snapshot);
 
-    const claimed = await this.articlesRepository.claimArticleAnalysis(
+    const claimed = await this.articleAnalysisRepository.claimArticleAnalysis(
       articleId,
       snapshot.article.contentVersion,
     );
@@ -102,7 +104,7 @@ export class ArticleAnalysisService {
     }
 
     try {
-      return await this.articlesRepository.completeArticleAnalysis({
+      return await this.articleAnalysisRepository.completeArticleAnalysis({
         articleId,
         contentVersion: snapshot.article.contentVersion,
         sourceContentHtml: snapshot.article.contentHtml,
@@ -114,7 +116,7 @@ export class ArticleAnalysisService {
       });
     } catch (error: unknown) {
       if (error instanceof ArticleAnalysisStateConflictError) {
-        await this.articlesRepository.failArticleAnalysis(
+        await this.articleAnalysisRepository.failArticleAnalysis(
           articleId,
           snapshot.article.contentVersion,
           this.sanitizeError(
@@ -127,7 +129,7 @@ export class ArticleAnalysisService {
         );
       }
 
-      await this.articlesRepository.failArticleAnalysis(
+      await this.articleAnalysisRepository.failArticleAnalysis(
         articleId,
         snapshot.article.contentVersion,
         this.sanitizeError('Vocabulary analysis could not be saved'),
@@ -305,7 +307,7 @@ export class ArticleAnalysisService {
     snapshot: ArticleAnalysisSnapshot,
     message: string,
   ): Promise<void> {
-    const failed = await this.articlesRepository.failArticleAnalysis(
+    const failed = await this.articleAnalysisRepository.failArticleAnalysis(
       snapshot.article.id,
       snapshot.article.contentVersion,
       this.sanitizeError(message),

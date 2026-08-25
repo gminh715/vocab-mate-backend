@@ -11,7 +11,7 @@ import {
   LearningStatus,
   LexicalUnitType,
 } from '../../../../generated/prisma/enums';
-import { ReadingService } from '../../../../src/modules/reading/reading.service';
+import { ContextualTermsService } from '../../../../src/modules/reading/contextual-terms.service';
 import { VocabularySort } from '../../../../src/modules/vocabularies/dto/vocabulary-request.dto';
 import {
   InvalidVocabularyCollectionsError,
@@ -119,7 +119,7 @@ describe('VocabulariesService', () => {
     createWithCollections: jest.Mock;
     deleteOwned: jest.Mock;
   };
-  let readingService: { getContextualTermForSave: jest.Mock };
+  let contextualTermsService: { getContextualTermForSave: jest.Mock };
 
   beforeEach(async () => {
     repository = {
@@ -128,14 +128,14 @@ describe('VocabulariesService', () => {
       createWithCollections: jest.fn(),
       deleteOwned: jest.fn(),
     };
-    readingService = {
+    contextualTermsService = {
       getContextualTermForSave: jest.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         VocabulariesService,
         { provide: VocabulariesRepository, useValue: repository },
-        { provide: ReadingService, useValue: readingService },
+        { provide: ContextualTermsService, useValue: contextualTermsService },
       ],
     }).compile();
     service = module.get(VocabulariesService);
@@ -238,7 +238,9 @@ describe('VocabulariesService', () => {
   });
 
   it('creates the immutable snapshot from a READY enriched source', async () => {
-    readingService.getContextualTermForSave.mockResolvedValue(sourceRecord());
+    contextualTermsService.getContextualTermForSave.mockResolvedValue(
+      sourceRecord(),
+    );
     repository.createWithCollections.mockResolvedValue(savedRecord());
 
     const result = await service.save('owner-id', {
@@ -276,7 +278,9 @@ describe('VocabulariesService', () => {
   });
 
   it('deduplicates collection IDs before the transaction', async () => {
-    readingService.getContextualTermForSave.mockResolvedValue(sourceRecord());
+    contextualTermsService.getContextualTermForSave.mockResolvedValue(
+      sourceRecord(),
+    );
     repository.createWithCollections.mockResolvedValue(savedRecord());
 
     await service.save('owner-id', {
@@ -294,7 +298,9 @@ describe('VocabulariesService', () => {
   it('keeps an existing vocabulary snapshot unchanged after later source edits', async () => {
     const originalSource = sourceRecord();
     let storedSnapshot: ReturnType<typeof savedRecord> | null = null;
-    readingService.getContextualTermForSave.mockResolvedValue(originalSource);
+    contextualTermsService.getContextualTermForSave.mockResolvedValue(
+      originalSource,
+    );
     repository.createWithCollections.mockImplementation(
       (_userId: string, input: Record<string, unknown>) => {
         storedSnapshot = {
@@ -337,12 +343,16 @@ describe('VocabulariesService', () => {
         ],
       },
     });
-    expect(readingService.getContextualTermForSave).toHaveBeenCalledTimes(1);
+    expect(
+      contextualTermsService.getContextualTermForSave,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes collection UUID casing and trims notes at the service boundary', async () => {
     const mixedCaseId = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
-    readingService.getContextualTermForSave.mockResolvedValue(sourceRecord());
+    contextualTermsService.getContextualTermForSave.mockResolvedValue(
+      sourceRecord(),
+    );
     repository.createWithCollections.mockResolvedValue(savedRecord());
 
     await service.save('owner-id', {
@@ -369,12 +379,14 @@ describe('VocabulariesService', () => {
         'At least one collection is required to save vocabulary',
       ),
     );
-    expect(readingService.getContextualTermForSave).not.toHaveBeenCalled();
+    expect(
+      contextualTermsService.getContextualTermForSave,
+    ).not.toHaveBeenCalled();
     expect(repository.createWithCollections).not.toHaveBeenCalled();
   });
 
   it('rejects a missing required translation with a structured readiness error', async () => {
-    readingService.getContextualTermForSave.mockResolvedValue({
+    contextualTermsService.getContextualTermForSave.mockResolvedValue({
       ...sourceRecord(),
       parentSentence: {
         ...sourceRecord().parentSentence,
@@ -392,7 +404,7 @@ describe('VocabulariesService', () => {
   });
 
   it('rejects a nullable contextual meaning before creating a vocabulary snapshot', async () => {
-    readingService.getContextualTermForSave.mockResolvedValue({
+    contextualTermsService.getContextualTermForSave.mockResolvedValue({
       ...sourceRecord(),
       term: {
         ...sourceRecord().term,
@@ -415,7 +427,7 @@ describe('VocabulariesService', () => {
     ['inactive or stale sentence', new NotFoundException()],
     ['non-published article', new NotFoundException()],
   ])('preserves Reading eligibility rejection for %s', async (_case, error) => {
-    readingService.getContextualTermForSave.mockRejectedValue(error);
+    contextualTermsService.getContextualTermForSave.mockRejectedValue(error);
 
     await expect(
       service.save('owner-id', {
@@ -427,7 +439,9 @@ describe('VocabulariesService', () => {
   });
 
   it('maps concurrent duplicate insertion to conflict', async () => {
-    readingService.getContextualTermForSave.mockResolvedValue(sourceRecord());
+    contextualTermsService.getContextualTermForSave.mockResolvedValue(
+      sourceRecord(),
+    );
     repository.createWithCollections.mockRejectedValue(
       Object.assign(new Error('unique'), { code: 'P2002' }),
     );
@@ -441,7 +455,9 @@ describe('VocabulariesService', () => {
   });
 
   it('maps missing or non-owned collections to generic unprocessable entity', async () => {
-    readingService.getContextualTermForSave.mockResolvedValue(sourceRecord());
+    contextualTermsService.getContextualTermForSave.mockResolvedValue(
+      sourceRecord(),
+    );
     repository.createWithCollections.mockRejectedValue(
       new InvalidVocabularyCollectionsError(),
     );

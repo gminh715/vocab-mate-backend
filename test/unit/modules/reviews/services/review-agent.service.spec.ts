@@ -11,7 +11,7 @@ import {
   ReviewDecisionSource,
   ReviewErrorType,
 } from '../../../../../generated/prisma/enums';
-import { ReviewsRepository } from '../../../../../src/modules/reviews/reviews.repository';
+import { ReviewAgentRepository } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
 import { ReviewAgentService } from '../../../../../src/modules/reviews/services/review-agent.service';
 
 const config: AiConfig = {
@@ -143,7 +143,13 @@ describe('ReviewAgentService', () => {
         ReviewAgentService,
         { provide: AI_CONFIG, useValue: config },
         { provide: AiService, useValue: ai },
-        { provide: ReviewsRepository, useValue: repository },
+        {
+          provide: ReviewAgentRepository,
+          useValue: {
+            reserveCall: (...args: unknown[]) => repository.reserveAiCallSlot(...args),
+            reserveDiagnosisCall: (...args: unknown[]) => repository.reserveDiagnosisAiCallSlot(...args),
+          },
+        },
       ],
     }).compile();
     service = module.get(ReviewAgentService);

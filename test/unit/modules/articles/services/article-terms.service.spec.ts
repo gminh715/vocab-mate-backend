@@ -12,9 +12,9 @@ import {
 import {
   ArticleTermReferencedError,
   ArticleTermStateConflictError,
-  ArticlesRepository,
   type TermMarkerWriteInput,
-} from '../../../../../src/modules/articles/repositories/articles.repository';
+  ArticleTermsRepository,
+} from '../../../../../src/modules/articles/repositories/article-terms.repository';
 import { HtmlSanitizerHelper } from '../../../../../src/modules/articles/helpers/html-sanitizer.helper';
 import { ArticleTermsService } from '../../../../../src/modules/articles/services/article-terms.service';
 
@@ -106,7 +106,7 @@ describe('ArticleTermsService', () => {
     deleteTermWithMarker: jest.fn(),
   };
   const service = new ArticleTermsService(
-    repository as unknown as ArticlesRepository,
+    repository as unknown as ArticleTermsRepository,
   );
 
   beforeEach(() => {

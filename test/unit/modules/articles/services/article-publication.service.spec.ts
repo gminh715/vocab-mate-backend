@@ -16,6 +16,7 @@ import {
   ArticlesRepository,
 } from '../../../../../src/modules/articles/repositories/articles.repository';
 import { ArticlePublicationService } from '../../../../../src/modules/articles/services/article-publication.service';
+import { ArticlePublicationValidator } from '../../../../../src/modules/articles/validators/article-publication.validator';
 
 const articleId = '11111111-1111-4111-8111-111111111111';
 const sentenceId = '22222222-2222-4222-8222-222222222222';
@@ -82,10 +83,10 @@ const createSnapshot = (): ArticlePublicationSnapshot => ({
           vocabularyTopic: null,
           examples: [],
           skill: null,
-          origin: 'MANUAL',
-          reviewStatus: 'APPROVED',
+          origin: TermOrigin.MANUAL,
+          reviewStatus: TermReviewStatus.APPROVED,
           selectionReason: null,
-          explanationStatus: 'READY',
+          explanationStatus: AiGenerationStatus.READY,
           explanationError: null,
           explanationGeneratedAt: null,
           isLookupEnabled: true,
@@ -103,6 +104,7 @@ describe('ArticlePublicationService', () => {
     findPublicationSnapshot: jest.fn(),
     transitionArticleStatus: jest.fn(),
   };
+  const validator = { validate: jest.fn() };
   let service: ArticlePublicationService;
 
   beforeEach(async () => {
@@ -114,6 +116,10 @@ describe('ArticlePublicationService', () => {
           provide: ArticlesRepository,
           useValue: repository,
         },
+        {
+          provide: ArticlePublicationValidator,
+          useValue: validator,
+        },
       ],
     }).compile();
     service = module.get(ArticlePublicationService);
@@ -124,14 +130,19 @@ describe('ArticlePublicationService', () => {
       publishedAt: now,
       archivedAt: null,
     });
+    validator.validate.mockReturnValue([]);
   });
 
   it('publishes a valid draft with one guarded status transition', async () => {
+    const snapshot = createSnapshot();
+    repository.findPublicationSnapshot.mockResolvedValue(snapshot);
+
     await expect(service.publish('admin-id', articleId)).resolves.toEqual({
       id: articleId,
       status: ArticleStatus.PUBLISHED,
       publishedAt: now,
     });
+    expect(validator.validate).toHaveBeenCalledWith(snapshot);
     expect(repository.transitionArticleStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         articleId,
@@ -145,31 +156,18 @@ describe('ArticlePublicationService', () => {
     );
   });
 
-  it('accepts equivalent entity and void-tag serialization but rejects unsafe markup', () => {
-    const equivalent = createSnapshot();
-    equivalent.article.contentHtml = equivalent.article.contentHtml.replace(
-      'Digital ',
-      '<br>Digital &#x201c;',
-    );
-    equivalent.article.contentHtml = equivalent.article.contentHtml.replace(
-      ' improve',
-      '&#x201d; improve',
-    );
+  it('maps validator issues to the publication application error without transitioning', async () => {
+    validator.validate.mockReturnValue([
+      {
+        code: 'MISSING_PARSE',
+        message: 'The current content version has not been parsed.',
+        entityId: articleId,
+      },
+    ]);
 
-    expect(
-      service.validateForPublication(equivalent).map(({ code }) => code),
-    ).not.toContain('UNSANITIZED_CONTENT_HTML');
-
-    const unsafe = createSnapshot();
-    unsafe.article.contentHtml = unsafe.article.contentHtml.replace(
-      '<p>',
-      '<p onclick="bad()">',
-    );
-    expect(service.validateForPublication(unsafe)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'UNSANITIZED_CONTENT_HTML' }),
-      ]),
-    );
+    const result = service.publish('admin-id', articleId);
+    await expect(result).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(repository.transitionArticleStatus).not.toHaveBeenCalled();
   });
 
   it.each([ArticleStatus.PUBLISHED, ArticleStatus.ARCHIVED])(
@@ -182,216 +180,10 @@ describe('ArticlePublicationService', () => {
       await expect(service.publish('admin-id', articleId)).rejects.toThrow(
         ConflictException,
       );
+      expect(validator.validate).not.toHaveBeenCalled();
       expect(repository.transitionArticleStatus).not.toHaveBeenCalled();
     },
   );
-
-  it('returns structured checklist issues for an unparsed draft', async () => {
-    const snapshot = createSnapshot();
-    snapshot.sentences = [];
-    snapshot.article.contentHtml = '<p>Unparsed draft.</p>';
-    repository.findPublicationSnapshot.mockResolvedValue(snapshot);
-
-    const result = service.publish('admin-id', articleId);
-    await expect(result).rejects.toBeInstanceOf(UnprocessableEntityException);
-    try {
-      await result;
-    } catch (error: unknown) {
-      const response = (
-        error as UnprocessableEntityException
-      ).getResponse() as {
-        message: string;
-        issues: Array<{ code: string }>;
-      };
-      expect(response.message).toBe('Article failed publication validation');
-      expect(response.issues.map(({ code }) => code)).toEqual(
-        expect.arrayContaining(['MISSING_PARSE', 'MINIMUM_TERMS_NOT_MET']),
-      );
-    }
-  });
-
-  it.each([
-    {
-      name: 'inactive category',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.article.category.isActive = false;
-      },
-      code: 'INACTIVE_CATEGORY',
-    },
-    {
-      name: 'orphan sentence marker',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.article.contentHtml = snapshot.article.contentHtml.replace(
-          sentenceId,
-          '55555555-5555-4555-8555-555555555555',
-        );
-      },
-      code: 'ORPHAN_SENTENCE_MARKER',
-    },
-    {
-      name: 'orphan term marker',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.article.contentHtml = snapshot.article.contentHtml.replace(
-          termId,
-          '66666666-6666-4666-8666-666666666666',
-        );
-      },
-      code: 'ORPHAN_TERM_MARKER',
-    },
-    {
-      name: 'inactive sentence',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].isActive = false;
-      },
-      code: 'INACTIVE_SENTENCE_MARKER',
-    },
-    {
-      name: 'incomplete term metadata',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].normalizedLemma = ' ';
-      },
-      code: 'TERM_METADATA_INCOMPLETE',
-    },
-    {
-      name: 'missing contextual meaning',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].contextualMeaningVi = null;
-      },
-      code: 'TERM_SNAPSHOT_INCOMPLETE',
-    },
-  ])('reports $name through the shared checklist', ({ mutate, code }) => {
-    const snapshot = createSnapshot();
-    mutate(snapshot);
-    expect(service.validateForPublication(snapshot)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code })]),
-    );
-  });
-
-  it('ignores marker-free pending and rejected candidates during publication', async () => {
-    const snapshot = createSnapshot();
-    snapshot.sentences[0].terms.push(
-      {
-        ...snapshot.sentences[0].terms[0],
-        id: '77777777-7777-4777-8777-777777777777',
-        origin: TermOrigin.AI,
-        reviewStatus: TermReviewStatus.PENDING,
-        explanationStatus: AiGenerationStatus.PENDING,
-        contextualMeaningVi: null,
-        isActive: false,
-        isLookupEnabled: false,
-      },
-      {
-        ...snapshot.sentences[0].terms[0],
-        id: '88888888-8888-4888-8888-888888888888',
-        origin: TermOrigin.AI,
-        reviewStatus: TermReviewStatus.REJECTED,
-        explanationStatus: AiGenerationStatus.FAILED,
-        contextualMeaningVi: null,
-        isActive: false,
-        isLookupEnabled: false,
-      },
-    );
-
-    const issues = service.validateForPublication(snapshot);
-    expect(issues).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          entityId: '77777777-7777-4777-8777-777777777777',
-        }),
-        expect.objectContaining({
-          entityId: '88888888-8888-4888-8888-888888888888',
-        }),
-      ]),
-    );
-    expect(issues).toEqual([]);
-    repository.findPublicationSnapshot.mockResolvedValue(snapshot);
-    await expect(service.publish('admin-id', articleId)).resolves.toMatchObject(
-      { status: ArticleStatus.PUBLISHED },
-    );
-  });
-
-  it.each([AiGenerationStatus.PENDING, AiGenerationStatus.FAILED])(
-    'allows an approved lazy NLP term with %s enrichment and deferred metadata',
-    async (explanationStatus) => {
-      const snapshot = createSnapshot();
-      const term = snapshot.sentences[0].terms[0];
-      term.origin = TermOrigin.NLP;
-      term.reviewStatus = TermReviewStatus.APPROVED;
-      term.explanationStatus = explanationStatus;
-      term.wordDisplay = null;
-      term.normalizedLemma = null;
-      term.partOfSpeech = null;
-      term.cefrLevel = null;
-      term.contextualMeaningVi = null;
-      snapshot.sentences[0].translationVi = null;
-
-      expect(service.validateForPublication(snapshot)).toEqual([]);
-      repository.findPublicationSnapshot.mockResolvedValue(snapshot);
-      await expect(
-        service.publish('admin-id', articleId),
-      ).resolves.toMatchObject({ status: ArticleStatus.PUBLISHED });
-    },
-  );
-
-  it.each([
-    {
-      name: 'missing meaning',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].contextualMeaningVi = null;
-      },
-    },
-    {
-      name: 'missing parent translation',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].translationVi = ' ';
-      },
-    },
-    {
-      name: 'malformed examples',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].examples = [
-          { sentence: 'Tools help.', translationVi: '' },
-        ];
-      },
-    },
-    {
-      name: 'non-canonical examples',
-      mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].examples = [
-          {
-            sentence: 'Tools help.',
-            translationVi: 'Công cụ giúp ích.',
-            extra: true,
-          },
-        ];
-      },
-    },
-  ])('rejects a READY term with $name', ({ mutate }) => {
-    const snapshot = createSnapshot();
-    mutate(snapshot);
-    expect(service.validateForPublication(snapshot)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'TERM_SNAPSHOT_INCOMPLETE' }),
-      ]),
-    );
-  });
-
-  it('requires exactly one marker for an approved visible term', () => {
-    const snapshot = createSnapshot();
-    snapshot.article.contentHtml = snapshot.article.contentHtml.replace(
-      ' improve learning.',
-      ` improve learning with <span data-term-id="${termId}">tools</span>.`,
-    );
-
-    expect(service.validateForPublication(snapshot)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: 'DUPLICATE_TERM_MARKER',
-          entityId: termId,
-        }),
-      ]),
-    );
-  });
 
   it.each([
     {
@@ -430,6 +222,7 @@ describe('ArticlePublicationService', () => {
       await expect(service[operation]('admin-id', articleId)).resolves.toEqual(
         expect.objectContaining({ id: articleId, status: target }),
       );
+      expect(validator.validate).not.toHaveBeenCalled();
     },
   );
 
@@ -466,16 +259,23 @@ describe('ArticlePublicationService', () => {
     'applies CEFR preview rank $term >= $selected as $highlighted',
     async ({ selected, term, highlighted }) => {
       const snapshot = createSnapshot();
+      const warnings = [
+        {
+          code: 'TERM_SNAPSHOT_INCOMPLETE',
+          message: 'Example warning.',
+          entityId: termId,
+        },
+      ];
       snapshot.sentences[0].terms[0].cefrLevel = term;
       repository.findPublicationSnapshot.mockResolvedValue(snapshot);
+      validator.validate.mockReturnValue(warnings);
 
       const preview = await service.preview(articleId, selected);
       expect(preview.terms).toEqual([
         expect.objectContaining({ id: termId, isHighlighted: highlighted }),
       ]);
-      expect(preview.validationWarnings).toEqual(
-        service.validateForPublication(snapshot),
-      );
+      expect(preview.validationWarnings).toBe(warnings);
+      expect(validator.validate).toHaveBeenCalledWith(snapshot);
       expect(preview.article).not.toHaveProperty('contentHtml');
     },
   );

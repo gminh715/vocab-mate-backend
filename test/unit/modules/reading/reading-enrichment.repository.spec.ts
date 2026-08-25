@@ -7,8 +7,8 @@ import {
 import type { PrismaService } from '../../../../src/database/prisma.service';
 import {
   ContextualTermEnrichmentStateConflictError,
-  ReadingRepository,
-} from '../../../../src/modules/reading/reading.repository';
+  ContextualTermsRepository,
+} from '../../../../src/modules/reading/contextual-terms.repository';
 
 interface UpdateManyArgs {
   where: Record<string, unknown>;
@@ -62,7 +62,7 @@ const enrichment = {
   sentenceTranslationVi: 'Rác thải nhựa có hại.',
 };
 
-describe('ReadingRepository contextual-term enrichment', () => {
+describe('ContextualTermsRepository enrichment', () => {
   it('atomically claims the exact pending term and returns a five-sentence maximum context', async () => {
     const articleFindFirst = jest.fn().mockResolvedValue({
       id: 'article-id',
@@ -105,7 +105,7 @@ describe('ReadingRepository contextual-term enrichment', () => {
           articleSentence: { findMany: sentenceFindMany },
         }),
     );
-    const repository = new ReadingRepository({
+    const repository = new ContextualTermsRepository({
       $transaction: transaction,
     } as unknown as PrismaService);
 
@@ -173,7 +173,7 @@ describe('ReadingRepository contextual-term enrichment', () => {
           },
         }),
     );
-    const repository = new ReadingRepository({
+    const repository = new ContextualTermsRepository({
       $transaction: transaction,
     } as unknown as PrismaService);
 
@@ -221,7 +221,7 @@ describe('ReadingRepository contextual-term enrichment', () => {
           articleSentence: { updateMany: sentenceUpdateMany },
         }),
     );
-    const repository = new ReadingRepository({
+    const repository = new ContextualTermsRepository({
       $transaction: transaction,
     } as unknown as PrismaService);
     const generatedAt = new Date('2026-07-31T05:00:00Z');
@@ -282,7 +282,7 @@ describe('ReadingRepository contextual-term enrichment', () => {
           },
         }),
     );
-    const repository = new ReadingRepository({
+    const repository = new ContextualTermsRepository({
       $transaction: transaction,
     } as unknown as PrismaService);
 
@@ -303,7 +303,7 @@ describe('ReadingRepository contextual-term enrichment', () => {
     const updateMany: UpdateManyMock = jest
       .fn()
       .mockResolvedValue({ count: 1 });
-    const repository = new ReadingRepository({
+    const repository = new ContextualTermsRepository({
       articleSentenceTerm: { updateMany },
     } as unknown as PrismaService);
 

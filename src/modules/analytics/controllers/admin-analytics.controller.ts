@@ -25,10 +25,8 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import {
-  ANALYTICS_TOP_CONTENT_LIMIT,
-  AnalyticsService,
-} from '../analytics.service';
+import { ANALYTICS_TOP_CONTENT_LIMIT } from '../repositories/admin-analytics.repository';
+import { AdminAnalyticsService } from '../services/admin-analytics.service';
 import {
   AdminContentAnalyticsQueryDto,
   AdminUserAnalyticsQueryDto,
@@ -48,7 +46,7 @@ import {
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')
 export class AdminAnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(private readonly analyticsService: AdminAnalyticsService) {}
 
   @Get('overview')
   @Version('1')

@@ -4,6 +4,7 @@ import { SuccessResponseInterceptor } from '../../common/interceptors/success-re
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ArticlesModule } from '../articles/articles.module';
+import { CategoriesModule } from '../categories/categories.module';
 import { AdminNewsController } from './admin-news.controller';
 import { GuardianClient } from './guardian.client';
 import { NEWS_FETCH, type NewsFetch } from './news-http.tokens';
@@ -11,7 +12,7 @@ import { NewsContentService } from './news-content.service';
 import { NewsIngestionService } from './news-ingestion.service';
 
 @Module({
-  imports: [ArticlesModule],
+  imports: [ArticlesModule, CategoriesModule],
   controllers: [AdminNewsController],
   providers: [
     {

@@ -28,11 +28,11 @@ import {
   NoUsableReviewQuestionError,
   ReviewAgentDecisionConflictError,
   ReviewResourceNotFoundError,
-  ReviewsRepository,
+  ReviewSessionsRepository,
   ReviewSubmissionConflictError,
-} from '../../../../src/modules/reviews/reviews.repository';
+} from '../../../../src/modules/reviews/repositories/review-sessions.repository';
 
-describe('ReviewsRepository', () => {
+describe('ReviewSessionsRepository', () => {
   const query = jest.fn();
   const quizFindFirst = jest.fn();
   const articleFindFirst = jest.fn();
@@ -114,7 +114,7 @@ describe('ReviewsRepository', () => {
   > = jest.fn((input) =>
     Array.isArray(input) ? Promise.all(input) : input(tx),
   );
-  let repository: ReviewsRepository;
+  let repository: ReviewSessionsRepository;
   const reviewVocabulary = {
     id: 'vocabulary',
     userId: 'owner',
@@ -166,7 +166,7 @@ describe('ReviewsRepository', () => {
     });
     const module = await Test.createTestingModule({
       providers: [
-        ReviewsRepository,
+        ReviewSessionsRepository,
         AnswerGradingService,
         InvisibleReviewScoringService,
         QuestionSelectionService,
@@ -192,7 +192,7 @@ describe('ReviewsRepository', () => {
         },
       ],
     }).compile();
-    repository = module.get(ReviewsRepository);
+    repository = module.get(ReviewSessionsRepository);
   });
 
   it('loads bounded recent response-time evidence for daily planning', async () => {

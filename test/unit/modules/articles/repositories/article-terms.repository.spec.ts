@@ -8,12 +8,12 @@ import { PrismaService } from '../../../../../src/database/prisma.service';
 import {
   ArticleTermReferencedError,
   ArticleTermStateConflictError,
-  ArticlesRepository,
   type CreateArticleTermInput,
   type TermMarkerWriteInput,
-} from '../../../../../src/modules/articles/repositories/articles.repository';
+  ArticleTermsRepository,
+} from '../../../../../src/modules/articles/repositories/article-terms.repository';
 
-describe('ArticlesRepository term queries', () => {
+describe('ArticleTermsRepository', () => {
   const article = {
     findUnique: jest.fn<Promise<unknown>, [unknown]>(),
     updateMany: jest.fn<Promise<{ count: number }>, [unknown]>(),
@@ -53,7 +53,9 @@ describe('ArticlesRepository term queries', () => {
         callback(transactionClient),
     ),
   };
-  const repository = new ArticlesRepository(prisma as unknown as PrismaService);
+  const repository = new ArticleTermsRepository(
+    prisma as unknown as PrismaService,
+  );
   const marker: TermMarkerWriteInput = {
     articleId: 'article-id',
     sentenceId: 'sentence-id',

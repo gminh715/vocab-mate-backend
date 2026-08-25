@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import type { LearningStatus } from '../../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
-import { vocabularySnapshotListSelect } from '../vocabularies/vocabularies.repository';
 import { CollectionItemSort } from './dto/collection-request.dto';
 
 export interface CollectionListQuery {
@@ -57,6 +56,21 @@ const collectionSelect = {
   description: true,
   createdAt: true,
   updatedAt: true,
+} as const;
+
+const collectionVocabularySnapshotSelect = {
+  id: true,
+  articleSentenceTermId: true,
+  learningStatus: true,
+  personalNote: true,
+  savedWordDisplay: true,
+  savedLemma: true,
+  savedPartOfSpeech: true,
+  savedIpa: true,
+  savedCefrLevel: true,
+  savedMeaningVi: true,
+  savedAt: true,
+  nextReviewAt: true,
 } as const;
 
 @Injectable()
@@ -235,7 +249,7 @@ export class CollectionsRepository {
         select: {
           addedAt: true,
           userVocabulary: {
-            select: vocabularySnapshotListSelect,
+            select: collectionVocabularySnapshotSelect,
           },
         },
       }),

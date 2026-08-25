@@ -29,8 +29,8 @@ import {
   ArticleTermStateConflictError,
   type CreateArticleTermInput,
   type UpdateArticleTermInput,
-  ArticlesRepository,
-} from '../repositories/articles.repository';
+  ArticleTermsRepository,
+} from '../repositories/article-terms.repository';
 
 const hasPrismaCode = (error: unknown, code: string): boolean =>
   typeof error === 'object' &&
@@ -40,7 +40,9 @@ const hasPrismaCode = (error: unknown, code: string): boolean =>
 
 @Injectable()
 export class ArticleTermsService {
-  constructor(private readonly articlesRepository: ArticlesRepository) {}
+  constructor(
+    private readonly articleTermsRepository: ArticleTermsRepository,
+  ) {}
 
   async create(
     actingAdminId: string,
@@ -48,7 +50,7 @@ export class ArticleTermsService {
     sentenceId: string,
     dto: CreateArticleTermDto,
   ) {
-    const context = await this.articlesRepository.findSentenceTermContext(
+    const context = await this.articleTermsRepository.findSentenceTermContext(
       articleId,
       sentenceId,
     );
@@ -82,7 +84,7 @@ export class ArticleTermsService {
     }
 
     try {
-      const term = await this.articlesRepository.createTermWithMarker(
+      const term = await this.articleTermsRepository.createTermWithMarker(
         {
           articleId,
           sentenceId,
@@ -101,7 +103,7 @@ export class ArticleTermsService {
   }
 
   async findAll(articleId: string, query: ArticleTermListQueryDto) {
-    const result = await this.articlesRepository.findTerms(articleId, {
+    const result = await this.articleTermsRepository.findTerms(articleId, {
       page: query.page,
       limit: query.limit,
       ...(query.sentenceId ? { sentenceId: query.sentenceId } : {}),
@@ -129,7 +131,7 @@ export class ArticleTermsService {
   }
 
   async findOne(articleId: string, termId: string) {
-    const detail = await this.articlesRepository.findTermDetail(
+    const detail = await this.articleTermsRepository.findTermDetail(
       articleId,
       termId,
     );
@@ -146,7 +148,7 @@ export class ArticleTermsService {
     if (Object.values(dto).every((value) => value === undefined)) {
       throw new BadRequestException('At least one term field is required');
     }
-    const context = await this.articlesRepository.findTermMutationContext(
+    const context = await this.articleTermsRepository.findTermMutationContext(
       articleId,
       termId,
     );
@@ -232,7 +234,7 @@ export class ArticleTermsService {
     const input = this.toUpdateInput(actingAdminId, dto);
     try {
       const term = contentHtmlChanged
-        ? await this.articlesRepository.updateTermWithMarker(
+        ? await this.articleTermsRepository.updateTermWithMarker(
             {
               articleId,
               sentenceId: context.sentence.id,
@@ -244,7 +246,7 @@ export class ArticleTermsService {
             },
             input,
           )
-        : await this.articlesRepository.updateTermMetadata(
+        : await this.articleTermsRepository.updateTermMetadata(
             articleId,
             context.article.contentVersion,
             termId,
@@ -262,7 +264,7 @@ export class ArticleTermsService {
     articleId: string,
     termId: string,
   ) {
-    const context = await this.articlesRepository.findTermMutationContext(
+    const context = await this.articleTermsRepository.findTermMutationContext(
       articleId,
       termId,
     );
@@ -321,7 +323,7 @@ export class ArticleTermsService {
     }
 
     try {
-      const term = await this.articlesRepository.approveAiTermWithMarker({
+      const term = await this.articleTermsRepository.approveAiTermWithMarker({
         articleId,
         sentenceId: context.sentence.id,
         termId,
@@ -341,7 +343,7 @@ export class ArticleTermsService {
     articleId: string,
     termId: string,
   ) {
-    const context = await this.articlesRepository.findTermMutationContext(
+    const context = await this.articleTermsRepository.findTermMutationContext(
       articleId,
       termId,
     );
@@ -366,7 +368,7 @@ export class ArticleTermsService {
     }
 
     try {
-      const term = await this.articlesRepository.rejectAiTerm(
+      const term = await this.articleTermsRepository.rejectAiTerm(
         articleId,
         context.article.contentVersion,
         termId,
@@ -383,7 +385,7 @@ export class ArticleTermsService {
     articleId: string,
     termId: string,
   ): Promise<void> {
-    const context = await this.articlesRepository.findTermMutationContext(
+    const context = await this.articleTermsRepository.findTermMutationContext(
       articleId,
       termId,
     );
@@ -404,7 +406,7 @@ export class ArticleTermsService {
     }
 
     try {
-      await this.articlesRepository.deleteTermWithMarker({
+      await this.articleTermsRepository.deleteTermWithMarker({
         articleId,
         sentenceId: context.sentence.id,
         termId,

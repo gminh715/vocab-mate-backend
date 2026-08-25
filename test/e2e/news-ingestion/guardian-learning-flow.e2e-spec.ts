@@ -35,12 +35,14 @@ import { ArticleTermsService } from '../../../src/modules/articles/services/arti
 import { ArticlesService } from '../../../src/modules/articles/services/articles.service';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../src/modules/auth/guards/roles.guard';
+import { CategoriesService } from '../../../src/modules/categories/categories.service';
 import { AdminNewsController } from '../../../src/modules/news-ingestion/admin-news.controller';
 import { GuardianClient } from '../../../src/modules/news-ingestion/guardian.client';
 import { NewsContentService } from '../../../src/modules/news-ingestion/news-content.service';
 import type { NewsFetch } from '../../../src/modules/news-ingestion/news-http.tokens';
 import { NewsIngestionService } from '../../../src/modules/news-ingestion/news-ingestion.service';
 import { ReadingController } from '../../../src/modules/reading/controllers/reading.controller';
+import { ContextualTermsService } from '../../../src/modules/reading/contextual-terms.service';
 import { ReadingService } from '../../../src/modules/reading/reading.service';
 import { VocabulariesController } from '../../../src/modules/vocabularies/controllers/vocabularies.controller';
 import { VocabulariesService } from '../../../src/modules/vocabularies/vocabularies.service';
@@ -248,7 +250,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
     );
 
     const articlesService = {
-      requireActiveImportCategory: jest.fn().mockResolvedValue(undefined),
       findImportedDuplicate: jest.fn(
         (identity: {
           importSource?: string;
@@ -285,6 +286,10 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
         },
       ),
       delete: jest.fn().mockResolvedValue(undefined),
+    };
+    const categoriesService = {
+      requireActiveCategory: jest.fn().mockResolvedValue(undefined),
+      resolveOrCreateImportCategory: jest.fn().mockResolvedValue(categoryId),
     };
 
     const articleSentencesService = {
@@ -532,11 +537,13 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
         { provide: NewsContentService, useValue: newsContentService },
         { provide: ArticlesService, useValue: articlesService },
         { provide: ArticleSentencesService, useValue: articleSentencesService },
+        { provide: CategoriesService, useValue: categoriesService },
         NewsIngestionService,
         { provide: ArticleAnalysisService, useValue: analysisService },
         { provide: ArticleTermsService, useValue: termsService },
         { provide: ArticlePublicationService, useValue: publicationService },
         { provide: ReadingService, useValue: readingService },
+        { provide: ContextualTermsService, useValue: readingService },
         { provide: VocabulariesService, useValue: vocabulariesService },
         JwtAuthGuard,
         RolesGuard,

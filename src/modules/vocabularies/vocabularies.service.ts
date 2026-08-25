@@ -9,7 +9,7 @@ import {
   type CefrLevel,
   LearningStatus,
 } from '../../../generated/prisma/enums';
-import { ReadingService } from '../reading/reading.service';
+import { ContextualTermsService } from '../reading/contextual-terms.service';
 import type {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
@@ -31,7 +31,7 @@ const hasPrismaCode = (error: unknown, code: 'P2002' | 'P2003'): boolean =>
 export class VocabulariesService {
   constructor(
     private readonly vocabulariesRepository: VocabulariesRepository,
-    private readonly readingService: ReadingService,
+    private readonly contextualTermsService: ContextualTermsService,
   ) {}
 
   async findAll(userId: string, query: GetVocabulariesQueryDto) {
@@ -126,7 +126,7 @@ export class VocabulariesService {
       );
     }
 
-    const source = await this.readingService.getContextualTermForSave(
+    const source = await this.contextualTermsService.getContextualTermForSave(
       dto.articleSentenceTermId,
     );
     const translation = this.requireSnapshotText(

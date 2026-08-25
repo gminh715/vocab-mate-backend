@@ -28,8 +28,8 @@ import {
   type PersistReviewAgentDecisionInput,
   type ReviewAgentJsonObject,
   type ReviewAgentJsonValue,
-  ReviewsRepository,
-} from '../reviews.repository';
+} from '../repositories/review-sessions.repository';
+import { ReviewAgentRepository } from '../repositories/review-agent.repository';
 
 const RULE_PROMPT_VERSION = 'review-agent-rule-v1';
 const DEFAULT_RETEST_AFTER_ITEMS = 3;
@@ -64,7 +64,7 @@ export class ReviewAgentService {
   constructor(
     @Inject(AI_CONFIG) private readonly config: AiConfig,
     private readonly aiService: AiService,
-    private readonly reviewsRepository: ReviewsRepository,
+    private readonly agentRepository: ReviewAgentRepository,
   ) {}
 
   async planSession(
@@ -149,7 +149,7 @@ export class ReviewAgentService {
       return fallback('CALL_NOT_USEFUL');
     }
     if (
-      !(await this.reviewsRepository.reserveDiagnosisAiCallSlot(
+      !(await this.agentRepository.reserveDiagnosisCall(
         request.userId,
         request.reviewSessionId,
         this.config.reviewMaxCallsPerSession,
@@ -191,7 +191,7 @@ export class ReviewAgentService {
   }
 
   private reserveCall(userId: string, sessionId: string): Promise<boolean> {
-    return this.reviewsRepository.reserveAiCallSlot(
+    return this.agentRepository.reserveCall(
       userId,
       sessionId,
       this.config.reviewMaxCallsPerSession,

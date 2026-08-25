@@ -10,6 +10,8 @@ import { CategoriesService } from '../../../../src/modules/categories/categories
 interface CategoriesRepositoryMock {
   findActive: jest.Mock;
   findActiveBySlug: jest.Mock;
+  findActiveById: jest.Mock;
+  findActiveByName: jest.Mock;
   findAdminCategories: jest.Mock;
   findAdminCategoryDetail: jest.Mock;
   create: jest.Mock;
@@ -27,6 +29,8 @@ describe('CategoriesService', () => {
     repository = {
       findActive: jest.fn(),
       findActiveBySlug: jest.fn(),
+      findActiveById: jest.fn(),
+      findActiveByName: jest.fn(),
       findAdminCategories: jest.fn(),
       findAdminCategoryDetail: jest.fn(),
       create: jest.fn(),
@@ -93,6 +97,91 @@ describe('CategoriesService', () => {
       );
     },
   );
+
+  it('requires an active category for article writes', async () => {
+    repository.findActiveById.mockResolvedValue({
+      id: 'category-id',
+      name: 'Technology',
+      slug: 'technology',
+    });
+
+    await expect(
+      service.requireActiveCategory('category-id'),
+    ).resolves.toBeUndefined();
+    expect(repository.findActiveById).toHaveBeenCalledWith('category-id');
+  });
+
+  it('rejects missing or inactive categories for article writes', async () => {
+    repository.findActiveById.mockResolvedValue(null);
+
+    await expect(service.requireActiveCategory('missing')).rejects.toThrow(
+      new NotFoundException('Active category not found'),
+    );
+  });
+
+  it('resolves an import category by its active slug', async () => {
+    repository.findActiveBySlug.mockResolvedValue({
+      id: 'technology-id',
+      name: 'Technology',
+      slug: 'technology',
+    });
+
+    await expect(
+      service.resolveOrCreateImportCategory(
+        'admin-id',
+        ' technology ',
+        'Technology',
+      ),
+    ).resolves.toBe('technology-id');
+    expect(repository.findActiveBySlug).toHaveBeenCalledWith('technology');
+    expect(repository.findActiveByName).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it('resolves an import category by its active name when its slug differs', async () => {
+    repository.findActiveBySlug.mockResolvedValue(null);
+    repository.findActiveByName.mockResolvedValue({
+      id: 'technology-id',
+      name: 'Technology',
+      slug: 'tech',
+    });
+
+    await expect(
+      service.resolveOrCreateImportCategory(
+        'admin-id',
+        'technology',
+        ' Technology ',
+      ),
+    ).resolves.toBe('technology-id');
+    expect(repository.findActiveByName).toHaveBeenCalledWith('Technology');
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it('creates an active import category with normalized section data', async () => {
+    repository.findActiveBySlug.mockResolvedValue(null);
+    repository.findActiveByName.mockResolvedValue(null);
+    repository.create.mockResolvedValue({
+      id: 'environment-id',
+      name: 'Environment',
+      slug: 'environment',
+    });
+
+    await expect(
+      service.resolveOrCreateImportCategory(
+        'admin-id',
+        'environment',
+        ' Environment ',
+      ),
+    ).resolves.toBe('environment-id');
+    expect(repository.create).toHaveBeenCalledWith({
+      name: 'Environment',
+      slug: 'environment',
+      isActive: true,
+      displayOrder: 0,
+      createdByUserId: 'admin-id',
+      updatedByUserId: 'admin-id',
+    });
+  });
 
   it('normalizes admin search and maps pagination metadata', async () => {
     repository.findAdminCategories.mockResolvedValue({

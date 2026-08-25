@@ -7,6 +7,7 @@ import {
   ImportedArticleDuplicateError,
   type ImportedDraftInput,
 } from '../../../../src/modules/articles/services/articles.service';
+import { CategoriesService } from '../../../../src/modules/categories/categories.service';
 import { GuardianClient } from '../../../../src/modules/news-ingestion/guardian.client';
 import { NewsContentService } from '../../../../src/modules/news-ingestion/news-content.service';
 import { NewsIngestionError } from '../../../../src/modules/news-ingestion/news-ingestion.errors';
@@ -51,9 +52,6 @@ type ContentMock = {
 };
 
 type ArticlesMock = {
-  requireActiveImportCategory: jest.MockedFunction<
-    (id: string) => Promise<void>
-  >;
   findImportedDuplicate: jest.MockedFunction<
     (lookup: ImportedArticleDuplicateLookup) => Promise<{ id: string } | null>
   >;
@@ -65,6 +63,17 @@ type ArticlesMock = {
   >;
   delete: jest.MockedFunction<
     (adminId: string, articleId: string) => Promise<void>
+  >;
+};
+
+type CategoriesMock = {
+  requireActiveCategory: jest.MockedFunction<(id: string) => Promise<void>>;
+  resolveOrCreateImportCategory: jest.MockedFunction<
+    (
+      adminId: string,
+      sectionId?: string | null,
+      sectionName?: string | null,
+    ) => Promise<string>
   >;
 };
 
@@ -84,6 +93,7 @@ describe('NewsIngestionService', () => {
   let content: ContentMock;
   let articles: ArticlesMock;
   let sentences: SentencesMock;
+  let categories: CategoriesMock;
 
   beforeEach(async () => {
     client = {
@@ -92,9 +102,6 @@ describe('NewsIngestionService', () => {
     };
     content = { resolve: jest.fn<NewsContentService['resolve']>() };
     articles = {
-      requireActiveImportCategory: jest
-        .fn<(id: string) => Promise<void>>()
-        .mockResolvedValue(undefined),
       findImportedDuplicate: jest
         .fn<
           (
@@ -112,6 +119,20 @@ describe('NewsIngestionService', () => {
       delete: jest
         .fn<(adminId: string, articleId: string) => Promise<void>>()
         .mockResolvedValue(undefined),
+    };
+    categories = {
+      requireActiveCategory: jest
+        .fn<(id: string) => Promise<void>>()
+        .mockResolvedValue(undefined),
+      resolveOrCreateImportCategory: jest
+        .fn<
+          (
+            adminId: string,
+            sectionId?: string | null,
+            sectionName?: string | null,
+          ) => Promise<string>
+        >()
+        .mockResolvedValue(categoryId),
     };
     sentences = {
       parseContent:
@@ -131,6 +152,7 @@ describe('NewsIngestionService', () => {
         { provide: NewsContentService, useValue: content },
         { provide: ArticlesService, useValue: articles },
         { provide: ArticleSentencesService, useValue: sentences },
+        { provide: CategoriesService, useValue: categories },
       ],
     }).compile();
     service = module.get(NewsIngestionService);
@@ -165,7 +187,7 @@ describe('NewsIngestionService', () => {
         orderBy: 'newest',
       }),
     ).rejects.toThrow(BadRequestException);
-    expect(articles.requireActiveImportCategory).not.toHaveBeenCalled();
+    expect(categories.requireActiveCategory).not.toHaveBeenCalled();
     expect(client.searchForImport).not.toHaveBeenCalled();
   });
 
@@ -210,6 +232,7 @@ describe('NewsIngestionService', () => {
       pageSize: 5,
       orderBy: 'newest',
     });
+    expect(categories.requireActiveCategory).toHaveBeenCalledWith(categoryId);
     const createCall = articles.createImportedDraft.mock.calls.at(0);
     expect(createCall).toBeDefined();
     if (!createCall) throw new Error('Expected an imported draft');

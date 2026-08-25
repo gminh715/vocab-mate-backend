@@ -68,6 +68,41 @@ export class CategoriesService {
     return { category };
   }
 
+  async requireActiveCategory(categoryId: string): Promise<void> {
+    const category = await this.categoriesRepository.findActiveById(categoryId);
+    if (!category) {
+      throw new NotFoundException('Active category not found');
+    }
+  }
+
+  async resolveOrCreateImportCategory(
+    actingAdminId: string,
+    sectionId?: string | null,
+    sectionName?: string | null,
+  ): Promise<string> {
+    const rawSlug = sectionId?.trim() || sectionName?.trim() || 'general';
+    const slug = normalizeCategorySlug(rawSlug);
+
+    const existingBySlug =
+      await this.categoriesRepository.findActiveBySlug(slug);
+    if (existingBySlug) return existingBySlug.id;
+
+    const name = sectionName?.trim() || sectionId?.trim() || 'General';
+    const existingByName =
+      await this.categoriesRepository.findActiveByName(name);
+    if (existingByName) return existingByName.id;
+
+    const created = await this.categoriesRepository.create({
+      name,
+      slug,
+      isActive: true,
+      displayOrder: 0,
+      createdByUserId: actingAdminId,
+      updatedByUserId: actingAdminId,
+    });
+    return created.id;
+  }
+
   async findAllAdmin(
     query: AdminCategoryListQueryDto,
   ): Promise<AdminCategoryListResponse> {

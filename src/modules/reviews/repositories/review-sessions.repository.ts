@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '../../../generated/prisma/client';
+import { Prisma } from '../../../../generated/prisma/client';
 import {
   ArticleStatus,
   type CefrLevel,
@@ -16,33 +16,33 @@ import {
   ReviewSessionStatus,
   ReviewSessionType,
   ReviewSkillDimension,
-} from '../../../generated/prisma/enums';
+} from '../../../../generated/prisma/enums';
 import {
   REVIEW_QUESTION_PROMPT_VERSION,
   type DiagnoseReviewAnswerInput,
   type ReviewRetestAfterItems,
   type ReviewTargetDuration,
-} from '../ai/ai.contracts';
-import { PrismaService } from '../../database/prisma.service';
+} from '../../ai/ai.contracts';
+import { PrismaService } from '../../../database/prisma.service';
 import type {
   GetDueReviewsQueryDto,
   GetReviewHistoryQueryDto,
   SkipReviewSessionItemDto,
   StartReviewSessionDto,
   SubmitReviewAnswerDto,
-} from './dto/review-request.dto';
+} from '../dto/review-request.dto';
 import {
   AnswerGradingService,
   InvalidAnswerRelationshipError,
   InvalidAnswerShapeError,
   type GradingQuestion,
-} from './services/answer-grading.service';
-import { InvisibleReviewScoringService } from './services/invisible-review-scoring.service';
+} from '../services/answer-grading.service';
+import { InvisibleReviewScoringService } from '../services/invisible-review-scoring.service';
 import {
   QuestionSelectionService,
   RECENT_ACCURACY_WINDOW,
   type RecentQuestionAttempt,
-} from './services/question-selection.service';
+} from '../services/question-selection.service';
 
 export class ReviewResourceNotFoundError extends Error {}
 export class ReviewSessionStateConflictError extends Error {}
@@ -468,7 +468,15 @@ interface RawReviewTimingStats {
 }
 
 @Injectable()
-export class ReviewsRepository {
+/**
+ * Persistence boundary for review-session state, session items, history, and
+ * the serializable transactions that protect those records.
+ *
+ * Domain rules are deliberately supplied by the application layer. This keeps
+ * this class free of Nest-injected domain services while retaining the current
+ * transaction scopes during the incremental repository split.
+ */
+export class ReviewSessionsRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly answerGradingService: AnswerGradingService,

@@ -23,8 +23,9 @@ import {
   type AiQuestionGenerationCandidate,
   type PreparedAiReviewQuestion,
   NoUsableReviewQuestionError,
-  ReviewsRepository,
-} from '../reviews.repository';
+} from '../repositories/review-sessions.repository';
+import { ReviewQuestionsRepository } from '../repositories/review-questions.repository';
+import { ReviewAgentRepository } from '../repositories/review-agent.repository';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
 
 class ReviewAiCallBudgetExhaustedError extends Error {}
@@ -53,7 +54,8 @@ export class AiAssistedQuestionGeneratorService {
   constructor(
     @Inject(AI_CONFIG) private readonly config: AiConfig,
     private readonly aiService: AiService,
-    private readonly reviewsRepository: ReviewsRepository,
+    private readonly questionsRepository: ReviewQuestionsRepository,
+    private readonly agentRepository: ReviewAgentRepository,
   ) {}
 
   async warmCache(
@@ -65,7 +67,7 @@ export class AiAssistedQuestionGeneratorService {
       undefined,
   ): Promise<PreparedAiReviewQuestion[]> {
     const candidates =
-      await this.reviewsRepository.getAiQuestionGenerationCandidates(
+      await this.questionsRepository.getGenerationCandidates(
         userId,
         dto,
         now,
@@ -97,7 +99,7 @@ export class AiAssistedQuestionGeneratorService {
       try {
         const latestCached = await Promise.all(
           batch.map(({ candidate }) =>
-            this.reviewsRepository.findCachedAiQuestion(
+            this.questionsRepository.findCached(
               candidate.vocabulary.articleSentenceTermId,
               candidate.vocabulary.savedCefrLevel,
               candidate.questionType,
@@ -141,7 +143,7 @@ export class AiAssistedQuestionGeneratorService {
           );
           const fallbacks = await Promise.all(
             unresolved.map(({ candidate }) =>
-              this.reviewsRepository.findPreferredCachedAiQuestion(
+              this.questionsRepository.findPreferredCached(
                 candidate.vocabulary.id,
                 candidate.vocabulary.articleSentenceTermId,
                 candidate.vocabulary.savedCefrLevel,
@@ -221,7 +223,7 @@ export class AiAssistedQuestionGeneratorService {
     };
     try {
       const question = await this.ensureCached(candidate, questionType, () =>
-        this.reviewsRepository.reserveAiCallSlot(
+        this.agentRepository.reserveCall(
           userId,
           reviewSessionId,
           this.config.reviewMaxCallsPerSession,
@@ -240,7 +242,7 @@ export class AiAssistedQuestionGeneratorService {
           ? `AI retest question unavailable; keeping deterministic transition (${error.code})`
           : 'AI retest question budget exhausted; keeping deterministic transition',
       );
-      return this.reviewsRepository.findPreferredCachedAiQuestion(
+      return this.questionsRepository.findPreferredCached(
         vocabulary.id,
         vocabulary.articleSentenceTermId,
         vocabulary.savedCefrLevel,
@@ -258,7 +260,7 @@ export class AiAssistedQuestionGeneratorService {
     const pending = this.inFlight.get(key);
     if (pending) return pending;
 
-    const cached = await this.reviewsRepository.findCachedAiQuestion(
+    const cached = await this.questionsRepository.findCached(
       candidate.vocabulary.articleSentenceTermId,
       candidate.vocabulary.savedCefrLevel,
       questionType,
@@ -287,7 +289,7 @@ export class AiAssistedQuestionGeneratorService {
       this.promptStyleForSeed(this.cacheKey(candidate, questionType)),
     );
     const generated = await this.aiService.generateReviewQuestion(input);
-    return this.reviewsRepository.cacheAiQuestion(
+    return this.questionsRepository.cache(
       this.toQuestionSpec(candidate, questionType, generated),
     );
   }
@@ -309,7 +311,7 @@ export class AiAssistedQuestionGeneratorService {
         if (!entry) {
           throw new Error('AI review question batch order is invalid');
         }
-        return this.reviewsRepository.cacheAiQuestion(
+        return this.questionsRepository.cache(
           this.toQuestionSpec(
             entry.candidate,
             entry.candidate.questionType,

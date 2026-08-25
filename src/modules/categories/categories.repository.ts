@@ -120,6 +120,16 @@ export class CategoriesRepository {
     });
   }
 
+  findActiveByName(name: string): Promise<PublicCategoryRecord | null> {
+    return this.prisma.category.findFirst({
+      where: {
+        name: { equals: name, mode: 'insensitive' },
+        isActive: true,
+      },
+      select: publicCategorySelect,
+    });
+  }
+
   async findAdminCategories(
     query: AdminCategoryListQuery,
   ): Promise<AdminCategoryListResult> {

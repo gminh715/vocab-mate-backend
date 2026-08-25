@@ -13,12 +13,13 @@ import {
 } from '../dto/article-sentence.dto';
 import { HtmlSanitizerHelper } from '../helpers/html-sanitizer.helper';
 import { SentenceParserHelper } from '../helpers/sentence-parser.helper';
+import { ArticlesRepository } from '../repositories/articles.repository';
 import {
   ArticleParseStateConflictError,
   type ArticleSentenceDetailRecord,
   type ArticleSentenceRecord,
-  ArticlesRepository,
-} from '../repositories/articles.repository';
+  ArticleSentencesRepository,
+} from '../repositories/article-sentences.repository';
 
 const hasPrismaCode = (error: unknown, code: string): boolean =>
   typeof error === 'object' &&
@@ -28,7 +29,10 @@ const hasPrismaCode = (error: unknown, code: string): boolean =>
 
 @Injectable()
 export class ArticleSentencesService {
-  constructor(private readonly articlesRepository: ArticlesRepository) {}
+  constructor(
+    private readonly articlesRepository: ArticlesRepository,
+    private readonly articleSentencesRepository: ArticleSentencesRepository,
+  ) {}
 
   async parseContent(
     actingAdminId: string,
@@ -45,10 +49,11 @@ export class ArticleSentencesService {
       throw new ConflictException('Archived articles cannot be parsed');
     }
 
-    const existingSentenceCount = await this.articlesRepository.countSentences(
-      articleId,
-      state.contentVersion,
-    );
+    const existingSentenceCount =
+      await this.articleSentencesRepository.countSentences(
+        articleId,
+        state.contentVersion,
+      );
     if (existingSentenceCount > 0 && dto.force !== true) {
       throw new ConflictException(
         'The current article content version has already been parsed',
@@ -67,7 +72,7 @@ export class ArticleSentencesService {
     }
 
     try {
-      await this.articlesRepository.replaceParsedContent({
+      await this.articleSentencesRepository.replaceParsedContent({
         articleId,
         contentVersion: state.contentVersion,
         sourceContentHtml: state.contentHtml,
@@ -98,7 +103,7 @@ export class ArticleSentencesService {
   }
 
   async findAll(articleId: string, query: ArticleSentenceListQueryDto) {
-    const result = await this.articlesRepository.findSentences(
+    const result = await this.articleSentencesRepository.findSentences(
       articleId,
       query,
     );
@@ -119,7 +124,7 @@ export class ArticleSentencesService {
     articleId: string,
     sentenceId: string,
   ): Promise<ArticleSentenceDetailRecord> {
-    const detail = await this.articlesRepository.findSentenceDetail(
+    const detail = await this.articleSentencesRepository.findSentenceDetail(
       articleId,
       sentenceId,
     );
@@ -136,7 +141,7 @@ export class ArticleSentencesService {
     if (Object.values(dto).every((value) => value === undefined)) {
       throw new BadRequestException('At least one sentence field is required');
     }
-    const sentence = await this.articlesRepository.updateSentence(
+    const sentence = await this.articleSentencesRepository.updateSentence(
       articleId,
       sentenceId,
       {

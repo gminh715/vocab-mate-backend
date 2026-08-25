@@ -26,7 +26,6 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { ApiErrorResponseDto } from '../../auth/dto/auth-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { AnalyticsService } from '../analytics.service';
 import {
   AnalyticsDateRangeQueryDto,
   QuizAnalyticsQueryDto,
@@ -39,6 +38,8 @@ import {
   ReviewAnalyticsSuccessResponseDto,
   VocabularyAnalyticsSuccessResponseDto,
 } from '../dto/analytics-response.dto';
+import { LearnerAnalyticsService } from '../services/learner-analytics.service';
+import { ReviewAnalyticsService } from '../services/review-analytics.service';
 
 @ApiTags('Analytics')
 @Controller('analytics')
@@ -48,7 +49,10 @@ import {
 @Roles(UserRole.USER, UserRole.ADMIN)
 @ApiBearerAuth('BearerAuth')
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(
+    private readonly learnerAnalyticsService: LearnerAnalyticsService,
+    private readonly reviewAnalyticsService: ReviewAnalyticsService,
+  ) {}
 
   @Get('me/overview')
   @Version('1')
@@ -70,7 +74,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: AnalyticsDateRangeQueryDto,
   ) {
-    return this.analyticsService.getOverview(user.id, query);
+    return this.learnerAnalyticsService.getOverview(user.id, query);
   }
 
   @Get('me/vocabulary')
@@ -89,7 +93,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: VocabularyAnalyticsQueryDto,
   ) {
-    return this.analyticsService.getVocabularyAnalytics(user.id, query);
+    return this.learnerAnalyticsService.getVocabularyAnalytics(user.id, query);
   }
 
   @Get('me/reading')
@@ -108,7 +112,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: AnalyticsDateRangeQueryDto,
   ) {
-    return this.analyticsService.getReadingAnalytics(user.id, query);
+    return this.learnerAnalyticsService.getReadingAnalytics(user.id, query);
   }
 
   @Get('me/quizzes')
@@ -127,7 +131,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QuizAnalyticsQueryDto,
   ) {
-    return this.analyticsService.getQuizAnalytics(user.id, query);
+    return this.learnerAnalyticsService.getQuizAnalytics(user.id, query);
   }
 
   @Get('me/reviews')
@@ -146,6 +150,6 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: AnalyticsDateRangeQueryDto,
   ) {
-    return this.analyticsService.getReviewAnalytics(user.id, query);
+    return this.reviewAnalyticsService.getReviewAnalytics(user.id, query);
   }
 }

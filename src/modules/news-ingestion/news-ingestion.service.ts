@@ -12,6 +12,7 @@ import {
   ArticlesService,
   ImportedArticleDuplicateError,
 } from '../articles/services/articles.service';
+import { CategoriesService } from '../categories/categories.service';
 import type {
   AdminNewsSearchQueryDto,
   AdminNewsSyncDto,
@@ -100,6 +101,7 @@ export class NewsIngestionService {
     private readonly newsContentService: NewsContentService,
     private readonly articlesService: ArticlesService,
     private readonly articleSentencesService: ArticleSentencesService,
+    private readonly categoriesService: CategoriesService,
   ) {}
 
   async search(query: AdminNewsSearchQueryDto): Promise<GuardianSearchResult> {
@@ -123,9 +125,7 @@ export class NewsIngestionService {
     }
 
     if (dto.defaultCategoryId) {
-      await this.articlesService.requireActiveImportCategory(
-        dto.defaultCategoryId,
-      );
+      await this.categoriesService.requireActiveCategory(dto.defaultCategoryId);
     }
 
     let discovered: GuardianImportResult;
@@ -205,7 +205,7 @@ export class NewsIngestionService {
 
       const categoryId =
         defaultCategoryId ??
-        (await this.articlesService.resolveCategoryForSection(
+        (await this.categoriesService.resolveOrCreateImportCategory(
           actingAdminId,
           article.sectionId,
           article.sectionName,

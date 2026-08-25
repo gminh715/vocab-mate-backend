@@ -22,6 +22,9 @@ import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import {
   type ContextualTermLookupRecord,
+  ContextualTermsRepository,
+} from '../../../src/modules/reading/contextual-terms.repository';
+import {
   type ReadingHistoryRecord,
   type ReaderArticleRecord,
   type ReaderProgressRecord,
@@ -378,6 +381,8 @@ describe('Reading APIs (e2e)', () => {
       .overrideProvider(PrismaService)
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(ReadingRepository)
+      .useValue(repository)
+      .overrideProvider(ContextualTermsRepository)
       .useValue(repository)
       .overrideGuard(JwtAuthGuard)
       .useClass(TestReadingAuthGuard)

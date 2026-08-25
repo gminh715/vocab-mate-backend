@@ -3,9 +3,9 @@ import {
   ArticleStatus,
 } from '../../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../../src/database/prisma.service';
-import { ArticlesRepository } from '../../../../../src/modules/articles/repositories/articles.repository';
+import { ArticleSentencesRepository } from '../../../../../src/modules/articles/repositories/article-sentences.repository';
 
-describe('ArticlesRepository sentence queries', () => {
+describe('ArticleSentencesRepository', () => {
   const article = {
     findUnique: jest.fn<Promise<unknown>, [unknown]>(),
     updateMany: jest.fn<Promise<{ count: number }>, [unknown]>(),
@@ -27,7 +27,9 @@ describe('ArticlesRepository sentence queries', () => {
         callback(transactionClient),
     ),
   };
-  const repository = new ArticlesRepository(prisma as unknown as PrismaService);
+  const repository = new ArticleSentencesRepository(
+    prisma as unknown as PrismaService,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();

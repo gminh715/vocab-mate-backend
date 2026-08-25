@@ -19,9 +19,11 @@ import {
   InvalidReviewSourceShapeError,
   NoUsableReviewQuestionError,
   ReviewAgentDecisionConflictError,
-  ReviewsRepository,
-} from '../../../../../src/modules/reviews/reviews.repository';
+  ReviewSessionsRepository,
+} from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
 import { ReviewsService } from '../../../../../src/modules/reviews/services/reviews.service';
+import { ReviewAgentRepository } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
+import { ReviewAnswerTransactionService } from '../../../../../src/modules/reviews/services/review-answer-transaction.service';
 import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
 import {
   ReviewAgentService,
@@ -170,7 +172,21 @@ describe('ReviewsService', () => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewsService,
-        { provide: ReviewsRepository, useValue: repository },
+        { provide: ReviewSessionsRepository, useValue: repository },
+        {
+          provide: ReviewAgentRepository,
+          useValue: {
+            persist: (...args: unknown[]) => repository.persistAgentDecision(...args),
+            applyAnswerDecision: (...args: unknown[]) => repository.applyAnswerAgentDecision(...args),
+          },
+        },
+        {
+          provide: ReviewAnswerTransactionService,
+          useValue: {
+            submit: (...args: unknown[]) => repository.submitAnswer(...args),
+            skip: (...args: unknown[]) => repository.skipItem(...args),
+          },
+        },
         {
           provide: AiAssistedQuestionGeneratorService,
           useValue: aiQuestionGenerator,

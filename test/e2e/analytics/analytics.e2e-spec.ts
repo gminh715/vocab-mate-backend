@@ -11,7 +11,9 @@ import { App } from 'supertest/types';
 import { AppModule } from '../../../src/app.module';
 import { configureApp, setupSwagger } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
-import { AnalyticsService } from '../../../src/modules/analytics/analytics.service';
+import { AdminAnalyticsService } from '../../../src/modules/analytics/services/admin-analytics.service';
+import { LearnerAnalyticsService } from '../../../src/modules/analytics/services/learner-analytics.service';
+import { ReviewAnalyticsService } from '../../../src/modules/analytics/services/review-analytics.service';
 import {
   AdminContentAnalyticsQueryDto,
   AdminUserAnalyticsQueryDto,
@@ -281,7 +283,11 @@ describe('Analytics APIs (e2e)', () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
-      .overrideProvider(AnalyticsService)
+      .overrideProvider(LearnerAnalyticsService)
+      .useValue(analytics)
+      .overrideProvider(ReviewAnalyticsService)
+      .useValue(analytics)
+      .overrideProvider(AdminAnalyticsService)
       .useValue(analytics)
       .overrideGuard(JwtAuthGuard)
       .useClass(AnalyticsAuthGuard)
