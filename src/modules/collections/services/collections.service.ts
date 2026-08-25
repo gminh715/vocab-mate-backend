@@ -70,9 +70,6 @@ export class CollectionsService {
     try {
       const collection = await this.collectionsRepository.create(userId, {
         name: dto.name.trim(),
-        ...(dto.description === undefined
-          ? {}
-          : { description: dto.description.trim() }),
       });
 
       return { collection };
@@ -82,7 +79,7 @@ export class CollectionsService {
   }
 
   async update(userId: string, collectionId: string, dto: UpdateCollectionDto) {
-    if (dto.name === undefined && dto.description === undefined) {
+    if (dto.name === undefined) {
       throw new BadRequestException(
         'At least one collection field is required',
       );
@@ -94,12 +91,6 @@ export class CollectionsService {
         collectionId,
         {
           ...(dto.name === undefined ? {} : { name: dto.name.trim() }),
-          ...(dto.description === undefined
-            ? {}
-            : {
-                description:
-                  dto.description === null ? null : dto.description.trim(),
-              }),
         },
       );
       if (!collection) {

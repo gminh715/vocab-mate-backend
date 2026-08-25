@@ -21,7 +21,6 @@ export interface VocabularyListQuery {
 
 export interface CreateVocabularySnapshotInput {
   articleSentenceTermId: string;
-  personalNote?: string;
   learningStatus: LearningStatusType;
   savedWordDisplay: string;
   savedLemma: string;
@@ -48,7 +47,6 @@ export class InvalidVocabularyCollectionsError extends Error {
 const collectionSelect = {
   id: true,
   name: true,
-  description: true,
 } as const;
 
 const collectionItemsOrderBy: Prisma.VocabularyCollectionItemOrderByWithRelationInput[] =
@@ -76,7 +74,6 @@ export const vocabularySnapshotListSelect = {
   id: true,
   articleSentenceTermId: true,
   learningStatus: true,
-  personalNote: true,
   savedWordDisplay: true,
   savedLemma: true,
   savedPartOfSpeech: true,
@@ -147,12 +144,6 @@ export class VocabulariesRepository {
           },
           {
             savedMeaningVi: {
-              contains: query.q,
-              mode: 'insensitive',
-            },
-          },
-          {
-            personalNote: {
               contains: query.q,
               mode: 'insensitive',
             },
@@ -249,13 +240,6 @@ export class VocabulariesRepository {
         },
         select: vocabularyDetailSelect(userId),
       });
-    });
-  }
-
-  updatePersonalNote(userId: string, id: string, note: string | null) {
-    return this.prisma.userVocabulary.updateMany({
-      where: { id, userId },
-      data: { personalNote: note },
     });
   }
 

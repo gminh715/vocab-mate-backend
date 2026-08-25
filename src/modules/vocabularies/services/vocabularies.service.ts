@@ -14,7 +14,6 @@ import type {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
   UpdateLearningStatusDto,
-  UpdatePersonalNoteDto,
 } from '../dto/vocabulary-request.dto';
 import {
   InvalidVocabularyCollectionsError,
@@ -80,21 +79,6 @@ export class VocabulariesService {
     };
   }
 
-  async updateNote(
-    userId: string,
-    userVocabularyId: string,
-    dto: UpdatePersonalNoteDto,
-  ) {
-    await this.findOne(userId, userVocabularyId);
-    const note = dto.personalNote ? dto.personalNote.trim() : null;
-    await this.vocabulariesRepository.updatePersonalNote(
-      userId,
-      userVocabularyId,
-      note || null,
-    );
-    return this.findOne(userId, userVocabularyId);
-  }
-
   async updateStatus(
     userId: string,
     userVocabularyId: string,
@@ -146,9 +130,6 @@ export class VocabulariesService {
         userId,
         {
           articleSentenceTermId: dto.articleSentenceTermId,
-          ...(dto.personalNote === undefined
-            ? {}
-            : { personalNote: dto.personalNote.trim() }),
           learningStatus: LearningStatus.NEW,
           savedWordDisplay: this.requireSnapshotText(
             'wordDisplay',
@@ -204,7 +185,6 @@ export class VocabulariesService {
         collection: {
           id: string;
           name: string;
-          description: string | null;
         };
       }>;
     },
@@ -223,7 +203,6 @@ export class VocabulariesService {
         collection: {
           id: string;
           name: string;
-          description: string | null;
         };
       }>;
       articleSentenceTerm: unknown;
@@ -247,7 +226,6 @@ export class VocabulariesService {
       collection: {
         id: string;
         name: string;
-        description: string | null;
       };
     }>,
   ) {

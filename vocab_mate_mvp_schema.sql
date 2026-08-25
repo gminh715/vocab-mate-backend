@@ -179,7 +179,6 @@ CREATE TABLE "vocabulary_collections" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "user_id" UUID NOT NULL,
     "name" TEXT NOT NULL,
-    "description" TEXT,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -378,7 +377,6 @@ CREATE TABLE "user_vocabularies" (
     "user_id" UUID NOT NULL,
     "article_sentence_term_id" UUID NOT NULL,
     "learning_status" "learning_status" NOT NULL DEFAULT 'NEW',
-    "personal_note" TEXT,
     "saved_word_display" TEXT NOT NULL,
     "saved_lemma" TEXT NOT NULL,
     "saved_part_of_speech" TEXT NOT NULL,

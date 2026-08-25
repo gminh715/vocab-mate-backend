@@ -3,7 +3,6 @@ model UserVocabulary {
   userId                    String         @map("user_id") @db.Uuid
   articleSentenceTermId     String         @map("article_sentence_term_id") @db.Uuid
   learningStatus            LearningStatus @default(NEW) @map("learning_status")
-  personalNote              String?        @map("personal_note") @db.Text
   savedWordDisplay          String         @map("saved_word_display") @db.Text
   savedLemma                String         @map("saved_lemma") @db.Text
   savedPartOfSpeech         String         @map("saved_part_of_speech") @db.Text

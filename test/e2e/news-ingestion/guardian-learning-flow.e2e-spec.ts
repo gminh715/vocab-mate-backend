@@ -475,7 +475,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
           _userId: string,
           dto: {
             articleSentenceTermId: string;
-            personalNote?: string;
             collectionIds: string[];
           },
         ) => {
@@ -491,7 +490,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
             id: vocabularyId,
             articleSentenceTermId: term.id,
             learningStatus: LearningStatus.NEW,
-            personalNote: dto.personalNote ?? null,
             savedWordDisplay: term.wordDisplay,
             savedLemma: term.lemma,
             savedPartOfSpeech: term.partOfSpeech,
@@ -513,7 +511,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
               {
                 id: collectionId,
                 name: 'Guardian learning',
-                description: null,
                 addedAt: new Date('2026-07-31T00:02:00Z'),
               },
             ],

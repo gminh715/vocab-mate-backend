@@ -124,7 +124,6 @@ describe('VocabulariesRepository', () => {
             { savedWordDisplay: { contains: 'harm', mode: 'insensitive' } },
             { savedLemma: { contains: 'harm', mode: 'insensitive' } },
             { savedMeaningVi: { contains: 'harm', mode: 'insensitive' } },
-            { personalNote: { contains: 'harm', mode: 'insensitive' } },
           ],
         },
         { learningStatus: LearningStatus.LEARNING },

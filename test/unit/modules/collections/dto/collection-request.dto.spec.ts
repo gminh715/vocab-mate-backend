@@ -33,13 +33,11 @@ describe('Collection request DTOs', () => {
     await expect(validate(query)).resolves.not.toHaveLength(0);
   });
 
-  it('preserves null as an explicit description clearing value', async () => {
-    const update = plainToInstance(UpdateCollectionDto, {
-      description: null,
-    });
+  it('allows an empty partial update DTO for service-level validation', async () => {
+    const update = plainToInstance(UpdateCollectionDto, {});
 
     await expect(validate(update)).resolves.toHaveLength(0);
-    expect(update.description).toBeNull();
+    expect(update.name).toBeUndefined();
   });
 
   it('validates required item pagination and applies the allowlisted default sort', async () => {

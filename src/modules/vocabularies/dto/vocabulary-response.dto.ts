@@ -9,9 +9,6 @@ export class VocabularyCollectionSummaryDto {
   @ApiProperty({ example: 'Difficult Words' })
   name!: string;
 
-  @ApiProperty({ nullable: true })
-  description!: string | null;
-
   @ApiProperty({ format: 'date-time' })
   addedAt!: Date;
 }
@@ -25,9 +22,6 @@ export class VocabularySnapshotDto {
 
   @ApiProperty({ enum: LearningStatus })
   learningStatus!: LearningStatus;
-
-  @ApiProperty({ nullable: true })
-  personalNote!: string | null;
 
   @ApiProperty({ example: 'harmful' })
   savedWordDisplay!: string;

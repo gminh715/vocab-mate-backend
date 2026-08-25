@@ -815,7 +815,6 @@ describe('ReviewSessionsRepository', () => {
         },
       ],
     });
-    expect(snapshot.eligibleVocabulary[0]).not.toHaveProperty('personalNote');
     expect(snapshot.eligibleVocabulary[0].recentAttempts[0]).not.toHaveProperty(
       'userAnswerText',
     );

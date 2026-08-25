@@ -38,7 +38,6 @@ import {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
   UpdateLearningStatusDto,
-  UpdatePersonalNoteDto,
   VocabularyParamsDto,
 } from '../dto/vocabulary-request.dto';
 import {
@@ -136,29 +135,6 @@ export class VocabulariesController {
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   save(@CurrentUser() user: AuthenticatedUser, @Body() dto: SaveVocabularyDto) {
     return this.vocabulariesService.save(user.id, dto);
-  }
-
-  @Patch(':userVocabularyId')
-  @Version('1')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    operationId: 'patchVocabularyNote',
-    summary: 'Update personal note of a saved vocabulary',
-  })
-  @ApiOkResponse({ type: VocabularyDetailSuccessResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
-  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
-  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
-  updateNote(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param() params: VocabularyParamsDto,
-    @Body() dto: UpdatePersonalNoteDto,
-  ) {
-    return this.vocabulariesService.updateNote(
-      user.id,
-      params.userVocabularyId,
-      dto,
-    );
   }
 
   @Patch(':userVocabularyId/status')

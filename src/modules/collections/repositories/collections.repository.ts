@@ -13,19 +13,16 @@ export interface CollectionListQuery {
 export interface CollectionRecord {
   id: string;
   name: string;
-  description: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface CreateCollectionInput {
   name: string;
-  description?: string;
 }
 
 export interface UpdateCollectionInput {
   name?: string;
-  description?: string | null;
 }
 
 export interface CollectionItemsQuery {
@@ -53,7 +50,6 @@ export class CollectionVocabulariesNotAccessibleError extends Error {
 const collectionSelect = {
   id: true,
   name: true,
-  description: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -62,7 +58,6 @@ const collectionVocabularySnapshotSelect = {
   id: true,
   articleSentenceTermId: true,
   learningStatus: true,
-  personalNote: true,
   savedWordDisplay: true,
   savedLemma: true,
   savedPartOfSpeech: true,
@@ -201,12 +196,6 @@ export class CollectionsRepository {
           },
           {
             savedMeaningVi: {
-              contains: query.q,
-              mode: 'insensitive',
-            },
-          },
-          {
-            personalNote: {
               contains: query.q,
               mode: 'insensitive',
             },

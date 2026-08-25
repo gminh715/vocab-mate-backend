@@ -112,7 +112,6 @@ describe('CollectionsRepository', () => {
       select: {
         id: true,
         name: true,
-        description: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { items: true } },
@@ -148,7 +147,6 @@ describe('CollectionsRepository', () => {
       select: {
         id: true,
         name: true,
-        description: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -248,12 +246,6 @@ describe('CollectionsRepository', () => {
                   },
                   {
                     savedMeaningVi: {
-                      contains: 'harm',
-                      mode: 'insensitive',
-                    },
-                  },
-                  {
-                    personalNote: {
                       contains: 'harm',
                       mode: 'insensitive',
                     },

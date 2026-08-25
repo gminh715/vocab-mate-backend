@@ -12,12 +12,6 @@ export class CollectionDto {
   @ApiProperty({ example: 'Technology' })
   name!: string;
 
-  @ApiProperty({
-    example: 'Words about software and computing.',
-    nullable: true,
-  })
-  description!: string | null;
-
   @ApiProperty({ format: 'date-time', example: '2026-07-23T10:00:00Z' })
   createdAt!: Date;
 

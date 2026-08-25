@@ -224,8 +224,6 @@ export class CollectionsController {
   @ApiOperation({
     operationId: 'patchCollectionById',
     summary: 'Partially update an owner-scoped collection',
-    description:
-      'Omitted fields are preserved. Set description to null to clear it.',
   })
   @ApiOkResponse({ type: CollectionMutationSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

@@ -29,7 +29,6 @@ interface CollectionsRepositoryMock {
 const collection = {
   id: '11111111-1111-4111-8111-111111111111',
   name: 'Technology',
-  description: null,
   createdAt: new Date('2026-07-23T01:00:00Z'),
   updatedAt: new Date('2026-07-23T01:00:00Z'),
 };
@@ -111,12 +110,10 @@ describe('CollectionsService', () => {
     await expect(
       service.create('owner-id', {
         name: '  Technology  ',
-        description: '  Software words  ',
       }),
     ).resolves.toEqual({ collection });
     expect(repository.create).toHaveBeenCalledWith('owner-id', {
       name: 'Technology',
-      description: 'Software words',
     });
 
     repository.create.mockRejectedValueOnce({ code: 'P2002' });
@@ -125,7 +122,7 @@ describe('CollectionsService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('performs a real partial update and supports explicit description clearing', async () => {
+  it('performs a partial name update', async () => {
     repository.updateOwned.mockResolvedValue(collection);
 
     await service.update('owner-id', collection.id, {
@@ -135,13 +132,6 @@ describe('CollectionsService', () => {
       'owner-id',
       collection.id,
       { name: 'Updated' },
-    );
-
-    await service.update('owner-id', collection.id, { description: null });
-    expect(repository.updateOwned).toHaveBeenLastCalledWith(
-      'owner-id',
-      collection.id,
-      { description: null },
     );
   });
 

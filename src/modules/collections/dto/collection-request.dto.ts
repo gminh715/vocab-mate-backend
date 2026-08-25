@@ -19,14 +19,10 @@ import { LearningStatus } from '../../../../generated/prisma/enums';
 const MAX_PAGE_SIZE = 100;
 const MAX_SEARCH_LENGTH = 320;
 const MAX_NAME_LENGTH = 100;
-const MAX_DESCRIPTION_LENGTH = 500;
 export const MAX_COLLECTION_ITEM_BATCH_SIZE = 50;
 
 const isSupplied = (_object: object, value: unknown): boolean =>
   value !== undefined;
-
-const isNonNullSupplied = (_object: object, value: unknown): boolean =>
-  value !== undefined && value !== null;
 
 const trimString = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -160,16 +156,6 @@ export class CreateCollectionDto {
   @MinLength(1)
   @MaxLength(MAX_NAME_LENGTH)
   name!: string;
-
-  @ApiPropertyOptional({
-    example: 'Words about software and computing.',
-    maxLength: MAX_DESCRIPTION_LENGTH,
-  })
-  @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MaxLength(MAX_DESCRIPTION_LENGTH)
-  description?: string;
 }
 
 export class UpdateCollectionDto {
@@ -180,16 +166,4 @@ export class UpdateCollectionDto {
   @MinLength(1)
   @MaxLength(MAX_NAME_LENGTH)
   name?: string;
-
-  @ApiPropertyOptional({
-    example: 'Updated description.',
-    nullable: true,
-    maxLength: MAX_DESCRIPTION_LENGTH,
-    description: 'Set to null to clear the description.',
-  })
-  @ValidateIf(isNonNullSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MaxLength(MAX_DESCRIPTION_LENGTH)
-  description?: string | null;
 }

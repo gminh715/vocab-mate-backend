@@ -19,7 +19,6 @@ import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_SEARCH_LENGTH = 320;
-const MAX_PERSONAL_NOTE_LENGTH = 2_000;
 const MAX_COLLECTION_IDS = 50;
 
 const trimString = ({ value }: { value: unknown }): unknown =>
@@ -61,7 +60,7 @@ export class GetVocabulariesQueryDto {
     example: 'harmful',
     maxLength: MAX_SEARCH_LENGTH,
     description:
-      'Searches saved word, lemma, contextual meaning, and personal note snapshots.',
+      'Searches saved word, lemma, and contextual meaning snapshots.',
   })
   @IsOptional()
   @Transform(trimString)
@@ -119,17 +118,6 @@ export class SaveVocabularyDto {
   @IsUUID()
   articleSentenceTermId!: string;
 
-  @ApiPropertyOptional({
-    example: 'Remember the negative connotation.',
-    maxLength: MAX_PERSONAL_NOTE_LENGTH,
-  })
-  @IsOptional()
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_PERSONAL_NOTE_LENGTH)
-  personalNote?: string;
-
   @ApiProperty({
     type: [String],
     items: { type: 'string', format: 'uuid' },
@@ -146,19 +134,6 @@ export class SaveVocabularyDto {
   @ArrayMaxSize(MAX_COLLECTION_IDS)
   @IsUUID(undefined, { each: true })
   collectionIds!: string[];
-}
-
-export class UpdatePersonalNoteDto {
-  @ApiPropertyOptional({
-    example: 'Remember the negative connotation.',
-    nullable: true,
-    maxLength: MAX_PERSONAL_NOTE_LENGTH,
-  })
-  @IsOptional()
-  @Transform(trimString)
-  @IsString()
-  @MaxLength(MAX_PERSONAL_NOTE_LENGTH)
-  personalNote?: string | null;
 }
 
 export class UpdateLearningStatusDto {

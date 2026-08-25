@@ -80,7 +80,6 @@ interface StoredVocabulary {
   userId: string;
   articleSentenceTermId: string;
   learningStatus: LearningStatus;
-  personalNote: string | null;
   savedWordDisplay: string;
   savedLemma: string;
   savedPartOfSpeech: string;
@@ -100,7 +99,6 @@ interface StoredVocabulary {
     collection: {
       id: string;
       name: string;
-      description: string | null;
     };
   }>;
   articleSentenceTerm: {
@@ -142,13 +140,9 @@ class InMemoryVocabulariesRepository {
       .filter(
         (row) =>
           !query.q ||
-          [
-            row.savedWordDisplay,
-            row.savedLemma,
-            row.savedMeaningVi,
-            row.personalNote ?? '',
-          ].some((value) =>
-            value.toLocaleLowerCase().includes(query.q!.toLocaleLowerCase()),
+          [row.savedWordDisplay, row.savedLemma, row.savedMeaningVi].some(
+            (value) =>
+              value.toLocaleLowerCase().includes(query.q!.toLocaleLowerCase()),
           ),
       )
       .filter(
@@ -248,7 +242,6 @@ class InMemoryVocabulariesRepository {
       userId: options.userId,
       articleSentenceTermId: options.articleSentenceTermId,
       learningStatus: input?.learningStatus ?? LearningStatus.NEW,
-      personalNote: input?.personalNote ?? null,
       savedWordDisplay: input?.savedWordDisplay ?? 'harmful',
       savedLemma: input?.savedLemma ?? 'harmful',
       savedPartOfSpeech: input?.savedPartOfSpeech ?? 'adjective',
@@ -273,7 +266,6 @@ class InMemoryVocabulariesRepository {
             id === OWNED_COLLECTION_ID
               ? 'Difficult Words'
               : 'Other User Collection',
-          description: null,
         },
       })),
       articleSentenceTerm: {
@@ -470,7 +462,6 @@ describe('Vocabulary APIs (e2e)', () => {
   it('saves atomically as NEW and maps a duplicate to conflict', async () => {
     const requestBody = {
       articleSentenceTermId: SAVE_TERM_ID,
-      personalNote: '  Remember this  ',
       collectionIds: [OWNED_COLLECTION_ID, OWNED_COLLECTION_ID],
     };
     const first = await request(app.getHttpServer())
@@ -482,7 +473,6 @@ describe('Vocabulary APIs (e2e)', () => {
       SuccessBody<{
         vocabulary: {
           learningStatus: LearningStatus;
-          personalNote: string;
           nextReviewAt: null;
         };
         collections: unknown[];
@@ -491,7 +481,6 @@ describe('Vocabulary APIs (e2e)', () => {
 
     expect(body.data.vocabulary).toMatchObject({
       learningStatus: LearningStatus.NEW,
-      personalNote: 'Remember this',
       nextReviewAt: null,
     });
     expect(body.data.collections).toHaveLength(1);

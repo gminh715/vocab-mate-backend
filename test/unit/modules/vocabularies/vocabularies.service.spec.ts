@@ -72,7 +72,6 @@ const savedRecord = () => ({
   id: VOCABULARY_ID,
   articleSentenceTermId: TERM_ID,
   learningStatus: LearningStatus.NEW,
-  personalNote: 'Remember this',
   savedWordDisplay: 'harmful',
   savedLemma: 'harmful',
   savedPartOfSpeech: 'adjective',
@@ -245,7 +244,6 @@ describe('VocabulariesService', () => {
 
     const result = await service.save('owner-id', {
       articleSentenceTermId: TERM_ID,
-      personalNote: 'Remember this',
       collectionIds: [COLLECTION_ID],
     });
 
@@ -254,7 +252,6 @@ describe('VocabulariesService', () => {
       expect.objectContaining({
         articleSentenceTermId: TERM_ID,
         learningStatus: LearningStatus.NEW,
-        personalNote: 'Remember this',
         savedWordDisplay: 'harmful',
         savedLemma: 'harmful',
         savedPartOfSpeech: 'adjective',
@@ -348,7 +345,7 @@ describe('VocabulariesService', () => {
     ).toHaveBeenCalledTimes(1);
   });
 
-  it('normalizes collection UUID casing and trims notes at the service boundary', async () => {
+  it('normalizes collection UUID casing at the service boundary', async () => {
     const mixedCaseId = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
     contextualTermsService.getContextualTermForSave.mockResolvedValue(
       sourceRecord(),
@@ -357,13 +354,12 @@ describe('VocabulariesService', () => {
 
     await service.save('owner-id', {
       articleSentenceTermId: TERM_ID,
-      personalNote: '  Remember this  ',
       collectionIds: [mixedCaseId],
     });
 
     expect(repository.createWithCollections).toHaveBeenCalledWith(
       'owner-id',
-      expect.objectContaining({ personalNote: 'Remember this' }),
+      expect.any(Object),
       [mixedCaseId.toLowerCase()],
     );
   });

@@ -49,7 +49,6 @@ interface StoredCollection {
   id: string;
   userId: string;
   name: string;
-  description: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -59,7 +58,6 @@ interface StoredVocabulary {
   userId: string;
   articleSentenceTermId: string;
   learningStatus: LearningStatus;
-  personalNote: string | null;
   savedWordDisplay: string;
   savedLemma: string;
   savedPartOfSpeech: string;
@@ -105,7 +103,6 @@ class InMemoryCollectionsRepository {
         id: COLLECTION_ID,
         userId: 'user-a',
         name: 'Technology',
-        description: 'Software and computing words',
         createdAt: new Date('2026-07-23T03:00:00Z'),
         updatedAt: new Date('2026-07-23T03:00:00Z'),
       },
@@ -113,7 +110,6 @@ class InMemoryCollectionsRepository {
         id: SECOND_COLLECTION_ID,
         userId: 'user-a',
         name: 'Travel',
-        description: null,
         createdAt: new Date('2026-07-22T03:00:00Z'),
         updatedAt: new Date('2026-07-22T03:00:00Z'),
       },
@@ -121,7 +117,6 @@ class InMemoryCollectionsRepository {
         id: OTHER_COLLECTION_ID,
         userId: 'user-b',
         name: 'Private',
-        description: 'Other user collection',
         createdAt: new Date('2026-07-24T03:00:00Z'),
         updatedAt: new Date('2026-07-24T03:00:00Z'),
       },
@@ -236,7 +231,6 @@ class InMemoryCollectionsRepository {
       id: '55555555-5555-4555-8555-555555555555',
       userId,
       name: input.name,
-      description: input.description ?? null,
       createdAt: new Date('2026-07-25T03:00:00Z'),
       updatedAt: new Date('2026-07-25T03:00:00Z'),
     };
@@ -269,9 +263,6 @@ class InMemoryCollectionsRepository {
       );
     }
     if (input.name !== undefined) row.name = input.name;
-    if (input.description !== undefined) {
-      row.description = input.description;
-    }
     row.updatedAt = new Date('2026-07-26T03:00:00Z');
     return Promise.resolve(this.project(row));
   }
@@ -304,7 +295,6 @@ class InMemoryCollectionsRepository {
             vocabulary.savedWordDisplay,
             vocabulary.savedLemma,
             vocabulary.savedMeaningVi,
-            vocabulary.personalNote ?? '',
           ].some((value) =>
             value.toLocaleLowerCase().includes(query.q!.toLocaleLowerCase()),
           ),
@@ -382,7 +372,6 @@ class InMemoryCollectionsRepository {
     return {
       id: row.id,
       name: row.name,
-      description: row.description,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -407,7 +396,6 @@ class InMemoryCollectionsRepository {
       userId: options.userId,
       articleSentenceTermId: options.id,
       learningStatus: options.status,
-      personalNote: null,
       savedWordDisplay: options.word,
       savedLemma: options.word,
       savedPartOfSpeech: 'noun',
@@ -549,18 +537,16 @@ describe('Collection APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         name: '  Difficult Words  ',
-        description: '  Review these often  ',
       })
       .expect(201);
     expect(
       responseBody<
         SuccessBody<{
-          collection: { name: string; description: string };
+          collection: { name: string };
         }>
       >(created).data.collection,
     ).toMatchObject({
       name: 'Difficult Words',
-      description: 'Review these often',
     });
 
     await request(app.getHttpServer())
@@ -606,17 +592,16 @@ describe('Collection APIs (e2e)', () => {
     });
   });
 
-  it('supports partial update, explicit clearing, duplicate conflict, and empty-body rejection', async () => {
+  it('supports a name update, duplicate conflict, and empty-body rejection', async () => {
     const updated = await request(app.getHttpServer())
       .patch(`/api/v1/collections/${COLLECTION_ID}`)
       .set('Authorization', 'Bearer user-a')
-      .send({ description: null })
+      .send({ name: 'Updated Technology' })
       .expect(200);
     expect(
-      responseBody<
-        SuccessBody<{ collection: { name: string; description: null } }>
-      >(updated).data.collection,
-    ).toMatchObject({ name: 'Technology', description: null });
+      responseBody<SuccessBody<{ collection: { name: string } }>>(updated).data
+        .collection,
+    ).toMatchObject({ name: 'Updated Technology' });
 
     await request(app.getHttpServer())
       .patch(`/api/v1/collections/${COLLECTION_ID}`)

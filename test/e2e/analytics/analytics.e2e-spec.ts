@@ -474,7 +474,7 @@ describe('Analytics APIs (e2e)', () => {
       completedSessions: 2,
     });
     expect(JSON.stringify(overview.body)).not.toMatch(
-      /email|displayName|password|personalNote|userAnswer/i,
+      /email|displayName|password|userAnswer/i,
     );
   });
 
@@ -499,7 +499,7 @@ describe('Analytics APIs (e2e)', () => {
       .expect(200);
     expect(users.body.data.activeLearners).toBe(2);
     expect(content.text + users.text).not.toMatch(
-      /email|displayName|password|personalNote|userAnswer/i,
+      /email|displayName|password|userAnswer/i,
     );
   });
 
