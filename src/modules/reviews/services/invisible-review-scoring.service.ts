@@ -37,6 +37,64 @@ export interface ReviewSchedule {
   lastReviewScore: number;
 }
 
+const nextReviewInterval = (score: number, currentInterval: number): number => {
+  let interval: number;
+  if (score <= 2) {
+    interval = 1;
+  } else if (score === 3) {
+    interval = Math.max(currentInterval + 1, Math.ceil(currentInterval * 1.25));
+  } else if (score === 4) {
+    interval = currentInterval * 2;
+  } else {
+    interval = Math.ceil(currentInterval * 2.5);
+  }
+  return Math.min(interval, MAX_REVIEW_INTERVAL_DAYS);
+};
+
+export const scheduleReview = (
+  score: number,
+  current: VocabularyReviewState,
+  now: Date,
+  forgottenThisAttempt: boolean,
+): ReviewSchedule => {
+  const normalizedScore = Math.min(Math.max(Math.trunc(score), 0), 5);
+  const currentInterval = Math.min(
+    Math.max(current.reviewIntervalDays ?? 1, 1),
+    MAX_REVIEW_INTERVAL_DAYS,
+  );
+  const successful = normalizedScore >= 2;
+  const nextInterval = nextReviewInterval(normalizedScore, currentInterval);
+  const nextStreak = successful
+    ? Math.min(current.consecutiveCorrectReviews + 1, SMALLINT_MAX)
+    : 0;
+  const mastered =
+    successful &&
+    nextStreak >= MASTERED_MINIMUM_SUCCESS_STREAK &&
+    nextInterval >= MASTERED_MINIMUM_INTERVAL_DAYS;
+  const incrementLapse =
+    normalizedScore <= 1 &&
+    forgottenThisAttempt &&
+    (current.learningStatus === LearningStatus.LEARNING ||
+      current.learningStatus === LearningStatus.REVIEWING ||
+      current.learningStatus === LearningStatus.MASTERED);
+
+  return {
+    learningStatus: successful
+      ? mastered
+        ? LearningStatus.MASTERED
+        : LearningStatus.REVIEWING
+      : LearningStatus.LEARNING,
+    reviewIntervalDays: nextInterval,
+    lastReviewedAt: now,
+    nextReviewAt: new Date(now.getTime() + nextInterval * MILLISECONDS_PER_DAY),
+    consecutiveCorrectReviews: nextStreak,
+    lapseCount: incrementLapse
+      ? Math.min(current.lapseCount + 1, SMALLINT_MAX)
+      : current.lapseCount,
+    lastReviewScore: normalizedScore,
+  };
+};
+
 @Injectable()
 export class InvisibleReviewScoringService {
   inferScore(input: ReviewScoreInput): number {
@@ -68,62 +126,6 @@ export class InvisibleReviewScoringService {
     now: Date,
     forgottenThisAttempt: boolean,
   ): ReviewSchedule {
-    const normalizedScore = Math.min(Math.max(Math.trunc(score), 0), 5);
-    const currentInterval = Math.min(
-      Math.max(current.reviewIntervalDays ?? 1, 1),
-      MAX_REVIEW_INTERVAL_DAYS,
-    );
-    const successful = normalizedScore >= 2;
-    const nextInterval = this.nextInterval(normalizedScore, currentInterval);
-    const nextStreak = successful
-      ? Math.min(current.consecutiveCorrectReviews + 1, SMALLINT_MAX)
-      : 0;
-    const mastered =
-      successful &&
-      nextStreak >= MASTERED_MINIMUM_SUCCESS_STREAK &&
-      nextInterval >= MASTERED_MINIMUM_INTERVAL_DAYS;
-    const incrementLapse =
-      normalizedScore <= 1 &&
-      forgottenThisAttempt &&
-      (current.learningStatus === LearningStatus.LEARNING ||
-        current.learningStatus === LearningStatus.REVIEWING ||
-        current.learningStatus === LearningStatus.MASTERED);
-
-    return {
-      learningStatus: successful
-        ? mastered
-          ? LearningStatus.MASTERED
-          : LearningStatus.REVIEWING
-        : LearningStatus.LEARNING,
-      reviewIntervalDays: nextInterval,
-      lastReviewedAt: now,
-      nextReviewAt: this.addDays(now, nextInterval),
-      consecutiveCorrectReviews: nextStreak,
-      lapseCount: incrementLapse
-        ? Math.min(current.lapseCount + 1, SMALLINT_MAX)
-        : current.lapseCount,
-      lastReviewScore: normalizedScore,
-    };
-  }
-
-  private nextInterval(score: number, currentInterval: number): number {
-    let interval: number;
-    if (score <= 2) {
-      interval = 1;
-    } else if (score === 3) {
-      interval = Math.max(
-        currentInterval + 1,
-        Math.ceil(currentInterval * 1.25),
-      );
-    } else if (score === 4) {
-      interval = currentInterval * 2;
-    } else {
-      interval = Math.ceil(currentInterval * 2.5);
-    }
-    return Math.min(interval, MAX_REVIEW_INTERVAL_DAYS);
-  }
-
-  private addDays(now: Date, days: number): Date {
-    return new Date(now.getTime() + days * MILLISECONDS_PER_DAY);
+    return scheduleReview(score, current, now, forgottenThisAttempt);
   }
 }

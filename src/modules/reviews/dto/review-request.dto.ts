@@ -124,16 +124,13 @@ export class StartReviewSessionDto {
 
   @ApiPropertyOptional({
     enum: ReviewGoal,
+    default: ReviewGoal.BALANCED,
     example: ReviewGoal.RECALL,
-    description: 'Required learning mode for a DAILY_REVIEW.',
+    description: 'Learning mode for a DAILY_REVIEW.',
   })
-  @ValidateIf(
-    (dto: StartReviewSessionDto) =>
-      dto.sessionType === ReviewSessionType.DAILY_REVIEW,
-  )
-  @IsDefined()
+  @IsOptional()
   @IsEnum(ReviewGoal)
-  reviewGoal?: ReviewGoal;
+  reviewGoal?: ReviewGoal = ReviewGoal.BALANCED;
 }
 
 export class ReviewSessionParamsDto {

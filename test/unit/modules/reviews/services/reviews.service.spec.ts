@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   BadRequestException,
   NotFoundException,
@@ -18,11 +19,10 @@ import {
 import {
   InvalidReviewSourceShapeError,
   NoUsableReviewQuestionError,
-  ReviewAgentDecisionConflictError,
   ReviewSessionsRepository,
 } from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
 import { ReviewsService } from '../../../../../src/modules/reviews/services/reviews.service';
-import { ReviewAgentRepository } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
+import { ReviewAgentDecisionConflictError } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
 import { ReviewAnswerTransactionService } from '../../../../../src/modules/reviews/services/review-answer-transaction.service';
 import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
 import {
@@ -126,6 +126,9 @@ describe('ReviewsService', () => {
     planSession: jest.Mock;
     planSessionDeterministically: jest.Mock;
     diagnoseAnswer: jest.Mock;
+    persistSessionPlan: jest.Mock;
+    persistAnswerIntervention: jest.Mock;
+    applyAnswerDecision: jest.Mock;
   };
   let preparationProgress: Record<string, jest.Mock>;
 
@@ -148,10 +151,10 @@ describe('ReviewsService', () => {
         attemptCount: 0,
         averageResponseTimeMs: null,
       }),
-      persistAgentDecision: jest.fn(),
+      persist: jest.fn(),
       getSessionPlanningSnapshot: jest.fn().mockResolvedValue(null),
-      applySessionPlanDecision: jest.fn(),
-      applyAnswerAgentDecision: jest.fn(),
+      applySessionPlan: jest.fn(),
+      applyAnswerDecision: jest.fn(),
     };
     aiQuestionGenerator = {
       warmCache: jest.fn().mockResolvedValue([]),
@@ -161,6 +164,9 @@ describe('ReviewsService', () => {
       planSession: jest.fn(),
       planSessionDeterministically: jest.fn(),
       diagnoseAnswer: jest.fn(),
+      persistSessionPlan: jest.fn(),
+      persistAnswerIntervention: jest.fn(),
+      applyAnswerDecision: jest.fn(),
     };
     preparationProgress = {
       begin: jest.fn(),
@@ -173,13 +179,6 @@ describe('ReviewsService', () => {
       providers: [
         ReviewsService,
         { provide: ReviewSessionsRepository, useValue: repository },
-        {
-          provide: ReviewAgentRepository,
-          useValue: {
-            persist: (...args: unknown[]) => repository.persistAgentDecision(...args),
-            applyAnswerDecision: (...args: unknown[]) => repository.applyAnswerAgentDecision(...args),
-          },
-        },
         {
           provide: ReviewAnswerTransactionService,
           useValue: {
@@ -201,8 +200,7 @@ describe('ReviewsService', () => {
     service = module.get(ReviewsService);
   });
 
-  it('persists a session-plan decision only after the provider phase finishes', async () => {
-    const callOrder: string[] = [];
+  it('delegates session-plan persistence to the review agent boundary', async () => {
     const request = {
       userId: 'user',
       reviewSessionId: 'session',
@@ -228,25 +226,16 @@ describe('ReviewsService', () => {
         skillAggregates: [],
       },
     };
-    const decision = { reviewSessionId: 'session', source: 'AI' };
-    reviewAgent.planSession.mockImplementation(() => {
-      callOrder.push('provider-complete');
-      return Promise.resolve(decision);
-    });
-    repository.persistAgentDecision.mockImplementation(() => {
-      callOrder.push('persistence-transaction');
-      return Promise.resolve({ decision: { id: 'decision' }, created: true });
+    reviewAgent.persistSessionPlan.mockResolvedValue({
+      decision: { id: 'decision' },
+      created: true,
     });
 
     await expect(service.createSessionPlanDecision(request)).resolves.toEqual({
       decision: { id: 'decision' },
       created: true,
     });
-    expect(callOrder).toEqual(['provider-complete', 'persistence-transaction']);
-    expect(repository.persistAgentDecision).toHaveBeenCalledWith(
-      'user',
-      decision,
-    );
+    expect(reviewAgent.persistSessionPlan).toHaveBeenCalledWith(request);
   });
 
   it('returns generic not found for an ineligible quiz', async () => {
@@ -280,7 +269,7 @@ describe('ReviewsService', () => {
     });
   });
 
-  it('reviews every due item without applying legacy timing options', async () => {
+  it('reviews every due item while preserving the selected daily plan', async () => {
     repository.getDueRecommendations.mockResolvedValue({
       dueVocabularyCount: 137,
       recommendedQuizzes: [],
@@ -311,8 +300,8 @@ describe('ReviewsService', () => {
       'user',
       expect.objectContaining({
         limit: 137,
-        targetDurationMinutes: undefined,
-        reviewGoal: undefined,
+        targetDurationMinutes: 5,
+        reviewGoal: ReviewGoal.SPELLING,
       }),
       expect.any(Date),
       expect.any(Function),
@@ -322,8 +311,8 @@ describe('ReviewsService', () => {
       'user',
       expect.objectContaining({
         limit: 137,
-        targetDurationMinutes: undefined,
-        reviewGoal: undefined,
+        targetDurationMinutes: 5,
+        reviewGoal: ReviewGoal.SPELLING,
       }),
       expect.any(Date),
       expect.any(Array),
@@ -543,7 +532,7 @@ describe('ReviewsService', () => {
         };
       },
     );
-    repository.applySessionPlanDecision.mockImplementation(() => {
+    repository.applySessionPlan.mockImplementation(() => {
       callOrder.push('plan-persisted');
       return Promise.resolve(plannedState);
     });
@@ -561,7 +550,7 @@ describe('ReviewsService', () => {
     });
     expect(callOrder).toEqual(['session-committed']);
     expect(repository.getSessionPlanningSnapshot).not.toHaveBeenCalled();
-    expect(repository.applySessionPlanDecision).not.toHaveBeenCalled();
+    expect(repository.applySessionPlan).not.toHaveBeenCalled();
     expect(reviewAgent.planSessionDeterministically).not.toHaveBeenCalled();
     expect(reviewAgent.planSession).not.toHaveBeenCalled();
   });
@@ -760,7 +749,7 @@ describe('ReviewsService', () => {
     });
 
     expect(reviewAgent.diagnoseAnswer).not.toHaveBeenCalled();
-    expect(repository.applyAnswerAgentDecision).not.toHaveBeenCalled();
+    expect(reviewAgent.applyAnswerDecision).not.toHaveBeenCalled();
   });
 
   it('commits grading before diagnosis and applies diagnosis, lesson, and retest afterward', async () => {
@@ -798,7 +787,7 @@ describe('ReviewsService', () => {
       callOrder.push('retest-provider-complete');
       return Promise.resolve(preparedRetestQuestion);
     });
-    repository.applyAnswerAgentDecision.mockImplementation(() => {
+    reviewAgent.applyAnswerDecision.mockImplementation(() => {
       callOrder.push('enhancement-transaction');
       return Promise.resolve({
         session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
@@ -851,7 +840,7 @@ describe('ReviewsService', () => {
       diagnosisSnapshot.vocabulary,
       QuestionType.FILL_BLANK,
     );
-    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith(
+    expect(reviewAgent.applyAnswerDecision).toHaveBeenCalledWith(
       'user',
       expect.objectContaining({
         decision: aiDecision,
@@ -890,7 +879,7 @@ describe('ReviewsService', () => {
       },
     };
     reviewAgent.diagnoseAnswer.mockResolvedValue(continueDecision);
-    repository.applyAnswerAgentDecision.mockResolvedValue({
+    reviewAgent.applyAnswerDecision.mockResolvedValue({
       session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
       answeredCount: 0,
       totalQuestions: 5,
@@ -918,7 +907,7 @@ describe('ReviewsService', () => {
       },
     });
     expect(aiQuestionGenerator.prepareRetestQuestion).not.toHaveBeenCalled();
-    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith('user', {
+    expect(reviewAgent.applyAnswerDecision).toHaveBeenCalledWith('user', {
       decision: continueDecision,
       originalQuestionType: QuestionType.SELECT_MEANING,
       expectedAttemptNumber: 1,
@@ -944,7 +933,7 @@ describe('ReviewsService', () => {
     });
     reviewAgent.diagnoseAnswer.mockResolvedValue(aiDecision);
     aiQuestionGenerator.prepareRetestQuestion.mockResolvedValue(null);
-    repository.applyAnswerAgentDecision.mockResolvedValue({
+    reviewAgent.applyAnswerDecision.mockResolvedValue({
       session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
       answeredCount: 0,
       totalQuestions: 5,
@@ -972,7 +961,7 @@ describe('ReviewsService', () => {
         retestAfterItems: 3,
       },
     });
-    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith('user', {
+    expect(reviewAgent.applyAnswerDecision).toHaveBeenCalledWith('user', {
       decision: {
         ...aiDecision,
         decisionPayload: {
@@ -1015,7 +1004,7 @@ describe('ReviewsService', () => {
         },
       },
     });
-    repository.applyAnswerAgentDecision.mockRejectedValue(
+    reviewAgent.applyAnswerDecision.mockRejectedValue(
       new ReviewAgentDecisionConflictError(),
     );
 
@@ -1067,7 +1056,7 @@ describe('ReviewsService', () => {
       },
     };
     reviewAgent.diagnoseAnswer.mockResolvedValue(ruleDecision);
-    repository.applyAnswerAgentDecision.mockResolvedValue({
+    reviewAgent.applyAnswerDecision.mockResolvedValue({
       session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
       answeredCount: 0,
       totalQuestions: 5,
@@ -1096,7 +1085,7 @@ describe('ReviewsService', () => {
       },
     });
     expect(aiQuestionGenerator.prepareRetestQuestion).not.toHaveBeenCalled();
-    expect(repository.applyAnswerAgentDecision).toHaveBeenCalledWith(
+    expect(reviewAgent.applyAnswerDecision).toHaveBeenCalledWith(
       'user',
       expect.objectContaining({ decision: ruleDecision }),
     );

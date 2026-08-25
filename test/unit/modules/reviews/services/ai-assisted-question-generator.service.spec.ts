@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { Test } from '@nestjs/testing';
 import type { AiConfig } from '../../../../../src/config/ai.config';
 import { AI_CONFIG } from '../../../../../src/config/config.module';
@@ -14,15 +15,13 @@ import {
 } from '../../../../../src/modules/ai/ai.contracts';
 import { AiError } from '../../../../../src/modules/ai/ai.errors';
 import { AiService } from '../../../../../src/modules/ai/ai.service';
+import { NoUsableReviewQuestionError } from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
+import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
 import {
+  ReviewQuestionsRepository,
   type AiQuestionGenerationCandidate,
   type PreparedAiReviewQuestion,
-  NoUsableReviewQuestionError,
-  ReviewSessionsRepository,
-} from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
-import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
-import { ReviewQuestionsRepository } from '../../../../../src/modules/reviews/repositories/review-questions.repository';
-import { ReviewAgentRepository } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
+} from '../../../../../src/modules/reviews/repositories/review-questions.repository';
 
 describe('AiAssistedQuestionGeneratorService', () => {
   const config: AiConfig = {
@@ -84,8 +83,8 @@ describe('AiAssistedQuestionGeneratorService', () => {
     getAiQuestionGenerationCandidates: jest.Mock;
     findCachedAiQuestion: jest.Mock;
     findPreferredCachedAiQuestion: jest.Mock;
-    cacheAiQuestion: jest.MockedFunction<ReviewSessionsRepository['cacheAiQuestion']>;
-    reserveAiCallSlot: jest.Mock;
+    cacheAiQuestion: jest.Mock;
+    reserveGenerationCall: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -110,7 +109,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
         .mockImplementation((spec: { articleSentenceTermId: string }) =>
           Promise.resolve({ id: `question-${spec.articleSentenceTermId}` }),
         ),
-      reserveAiCallSlot: jest.fn().mockResolvedValue(true),
+      reserveGenerationCall: jest.fn().mockResolvedValue(true),
     };
     const module = await Test.createTestingModule({
       providers: [
@@ -120,15 +119,17 @@ describe('AiAssistedQuestionGeneratorService', () => {
         {
           provide: ReviewQuestionsRepository,
           useValue: {
-            getGenerationCandidates: (...args: unknown[]) => repository.getAiQuestionGenerationCandidates(...args),
-            findCached: (...args: unknown[]) => repository.findCachedAiQuestion(...args),
-            findPreferredCached: (...args: unknown[]) => repository.findPreferredCachedAiQuestion(...args),
-            cache: (...args: unknown[]) => repository.cacheAiQuestion(...args),
+            getAiQuestionGenerationCandidates: (...args: unknown[]) =>
+              repository.getAiQuestionGenerationCandidates(...args),
+            findCachedAiQuestion: (...args: unknown[]) =>
+              repository.findCachedAiQuestion(...args),
+            findPreferredCachedAiQuestion: (...args: unknown[]) =>
+              repository.findPreferredCachedAiQuestion(...args),
+            cacheAiQuestion: (...args: unknown[]) =>
+              repository.cacheAiQuestion(...args),
+            reserveGenerationCall: (...args: unknown[]) =>
+              repository.reserveGenerationCall(...args),
           },
-        },
-        {
-          provide: ReviewAgentRepository,
-          useValue: { reserveCall: (...args: unknown[]) => repository.reserveAiCallSlot(...args) },
         },
       ],
     }).compile();
@@ -466,7 +467,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
       requestedQuestionType: QuestionType.FILL_BLANK,
     });
     expect(REVIEW_QUESTION_PROMPT_STYLES).toContain(retestInput?.promptStyle);
-    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
+    expect(repository.reserveGenerationCall).toHaveBeenCalledWith(
       'user',
       'session',
       config.reviewMaxCallsPerSession,
@@ -491,7 +492,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
         QuestionType.FILL_BLANK,
       ),
     ).resolves.toMatchObject({ quizQuestionId: 'cached-retest' });
-    expect(repository.reserveAiCallSlot).not.toHaveBeenCalled();
+    expect(repository.reserveGenerationCall).not.toHaveBeenCalled();
     expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
   });
 
@@ -501,7 +502,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     const reservation = new Promise<boolean>((resolve) => {
       releaseReservation = resolve;
     });
-    repository.reserveAiCallSlot.mockReturnValue(reservation);
+    repository.reserveGenerationCall.mockReturnValue(reservation);
 
     const retests = Promise.all([
       service.prepareRetestQuestion(
@@ -521,14 +522,14 @@ describe('AiAssistedQuestionGeneratorService', () => {
     releaseReservation(true);
     await retests;
 
-    expect(repository.reserveAiCallSlot).toHaveBeenCalledTimes(1);
+    expect(repository.reserveGenerationCall).toHaveBeenCalledTimes(1);
     expect(ai.generateReviewQuestion).toHaveBeenCalledTimes(1);
     expect(repository.cacheAiQuestion).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the deterministic retest when the shared session budget is exhausted', async () => {
     const candidate = makeCandidate(1);
-    repository.reserveAiCallSlot.mockResolvedValue(false);
+    repository.reserveGenerationCall.mockResolvedValue(false);
 
     await expect(
       service.prepareRetestQuestion(
@@ -538,7 +539,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
         QuestionType.FILL_BLANK,
       ),
     ).resolves.toBeNull();
-    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
+    expect(repository.reserveGenerationCall).toHaveBeenCalledWith(
       'user',
       'session',
       config.reviewMaxCallsPerSession,

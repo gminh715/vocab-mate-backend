@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Test } from '@nestjs/testing';
 import type { AiConfig } from '../../../../../src/config/ai.config';
 import { AI_CONFIG } from '../../../../../src/config/config.module';
@@ -125,8 +126,10 @@ describe('ReviewAgentService', () => {
     >;
   };
   let repository: {
-    reserveAiCallSlot: jest.Mock;
-    reserveDiagnosisAiCallSlot: jest.Mock;
+    reserveCall: jest.Mock;
+    reserveDiagnosisCall: jest.Mock;
+    persist: jest.Mock;
+    applyAnswerDecision: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -135,8 +138,10 @@ describe('ReviewAgentService', () => {
       diagnoseReviewAnswer: jest.fn(),
     };
     repository = {
-      reserveAiCallSlot: jest.fn().mockResolvedValue(true),
-      reserveDiagnosisAiCallSlot: jest.fn().mockResolvedValue(true),
+      reserveCall: jest.fn().mockResolvedValue(true),
+      reserveDiagnosisCall: jest.fn().mockResolvedValue(true),
+      persist: jest.fn(),
+      applyAnswerDecision: jest.fn(),
     };
     const module = await Test.createTestingModule({
       providers: [
@@ -146,13 +151,33 @@ describe('ReviewAgentService', () => {
         {
           provide: ReviewAgentRepository,
           useValue: {
-            reserveCall: (...args: unknown[]) => repository.reserveAiCallSlot(...args),
-            reserveDiagnosisCall: (...args: unknown[]) => repository.reserveDiagnosisAiCallSlot(...args),
+            reserveCall: (...args: unknown[]) =>
+              repository.reserveCall(...args),
+            reserveDiagnosisCall: (...args: unknown[]) =>
+              repository.reserveDiagnosisCall(...args),
+            persist: (...args: unknown[]) => repository.persist(...args),
+            applyAnswerDecision: (...args: unknown[]) =>
+              repository.applyAnswerDecision(...args),
           },
         },
       ],
     }).compile();
     service = module.get(ReviewAgentService);
+  });
+
+  it('persists a completed session-plan decision after its decision phase', async () => {
+    const decision = { reviewSessionId: 'session', source: 'RULE' };
+    jest.spyOn(service, 'planSession').mockResolvedValue(decision as never);
+    repository.persist.mockResolvedValue({ created: true });
+
+    await expect(
+      service.persistSessionPlan({
+        userId: 'user',
+        reviewSessionId: 'session',
+        input: planInput,
+      }),
+    ).resolves.toEqual({ created: true });
+    expect(repository.persist).toHaveBeenCalledWith('user', decision);
   });
 
   it('uses a RULE decision without a call when diagnosis is not useful', async () => {
@@ -171,12 +196,12 @@ describe('ReviewAgentService', () => {
       source: ReviewDecisionSource.RULE,
       reasonCode: 'CALL_NOT_USEFUL',
     });
-    expect(repository.reserveDiagnosisAiCallSlot).not.toHaveBeenCalled();
+    expect(repository.reserveDiagnosisCall).not.toHaveBeenCalled();
     expect(ai.diagnoseReviewAnswer).not.toHaveBeenCalled();
   });
 
   it('returns a deterministic RULE decision when the atomic budget is exhausted', async () => {
-    repository.reserveDiagnosisAiCallSlot.mockResolvedValue(false);
+    repository.reserveDiagnosisCall.mockResolvedValue(false);
 
     const decision = await service.diagnoseAnswer({
       userId: 'user',
@@ -189,7 +214,7 @@ describe('ReviewAgentService', () => {
       input: diagnosisInput,
     });
 
-    expect(repository.reserveDiagnosisAiCallSlot).toHaveBeenCalledWith(
+    expect(repository.reserveDiagnosisCall).toHaveBeenCalledWith(
       'user',
       'session',
       6,
@@ -372,11 +397,11 @@ describe('ReviewAgentService', () => {
       errorType: ReviewErrorType.SPELLING_ERROR,
       reasonCode: 'OBVIOUS_SPELLING_ERROR',
     });
-    expect(repository.reserveDiagnosisAiCallSlot).not.toHaveBeenCalled();
+    expect(repository.reserveDiagnosisCall).not.toHaveBeenCalled();
   });
 
   it('returns a deterministic session plan without calling AI when the shared slot budget is exhausted', async () => {
-    repository.reserveAiCallSlot.mockResolvedValue(false);
+    repository.reserveCall.mockResolvedValue(false);
 
     await expect(
       service.planSession({
@@ -391,11 +416,7 @@ describe('ReviewAgentService', () => {
         orderedCandidateAliases: ['v1', 'v2'],
       },
     });
-    expect(repository.reserveAiCallSlot).toHaveBeenCalledWith(
-      'user',
-      'session',
-      6,
-    );
+    expect(repository.reserveCall).toHaveBeenCalledWith('user', 'session', 6);
     expect(ai.planReviewSession).not.toHaveBeenCalled();
   });
 
@@ -419,7 +440,7 @@ describe('ReviewAgentService', () => {
         orderedCandidateAliases: ['v1', 'v2'],
       },
     });
-    expect(repository.reserveAiCallSlot).not.toHaveBeenCalled();
+    expect(repository.reserveCall).not.toHaveBeenCalled();
     expect(ai.planReviewSession).not.toHaveBeenCalled();
   });
 

@@ -25,11 +25,12 @@ import {
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import {
+  type ApplyAnswerAgentDecisionInput,
   type PersistReviewAgentDecisionInput,
   type ReviewAgentJsonObject,
   type ReviewAgentJsonValue,
-} from '../repositories/review-sessions.repository';
-import { ReviewAgentRepository } from '../repositories/review-agent.repository';
+  ReviewAgentRepository,
+} from '../repositories/review-agent.repository';
 
 const RULE_PROMPT_VERSION = 'review-agent-rule-v1';
 const DEFAULT_RETEST_AFTER_ITEMS = 3;
@@ -66,6 +67,20 @@ export class ReviewAgentService {
     private readonly aiService: AiService,
     private readonly agentRepository: ReviewAgentRepository,
   ) {}
+
+  async persistSessionPlan(request: SessionPlanDecisionRequest) {
+    const decision = await this.planSession(request);
+    return this.agentRepository.persist(request.userId, decision);
+  }
+
+  async persistAnswerIntervention(request: AnswerDiagnosisDecisionRequest) {
+    const decision = await this.diagnoseAnswer(request);
+    return this.agentRepository.persist(request.userId, decision);
+  }
+
+  applyAnswerDecision(userId: string, input: ApplyAnswerAgentDecisionInput) {
+    return this.agentRepository.applyAnswerDecision(userId, input);
+  }
 
   async planSession(
     request: SessionPlanDecisionRequest,

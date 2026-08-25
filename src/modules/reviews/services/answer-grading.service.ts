@@ -1,5 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { QuestionType } from '../../../../generated/prisma/enums';
+import {
+  InvalidAnswerRelationshipError,
+  InvalidAnswerShapeError,
+} from '../repositories/review-errors';
+import { correctAnswerFor } from '../question-answer';
+
+export {
+  InvalidAnswerRelationshipError,
+  InvalidAnswerShapeError,
+} from '../repositories/review-errors';
 
 export interface GradingOption {
   id: string;
@@ -31,14 +41,13 @@ export interface GradingResult {
   selectedOptionId: string | null;
 }
 
-export class InvalidAnswerShapeError extends Error {}
-export class InvalidAnswerRelationshipError extends Error {}
-
 const OPTION_BASED_TYPES = new Set<QuestionType>([
   QuestionType.SELECT_MEANING,
   QuestionType.SELECT_WORD,
   QuestionType.SELECT_CORRECT_CONTEXT,
 ]);
+
+export { correctAnswerFor } from '../question-answer';
 
 @Injectable()
 export class AnswerGradingService {
@@ -53,19 +62,7 @@ export class AnswerGradingService {
   }
 
   correctAnswer(question: GradingQuestion): string {
-    if (question.questionType === QuestionType.FILL_BLANK) {
-      if (!question.correctAnswerText) {
-        throw new InvalidAnswerShapeError(
-          'FILL_BLANK question has no correct answer',
-        );
-      }
-      return question.correctAnswerText;
-    }
-
-    return question.options
-      .filter(({ isCorrect }) => isCorrect)
-      .map(({ optionText }) => optionText)
-      .join(', ');
+    return correctAnswerFor(question);
   }
 
   normalizeFillBlank(value: string, isCaseSensitive: boolean): string {

@@ -15,7 +15,7 @@ const QUESTION_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('Review request DTOs', () => {
   it.each([
-    [ReviewSessionType.DAILY_REVIEW, {}],
+    [ReviewSessionType.DAILY_REVIEW, { reviewGoal: ReviewGoal.BALANCED }],
     [ReviewSessionType.QUIZ, { quizId: QUESTION_ID }],
     [ReviewSessionType.ARTICLE_REVIEW, { articleId: QUESTION_ID }],
     [ReviewSessionType.COLLECTION_REVIEW, { collectionId: QUESTION_ID }],
@@ -43,6 +43,7 @@ describe('Review request DTOs', () => {
       articleId: null,
       collectionId: null,
       quizId: null,
+      reviewGoal: ReviewGoal.BALANCED,
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
@@ -52,6 +53,7 @@ describe('Review request DTOs', () => {
     const valid = plainToInstance(StartReviewSessionDto, {
       sessionType: ReviewSessionType.DAILY_REVIEW,
       preparationId: QUESTION_ID,
+      reviewGoal: ReviewGoal.BALANCED,
     });
     const invalid = plainToInstance(ReviewPreparationParamsDto, {
       preparationId: 'not-a-uuid',

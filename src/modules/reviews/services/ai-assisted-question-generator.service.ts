@@ -19,14 +19,13 @@ import {
 } from '../../ai/ai.contracts';
 import { AiError } from '../../ai/ai.errors';
 import { AiService } from '../../ai/ai.service';
+import { NoUsableReviewQuestionError } from '../repositories/review-sessions.repository';
 import {
-  type GeneratedAiQuestionSpec,
+  ReviewQuestionsRepository,
   type AiQuestionGenerationCandidate,
+  type GeneratedAiQuestionSpec,
   type PreparedAiReviewQuestion,
-  NoUsableReviewQuestionError,
-} from '../repositories/review-sessions.repository';
-import { ReviewQuestionsRepository } from '../repositories/review-questions.repository';
-import { ReviewAgentRepository } from '../repositories/review-agent.repository';
+} from '../repositories/review-questions.repository';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
 
 class ReviewAiCallBudgetExhaustedError extends Error {}
@@ -55,7 +54,6 @@ export class AiAssistedQuestionGeneratorService {
     @Inject(AI_CONFIG) private readonly config: AiConfig,
     private readonly aiService: AiService,
     private readonly questionsRepository: ReviewQuestionsRepository,
-    private readonly agentRepository: ReviewAgentRepository,
   ) {}
 
   async warmCache(
@@ -66,11 +64,12 @@ export class AiAssistedQuestionGeneratorService {
     onProgress: (progress: ReviewQuestionWarmProgress) => void = () =>
       undefined,
   ): Promise<PreparedAiReviewQuestion[]> {
-    const candidates = await this.questionsRepository.getGenerationCandidates(
-      userId,
-      dto,
-      now,
-    );
+    const candidates =
+      await this.questionsRepository.getAiQuestionGenerationCandidates(
+        userId,
+        dto,
+        now,
+      );
     const prepared = candidates.map(({ cachedQuestion }) => cachedQuestion);
     const missing = candidates.flatMap((candidate, index) =>
       prepared[index] ? [] : [{ candidate, index }],
@@ -98,7 +97,7 @@ export class AiAssistedQuestionGeneratorService {
       try {
         const latestCached = await Promise.all(
           batch.map(({ candidate }) =>
-            this.questionsRepository.findCached(
+            this.questionsRepository.findCachedAiQuestion(
               candidate.vocabulary.articleSentenceTermId,
               candidate.vocabulary.savedCefrLevel,
               candidate.questionType,
@@ -144,7 +143,7 @@ export class AiAssistedQuestionGeneratorService {
           });
           const fallbacks = await Promise.all(
             unresolved.map(({ candidate }) =>
-              this.questionsRepository.findPreferredCached(
+              this.questionsRepository.findPreferredCachedAiQuestion(
                 candidate.vocabulary.id,
                 candidate.vocabulary.articleSentenceTermId,
                 candidate.vocabulary.savedCefrLevel,
@@ -225,7 +224,7 @@ export class AiAssistedQuestionGeneratorService {
     };
     try {
       const question = await this.ensureCached(candidate, questionType, () =>
-        this.agentRepository.reserveCall(
+        this.questionsRepository.reserveGenerationCall(
           userId,
           reviewSessionId,
           this.config.reviewMaxCallsPerSession,
@@ -244,7 +243,7 @@ export class AiAssistedQuestionGeneratorService {
           error instanceof AiError ? error.code : 'AI_CALL_BUDGET_EXHAUSTED',
         questionType,
       });
-      return this.questionsRepository.findPreferredCached(
+      return this.questionsRepository.findPreferredCachedAiQuestion(
         vocabulary.id,
         vocabulary.articleSentenceTermId,
         vocabulary.savedCefrLevel,
@@ -262,7 +261,7 @@ export class AiAssistedQuestionGeneratorService {
     const pending = this.inFlight.get(key);
     if (pending) return pending;
 
-    const cached = await this.questionsRepository.findCached(
+    const cached = await this.questionsRepository.findCachedAiQuestion(
       candidate.vocabulary.articleSentenceTermId,
       candidate.vocabulary.savedCefrLevel,
       questionType,
@@ -291,7 +290,7 @@ export class AiAssistedQuestionGeneratorService {
       this.promptStyleForSeed(this.cacheKey(candidate, questionType)),
     );
     const generated = await this.aiService.generateReviewQuestion(input);
-    return this.questionsRepository.cache(
+    return this.questionsRepository.cacheAiQuestion(
       this.toQuestionSpec(candidate, questionType, generated),
     );
   }
@@ -313,7 +312,7 @@ export class AiAssistedQuestionGeneratorService {
         if (!entry) {
           throw new Error('AI review question batch order is invalid');
         }
-        return this.questionsRepository.cache(
+        return this.questionsRepository.cacheAiQuestion(
           this.toQuestionSpec(
             entry.candidate,
             entry.candidate.questionType,

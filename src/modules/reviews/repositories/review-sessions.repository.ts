@@ -21,7 +21,6 @@ import {
   REVIEW_QUESTION_PROMPT_VERSION,
   type DiagnoseReviewAnswerInput,
   type ReviewRetestAfterItems,
-  type ReviewTargetDuration,
 } from '../../ai/ai.contracts';
 import { PrismaService } from '../../../database/prisma.service';
 import type {
@@ -32,26 +31,33 @@ import type {
   SubmitReviewAnswerDto,
 } from '../dto/review-request.dto';
 import {
-  AnswerGradingService,
-  InvalidAnswerRelationshipError,
-  InvalidAnswerShapeError,
-  type GradingQuestion,
-} from '../services/answer-grading.service';
-import { InvisibleReviewScoringService } from '../services/invisible-review-scoring.service';
-import {
-  QuestionSelectionService,
+  preferredQuestionTypes,
   RECENT_ACCURACY_WINDOW,
   type RecentQuestionAttempt,
-} from '../services/question-selection.service';
+  skillDimensionForQuestion,
+} from '../services/question-selection';
+import type {
+  PreparedAiReviewQuestion,
+  VocabularyQuestionSnapshot,
+} from './review-questions.repository';
+import { correctAnswerFor } from '../question-answer';
+import {
+  InvalidAnswerRelationshipError,
+  InvalidAnswerShapeError,
+  InvalidReviewSourceShapeError,
+  ReviewConcurrencyConflictError,
+  ReviewResourceNotFoundError,
+} from './review-errors';
 
-export class ReviewResourceNotFoundError extends Error {}
+export {
+  InvalidReviewSourceShapeError,
+  ReviewConcurrencyConflictError,
+  ReviewResourceNotFoundError,
+} from './review-errors';
+
 export class ReviewSessionStateConflictError extends Error {}
-export class ReviewConcurrencyConflictError extends Error {}
-export class InvalidReviewSourceShapeError extends Error {}
 export class ReviewSubmissionConflictError extends Error {}
 export class NoUsableReviewQuestionError extends Error {}
-export class InvalidReviewAgentDecisionRelationshipError extends Error {}
-export class ReviewAgentDecisionConflictError extends Error {}
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_RETRY_COUNT = 1;
@@ -225,9 +231,98 @@ const reviewVocabularySelect = {
   },
 } satisfies Prisma.UserVocabularySelect;
 
-type ReviewVocabulary = Prisma.UserVocabularyGetPayload<{
+export type ReviewVocabulary = Prisma.UserVocabularyGetPayload<{
   select: typeof reviewVocabularySelect;
 }>;
+
+export interface ReviewAnswerSubmissionQuestion {
+  id: string;
+  articleSentenceTermId: string | null;
+  questionType: QuestionType;
+  correctAnswerText: string | null;
+  answerExplanation: string | null;
+  isCaseSensitive: boolean;
+  points: number;
+  options: Array<{
+    id: string;
+    optionText: string;
+    isCorrect: boolean;
+    explanation: string | null;
+  }>;
+}
+
+export interface ReviewAnswerSubmissionContext {
+  session: {
+    id: string;
+    quizId: string | null;
+    status: ReviewSessionStatus;
+  };
+  item: {
+    id: string;
+    userVocabularyId: string | null;
+    retryCount: number;
+    answerCount: number;
+    sequenceNumber: number;
+    question: ReviewAnswerSubmissionQuestion;
+  };
+  vocabulary: ReviewVocabulary | null;
+  pendingItemsAfterCurrent: Array<{ id: string; sequenceNumber: number }>;
+  recentAttempts: LearnerSnapshotAttempt[];
+  retryQuestionCandidates: {
+    quiz: Array<{ id: string; questionType: QuestionType }>;
+    cached: Array<{ id: string; questionType: QuestionType }>;
+  };
+}
+
+/**
+ * Persisted answer-submission facts after application services have graded,
+ * scored, scheduled, and selected any retry question. The repository only
+ * validates this optimistic snapshot and commits these supplied values.
+ */
+export interface CommitReviewAnswerInput {
+  expected: {
+    sessionId: string;
+    reviewSessionItemId: string;
+    quizQuestionId: string;
+    retryCount: number;
+    answerCount: number;
+    userVocabularyId: string | null;
+  };
+  answer: {
+    selectedOptionId: string | null;
+    userAnswerText: string | null;
+    isCorrect: boolean;
+    responseTimeMs: number | null;
+    hintsUsed: number;
+    inferredReviewScore: number;
+    skillDimension: ReviewSkillDimension;
+    answeredAt: Date;
+  };
+  item: {
+    status: ReviewSessionItemStatus;
+    retryCount: number;
+    finalInferredScore: number | null;
+    completedAt: Date | null;
+    retryQuestionId?: string;
+    moveAfterPendingItems?: ReviewRetestAfterItems;
+  };
+  vocabularySchedule?: VocabularyScheduleUpdate;
+}
+
+export interface VocabularyScheduleUpdate {
+  learningStatus: LearningStatus;
+  reviewIntervalDays: number;
+  lastReviewedAt: Date;
+  nextReviewAt: Date;
+  consecutiveCorrectReviews: number;
+  lapseCount: number;
+  lastReviewScore: number;
+}
+
+export interface SkipReviewItemContext {
+  vocabulary: ReviewVocabulary | null;
+  retryCount: number;
+}
 
 export interface QuizResult {
   score: number;
@@ -269,58 +364,6 @@ interface ValidatedReviewSource {
   articleId: string | null;
   collectionId: string | null;
   termIds?: string[];
-}
-
-export interface AiQuestionGenerationCandidate {
-  vocabulary: VocabularyQuestionSnapshot;
-  questionType: QuestionType;
-  preferredQuestionTypes: QuestionType[];
-  cachedQuestion: PreparedAiReviewQuestion | null;
-}
-
-export interface VocabularyQuestionSnapshot {
-  id: string;
-  articleSentenceTermId: string;
-  savedWordDisplay: string;
-  savedLemma: string;
-  savedPartOfSpeech: string;
-  savedCefrLevel: CefrLevel;
-  savedContextSentence: string;
-  savedMeaningVi: string;
-  savedExplanation: string | null;
-  categoryId: string;
-  articleTopic?: string;
-}
-
-export interface GeneratedAiQuestionSpec {
-  quizId: null;
-  articleSentenceTermId: string;
-  questionType: QuestionType;
-  generationSource: typeof QuestionGenerationSource.AI;
-  generationVersion: string;
-  difficultyCefr: CefrLevel;
-  prompt: string;
-  blankSentence: string | null;
-  correctAnswerText: string | null;
-  answerExplanation: string | null;
-  isCaseSensitive: boolean;
-  points: number;
-  displayOrder: number;
-  isActive: boolean;
-  options: Array<{
-    optionText: string;
-    isCorrect: boolean;
-    explanation: string | null;
-    displayOrder: number;
-  }>;
-}
-
-export interface PreparedAiReviewQuestion {
-  userVocabularyId: string;
-  quizQuestionId: string;
-  articleSentenceTermId: string;
-  difficultyCefr: CefrLevel;
-  questionType: QuestionType;
 }
 
 export interface LearnerSnapshotAttempt {
@@ -385,37 +428,6 @@ export interface SessionPlanningSnapshot {
   candidates: SessionPlanningSnapshotCandidate[];
 }
 
-export type ReviewAgentJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | ReviewAgentJsonValue[]
-  | ReviewAgentJsonObject;
-
-export interface ReviewAgentJsonObject {
-  [key: string]: ReviewAgentJsonValue;
-}
-
-export interface PersistReviewAgentDecisionInput {
-  reviewSessionId: string;
-  reviewSessionItemId: string | null;
-  reviewAnswerId: string | null;
-  kind: ReviewDecisionKind;
-  source: ReviewDecisionSource;
-  action: ReviewAgentAction | null;
-  skillDimension: ReviewSkillDimension | null;
-  errorType: ReviewErrorType | null;
-  confidence: number | null;
-  reasonCode: string;
-  stateSnapshot: ReviewAgentJsonObject;
-  decisionPayload: ReviewAgentJsonObject;
-  provider: string | null;
-  model: string | null;
-  promptVersion: string;
-  latencyMs: number | null;
-}
-
 export interface PostAnswerDiagnosisSnapshot {
   request: {
     reviewSessionItemId: string;
@@ -430,23 +442,6 @@ export interface PostAnswerDiagnosisSnapshot {
   fallbackRetestQuestionType: QuestionType;
   fallbackRetestAfterItems: ReviewRetestAfterItems;
   attemptNumber: number;
-}
-
-export interface ApplyAnswerAgentDecisionInput {
-  decision: PersistReviewAgentDecisionInput;
-  originalQuestionType: QuestionType;
-  expectedAttemptNumber: number;
-  preparedRetestQuestion: PreparedAiReviewQuestion | null;
-}
-
-export interface ApplySessionPlanDecisionInput {
-  decision: PersistReviewAgentDecisionInput;
-  targetDurationMinutes: ReviewTargetDuration;
-  reviewGoal: ReviewGoal;
-  plannedItemCount: number;
-  planSummary: string;
-  agentVersion: string;
-  orderedSessionItemIds: string[];
 }
 
 interface RecentAttemptSnapshotRow {
@@ -477,12 +472,7 @@ interface RawReviewTimingStats {
  * transaction scopes during the incremental repository split.
  */
 export class ReviewSessionsRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly answerGradingService: AnswerGradingService,
-    private readonly reviewScoringService: InvisibleReviewScoringService,
-    private readonly questionSelectionService: QuestionSelectionService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async getRecentReviewTimingStats(
     userId: string,
@@ -630,573 +620,6 @@ export class ReviewSessionsRepository {
         })),
       };
     });
-  }
-
-  async reserveAiCallSlot(
-    userId: string,
-    sessionId: string,
-    maximumCalls: number,
-  ): Promise<boolean> {
-    this.assertAiCallMaximum(maximumCalls, 'maximumCalls');
-    const reservation = await this.prisma.reviewSession.updateMany({
-      where: {
-        id: sessionId,
-        userId,
-        status: ReviewSessionStatus.IN_PROGRESS,
-        aiCallCount: { lt: maximumCalls },
-      },
-      data: { aiCallCount: { increment: 1 } },
-    });
-    return reservation.count === 1;
-  }
-
-  async reserveDiagnosisAiCallSlot(
-    userId: string,
-    sessionId: string,
-    maximumCalls: number,
-    maximumDiagnosisCalls: number,
-  ): Promise<boolean> {
-    this.assertAiCallMaximum(maximumCalls, 'maximumCalls');
-    this.assertAiCallMaximum(maximumDiagnosisCalls, 'maximumDiagnosisCalls');
-    const reservation = await this.prisma.reviewSession.updateMany({
-      where: {
-        id: sessionId,
-        userId,
-        status: ReviewSessionStatus.IN_PROGRESS,
-        aiCallCount: { lt: maximumCalls },
-        aiDiagnosisCallCount: { lt: maximumDiagnosisCalls },
-      },
-      data: {
-        aiCallCount: { increment: 1 },
-        aiDiagnosisCallCount: { increment: 1 },
-      },
-    });
-    return reservation.count === 1;
-  }
-
-  async persistAgentDecision(
-    userId: string,
-    input: PersistReviewAgentDecisionInput,
-  ) {
-    const isAnswerDecision =
-      input.kind === ReviewDecisionKind.ANSWER_INTERVENTION;
-    if (
-      (isAnswerDecision &&
-        (!input.reviewSessionItemId || !input.reviewAnswerId)) ||
-      (!isAnswerDecision &&
-        (input.reviewSessionItemId !== null || input.reviewAnswerId !== null))
-    ) {
-      throw new InvalidReviewAgentDecisionRelationshipError();
-    }
-    try {
-      const decision = await this.prisma.$transaction(async (tx) => {
-        const session = await tx.reviewSession.findFirst({
-          where: { id: input.reviewSessionId, userId },
-          select: { id: true },
-        });
-        if (!session) throw new ReviewResourceNotFoundError();
-
-        if (input.reviewSessionItemId) {
-          const item = await tx.reviewSessionItem.findFirst({
-            where: {
-              id: input.reviewSessionItemId,
-              reviewSessionId: input.reviewSessionId,
-            },
-            select: { id: true },
-          });
-          if (!item) {
-            throw new InvalidReviewAgentDecisionRelationshipError();
-          }
-        }
-
-        if (input.reviewAnswerId) {
-          const answer = await tx.reviewAnswer.findFirst({
-            where: {
-              id: input.reviewAnswerId,
-              reviewSessionItem: {
-                is: {
-                  reviewSessionId: input.reviewSessionId,
-                  ...(input.reviewSessionItemId
-                    ? { id: input.reviewSessionItemId }
-                    : {}),
-                },
-              },
-            },
-            select: { id: true },
-          });
-          if (!answer) {
-            throw new InvalidReviewAgentDecisionRelationshipError();
-          }
-        }
-
-        return tx.reviewAgentDecision.create({
-          data: input,
-        });
-      });
-      return { decision, created: true } as const;
-    } catch (error: unknown) {
-      if (!input.reviewAnswerId || !this.hasPrismaCode(error, 'P2002')) {
-        throw error;
-      }
-      const existing = await this.prisma.reviewAgentDecision.findFirst({
-        where: {
-          reviewAnswerId: input.reviewAnswerId,
-          kind: input.kind,
-          reviewSession: { is: { userId } },
-        },
-      });
-      if (!existing) throw error;
-      return { decision: existing, created: false } as const;
-    }
-  }
-
-  async applySessionPlanDecision(
-    userId: string,
-    input: ApplySessionPlanDecisionInput,
-  ) {
-    const { decision } = input;
-    const uniqueItemIds = new Set(input.orderedSessionItemIds);
-    if (
-      decision.kind !== ReviewDecisionKind.SESSION_PLAN ||
-      decision.reviewSessionItemId !== null ||
-      decision.reviewAnswerId !== null ||
-      decision.action !== null ||
-      decision.skillDimension !== null ||
-      decision.errorType !== null ||
-      ![5, 10, 15].includes(input.targetDurationMinutes) ||
-      input.plannedItemCount !== input.orderedSessionItemIds.length ||
-      input.plannedItemCount < 1 ||
-      input.plannedItemCount > MAX_LEARNER_SNAPSHOT_VOCABULARIES ||
-      uniqueItemIds.size !== input.orderedSessionItemIds.length ||
-      input.planSummary.trim().length === 0 ||
-      input.planSummary.length > 300 ||
-      input.agentVersion.trim().length === 0 ||
-      input.agentVersion.length > 50
-    ) {
-      throw new InvalidReviewAgentDecisionRelationshipError();
-    }
-
-    return this.withSerializableRetry(async (tx) => {
-      const session = await tx.reviewSession.findFirst({
-        where: {
-          id: decision.reviewSessionId,
-          userId,
-          status: ReviewSessionStatus.IN_PROGRESS,
-          planSummary: null,
-        },
-        select: sessionSelect,
-      });
-      if (!session) throw new ReviewAgentDecisionConflictError();
-
-      const items = await tx.reviewSessionItem.findMany({
-        where: {
-          reviewSessionId: session.id,
-          status: ReviewSessionItemStatus.PENDING,
-        },
-        orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
-        select: { id: true, sequenceNumber: true },
-      });
-      if (
-        items.length !== input.orderedSessionItemIds.length ||
-        items.some(({ id }) => !uniqueItemIds.has(id))
-      ) {
-        throw new ReviewAgentDecisionConflictError();
-      }
-
-      const claimed = await tx.reviewSession.updateMany({
-        where: {
-          id: session.id,
-          userId,
-          status: ReviewSessionStatus.IN_PROGRESS,
-          planSummary: null,
-        },
-        data: {
-          targetDurationMinutes: input.targetDurationMinutes,
-          reviewGoal: input.reviewGoal,
-          plannedItemCount: input.plannedItemCount,
-          planSummary: input.planSummary.trim(),
-          agentVersion: input.agentVersion,
-        },
-      });
-      if (claimed.count !== 1) throw new ReviewAgentDecisionConflictError();
-
-      const orderChanged = input.orderedSessionItemIds.some(
-        (itemId, index) => items[index]?.id !== itemId,
-      );
-      if (orderChanged) {
-        const sequenceOffset = items.length + 1;
-        await tx.reviewSessionItem.updateMany({
-          where: { reviewSessionId: session.id },
-          data: { sequenceNumber: { increment: sequenceOffset } },
-        });
-        for (const [index, itemId] of input.orderedSessionItemIds.entries()) {
-          await tx.reviewSessionItem.update({
-            where: { id: itemId },
-            data: { sequenceNumber: index + 1 },
-            select: { id: true },
-          });
-        }
-      }
-
-      await tx.reviewAgentDecision.create({ data: decision });
-      const plannedSession = await tx.reviewSession.findFirst({
-        where: { id: session.id, userId },
-        select: sessionSelect,
-      });
-      if (!plannedSession) throw new ReviewAgentDecisionConflictError();
-      return this.getSessionStateWithClient(tx, plannedSession);
-    });
-  }
-
-  async applyAnswerAgentDecision(
-    userId: string,
-    input: ApplyAnswerAgentDecisionInput,
-  ) {
-    const { decision } = input;
-    const retest = this.readRetestDecision(decision.decisionPayload);
-    const hasRetestAction =
-      decision.action === ReviewAgentAction.REQUEUE_WITH_NEW_TYPE ||
-      decision.action === ReviewAgentAction.TEACH_AND_REQUEUE;
-    if (
-      decision.kind !== ReviewDecisionKind.ANSWER_INTERVENTION ||
-      !decision.reviewSessionItemId ||
-      !decision.reviewAnswerId ||
-      !decision.action ||
-      !decision.skillDimension ||
-      !decision.errorType ||
-      this.readAgentAction(decision.decisionPayload) !== decision.action ||
-      (hasRetestAction
-        ? !retest || retest.questionType === input.originalQuestionType
-        : retest !== null || input.preparedRetestQuestion !== null)
-    ) {
-      throw new InvalidReviewAgentDecisionRelationshipError();
-    }
-    const reviewSessionItemId = decision.reviewSessionItemId;
-    const reviewAnswerId = decision.reviewAnswerId;
-
-    try {
-      return await this.withSerializableRetry(async (tx) => {
-        const session = await tx.reviewSession.findFirst({
-          where: {
-            id: decision.reviewSessionId,
-            userId,
-            status: ReviewSessionStatus.IN_PROGRESS,
-          },
-          select: sessionSelect,
-        });
-        if (!session) throw new ReviewAgentDecisionConflictError();
-
-        const item = await tx.reviewSessionItem.findFirst({
-          where: {
-            id: reviewSessionItemId,
-            reviewSessionId: session.id,
-            status: ReviewSessionItemStatus.PENDING,
-          },
-          select: {
-            id: true,
-            userVocabularyId: true,
-            retryCount: true,
-            quizQuestion: {
-              select: {
-                id: true,
-                articleSentenceTermId: true,
-                questionType: true,
-              },
-            },
-            userVocabulary: {
-              select: { savedCefrLevel: true },
-            },
-          },
-        });
-        if (
-          !item ||
-          !item.userVocabularyId ||
-          !item.userVocabulary ||
-          item.retryCount !== input.expectedAttemptNumber
-        ) {
-          throw new ReviewAgentDecisionConflictError();
-        }
-
-        const answer = await tx.reviewAnswer.findFirst({
-          where: {
-            id: reviewAnswerId,
-            reviewSessionItemId: item.id,
-            attemptNumber: input.expectedAttemptNumber,
-            isCorrect: false,
-            quizQuestion: {
-              is: { questionType: input.originalQuestionType },
-            },
-          },
-          select: { id: true },
-        });
-        if (!answer) throw new ReviewAgentDecisionConflictError();
-
-        let retestQuestionId: string | null = null;
-        if (retest) {
-          retestQuestionId = item.quizQuestion.id;
-        }
-        if (retest && item.quizQuestion.questionType !== retest.questionType) {
-          const prepared = input.preparedRetestQuestion;
-          if (
-            !prepared ||
-            prepared.userVocabularyId !== item.userVocabularyId ||
-            prepared.articleSentenceTermId !==
-              item.quizQuestion.articleSentenceTermId ||
-            prepared.difficultyCefr !== item.userVocabulary.savedCefrLevel ||
-            prepared.questionType !== retest.questionType
-          ) {
-            throw new ReviewAgentDecisionConflictError();
-          }
-          const preparedQuestion = await tx.quizQuestion.findFirst({
-            where: {
-              id: prepared.quizQuestionId,
-              quizId: null,
-              articleSentenceTermId: prepared.articleSentenceTermId,
-              difficultyCefr: prepared.difficultyCefr,
-              questionType: retest.questionType,
-              generationSource: QuestionGenerationSource.AI,
-              generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
-              isActive: true,
-            },
-            select: { id: true },
-          });
-          if (!preparedQuestion) throw new ReviewAgentDecisionConflictError();
-          retestQuestionId = preparedQuestion.id;
-        }
-
-        await tx.reviewAgentDecision.create({ data: decision });
-        await tx.reviewAnswer.update({
-          where: { id: answer.id },
-          data: {
-            skillDimension: decision.skillDimension,
-            errorType: decision.errorType,
-          },
-          select: { id: true },
-        });
-        if (retestQuestionId && retestQuestionId !== item.quizQuestion.id) {
-          await tx.reviewSessionItem.update({
-            where: { id: item.id },
-            data: { quizQuestionId: retestQuestionId },
-            select: { id: true },
-          });
-        }
-        if (retest) {
-          await this.movePendingItemAfter(
-            tx,
-            session.id,
-            item.id,
-            retest.afterItems,
-          );
-        }
-        const state = await this.getSessionStateWithClient(tx, session);
-        return {
-          ...state,
-          agentFeedback: this.toAgentFeedback(decision),
-        };
-      });
-    } catch (error: unknown) {
-      if (this.hasPrismaCode(error, 'P2002')) {
-        throw new ReviewAgentDecisionConflictError();
-      }
-      throw error;
-    }
-  }
-
-  getAiQuestionGenerationCandidates(
-    userId: string,
-    dto: StartReviewSessionDto,
-    now: Date,
-  ): Promise<AiQuestionGenerationCandidate[]> {
-    if (dto.sessionType === ReviewSessionType.QUIZ) return Promise.resolve([]);
-
-    return this.prisma.$transaction(async (tx) => {
-      this.assertSourceShape(dto);
-      const active = await tx.reviewSession.findFirst({
-        where: {
-          userId,
-          sessionType: dto.sessionType,
-          ...(dto.sessionType === ReviewSessionType.ARTICLE_REVIEW
-            ? { articleId: dto.articleId }
-            : {}),
-          ...(dto.sessionType === ReviewSessionType.COLLECTION_REVIEW
-            ? { collectionId: dto.collectionId }
-            : {}),
-          status: ReviewSessionStatus.IN_PROGRESS,
-        },
-        select: { id: true },
-      });
-      if (active) return [];
-
-      const source = await this.validateSource(tx, userId, dto);
-      const vocabularies = await this.findEligibleVocabularies(
-        tx,
-        userId,
-        dto,
-        source.termIds,
-        now,
-      );
-      const history = await this.loadRecentAttemptHistory(tx, vocabularies);
-      const cachedQuestions =
-        vocabularies.length === 0
-          ? []
-          : await tx.quizQuestion.findMany({
-              where: {
-                quizId: null,
-                articleSentenceTermId: {
-                  in: vocabularies.map(
-                    ({ articleSentenceTermId }) => articleSentenceTermId,
-                  ),
-                },
-                generationSource: QuestionGenerationSource.AI,
-                generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
-                isActive: true,
-              },
-              orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-              select: {
-                id: true,
-                articleSentenceTermId: true,
-                difficultyCefr: true,
-                questionType: true,
-              },
-            });
-
-      const preferences = vocabularies.map((vocabulary) =>
-        this.questionSelectionService.preferredTypes(
-          vocabulary,
-          history.get(vocabulary.id) ?? [],
-          undefined,
-          dto.reviewGoal,
-        ),
-      );
-      const selectedTypes = this.questionSelectionService.selectSessionTypes(
-        preferences,
-        dto.reviewGoal,
-      );
-
-      return vocabularies.map((vocabulary, index) => {
-        const basePreferences = preferences[index];
-        const selectedType = selectedTypes[index] ?? basePreferences[0];
-        const preferredTypes = [
-          selectedType,
-          ...basePreferences.filter(
-            (questionType) => questionType !== selectedType,
-          ),
-        ];
-        const cached = cachedQuestions.find(
-          (question) =>
-            question.articleSentenceTermId ===
-              vocabulary.articleSentenceTermId &&
-            question.difficultyCefr === vocabulary.savedCefrLevel &&
-            question.questionType === selectedType,
-        );
-        const cachedQuestion = cached
-          ? this.toPreparedAiQuestion(vocabulary.id, cached)
-          : null;
-        return {
-          vocabulary: this.toQuestionSnapshot(vocabulary),
-          questionType: selectedType,
-          preferredQuestionTypes: preferredTypes,
-          cachedQuestion,
-        };
-      });
-    });
-  }
-
-  findCachedAiQuestion(
-    articleSentenceTermId: string,
-    difficultyCefr: ReviewVocabulary['savedCefrLevel'],
-    questionType: QuestionType,
-  ) {
-    return this.prisma.quizQuestion.findFirst({
-      where: {
-        quizId: null,
-        articleSentenceTermId,
-        difficultyCefr,
-        questionType,
-        generationSource: QuestionGenerationSource.AI,
-        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
-        isActive: true,
-      },
-      select: { id: true },
-    });
-  }
-
-  async findPreferredCachedAiQuestion(
-    userVocabularyId: string,
-    articleSentenceTermId: string,
-    difficultyCefr: ReviewVocabulary['savedCefrLevel'],
-    preferredQuestionTypes: QuestionType[],
-  ): Promise<PreparedAiReviewQuestion | null> {
-    const cached = await this.prisma.quizQuestion.findMany({
-      where: {
-        quizId: null,
-        articleSentenceTermId,
-        difficultyCefr,
-        questionType: { in: preferredQuestionTypes },
-        generationSource: QuestionGenerationSource.AI,
-        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
-        isActive: true,
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        articleSentenceTermId: true,
-        difficultyCefr: true,
-        questionType: true,
-      },
-    });
-    const selected = preferredQuestionTypes.flatMap((questionType) => {
-      const match = cached.find(
-        (question) => question.questionType === questionType,
-      );
-      return match ? [match] : [];
-    })[0];
-    return selected
-      ? this.toPreparedAiQuestion(userVocabularyId, selected)
-      : null;
-  }
-
-  async cacheAiQuestion(spec: GeneratedAiQuestionSpec) {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const cached = await tx.quizQuestion.findFirst({
-          where: {
-            quizId: null,
-            articleSentenceTermId: spec.articleSentenceTermId,
-            difficultyCefr: spec.difficultyCefr,
-            questionType: spec.questionType,
-            generationSource: QuestionGenerationSource.AI,
-            generationVersion: spec.generationVersion,
-            isActive: true,
-          },
-          select: { id: true },
-        });
-        if (cached) return cached;
-
-        const { options, ...question } = spec;
-        return tx.quizQuestion.create({
-          data: {
-            ...question,
-            options: {
-              create: options.map((option) => ({
-                ...option,
-                generationSource: QuestionGenerationSource.AI,
-              })),
-            },
-          },
-          select: { id: true },
-        });
-      });
-    } catch (error: unknown) {
-      if (!this.hasPrismaCode(error, 'P2002')) throw error;
-      const cached = await this.findCachedAiQuestion(
-        spec.articleSentenceTermId,
-        spec.difficultyCefr,
-        spec.questionType,
-      );
-      if (!cached) throw error;
-      return cached;
-    }
   }
 
   startSession(
@@ -1361,82 +784,128 @@ export class ReviewSessionsRepository {
     };
   }
 
-  submitAnswer(userId: string, sessionId: string, dto: SubmitReviewAnswerDto) {
-    return this.withSerializableRetry(async (tx) => {
-      const session = await tx.reviewSession.findFirst({
-        where: { id: sessionId, userId },
-        select: sessionSelect,
-      });
-      if (!session) throw new ReviewResourceNotFoundError();
-      if (session.status !== ReviewSessionStatus.IN_PROGRESS) {
-        throw new ReviewSessionStateConflictError();
-      }
+  /**
+   * Loads the persisted facts needed to decide an answer submission. This is
+   * deliberately a read snapshot: grading, score inference, scheduling, and
+   * retry selection remain application decisions and must be supplied to
+   * commitAnswerSubmission after they have been computed.
+   */
+  getAnswerSubmissionContext(
+    userId: string,
+    sessionId: string,
+    dto: Pick<SubmitReviewAnswerDto, 'reviewSessionItemId' | 'quizQuestionId'>,
+  ): Promise<ReviewAnswerSubmissionContext> {
+    return this.prisma.$transaction(async (tx) => {
+      const { session, item } = await this.loadActiveAnswerSubmissionState(
+        tx,
+        userId,
+        sessionId,
+      );
+      this.assertAnswerSubmissionExpectation(item, dto);
 
-      const item = await tx.reviewSessionItem.findFirst({
-        where: {
-          reviewSessionId: session.id,
-          status: ReviewSessionItemStatus.PENDING,
-        },
-        orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          userVocabularyId: true,
-          retryCount: true,
-          sequenceNumber: true,
-          _count: { select: { answers: true } },
-          quizQuestion: { select: gradingQuestionSelect },
-        },
-      });
-      if (!item) throw new ReviewSubmissionConflictError();
-      const question = item.quizQuestion;
-      if (
-        item.id !== dto.reviewSessionItemId ||
-        question.id !== dto.quizQuestionId ||
-        item._count.answers !== item.retryCount ||
-        item.retryCount > MAX_RETRY_COUNT
-      ) {
-        throw new ReviewSubmissionConflictError();
-      }
-
-      const grading = this.answerGradingService.grade(question, {
-        ...(dto.selectedOptionId === undefined
-          ? {}
-          : { selectedOptionId: dto.selectedOptionId }),
-        ...(dto.userAnswerText === undefined
-          ? {}
-          : { userAnswerText: dto.userAnswerText }),
-      });
       const vocabulary = item.userVocabularyId
         ? await tx.userVocabulary.findUnique({
             where: { id: item.userVocabularyId },
             select: reviewVocabularySelect,
           })
         : null;
-      const now = new Date();
-      const inferredScore = this.reviewScoringService.inferScore({
-        isCorrect: grading.isCorrect,
-        previousFailedAttempts: item.retryCount,
-        hintsUsed: dto.hintsUsed ?? 0,
-        questionType: question.questionType,
-        responseTimeMs: dto.responseTimeMs ?? null,
+      const pendingItemsAfterCurrent = await tx.reviewSessionItem.findMany({
+        where: {
+          reviewSessionId: session.id,
+          status: ReviewSessionItemStatus.PENDING,
+          id: { not: item.id },
+          sequenceNumber: { gt: item.sequenceNumber },
+        },
+        orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+        take: 5,
+        select: { id: true, sequenceNumber: true },
       });
+      const [recentAttempts, retryQuestionCandidates] = vocabulary
+        ? await Promise.all([
+            this.loadRecentAttemptSnapshots(tx, [vocabulary]).then(
+              (attempts) => attempts.get(vocabulary.id) ?? [],
+            ),
+            this.loadRetryQuestionCandidates(tx, session.quizId, vocabulary),
+          ])
+        : [[], { quiz: [], cached: [] }];
+
+      return {
+        session: {
+          id: session.id,
+          quizId: session.quizId,
+          status: session.status,
+        },
+        item: {
+          id: item.id,
+          userVocabularyId: item.userVocabularyId,
+          retryCount: item.retryCount,
+          answerCount: item._count.answers,
+          sequenceNumber: item.sequenceNumber,
+          question: item.quizQuestion,
+        },
+        vocabulary,
+        pendingItemsAfterCurrent,
+        recentAttempts,
+        retryQuestionCandidates,
+      };
+    });
+  }
+
+  getAnswerDiagnosisSkillAggregates(userId: string, now: Date) {
+    return this.prisma.$transaction((tx) =>
+      this.loadSkillAggregates(tx, userId, now, DIAGNOSIS_SKILL_WINDOW_DAYS),
+    );
+  }
+
+  /**
+   * Atomically persists an answer decision that was computed from an earlier
+   * ReviewAnswerSubmissionContext. Revalidation makes stale or duplicate
+   * submissions fail before they can create a second attempt.
+   */
+  commitAnswerSubmission(userId: string, input: CommitReviewAnswerInput) {
+    return this.withSerializableRetry(async (tx) => {
+      const { session, item } = await this.loadActiveAnswerSubmissionState(
+        tx,
+        userId,
+        input.expected.sessionId,
+      );
+      this.assertAnswerSubmissionExpectation(item, input.expected);
+      if (
+        item.retryCount !== input.expected.retryCount ||
+        item._count.answers !== input.expected.answerCount ||
+        item.userVocabularyId !== input.expected.userVocabularyId
+      ) {
+        throw new ReviewSubmissionConflictError();
+      }
+      if (
+        (input.item.retryQuestionId !== undefined ||
+          input.item.moveAfterPendingItems !== undefined) &&
+        input.item.status !== ReviewSessionItemStatus.PENDING
+      ) {
+        throw new ReviewSubmissionConflictError();
+      }
+      if (
+        input.vocabularySchedule !== undefined &&
+        item.userVocabularyId === null
+      ) {
+        throw new ReviewSubmissionConflictError();
+      }
+
       let answer: { id: string };
       try {
         answer = await tx.reviewAnswer.create({
           data: {
             reviewSessionItemId: item.id,
-            quizQuestionId: question.id,
-            selectedOptionId: grading.selectedOptionId,
-            userAnswerText: dto.userAnswerText ?? null,
-            isCorrect: grading.isCorrect,
-            responseTimeMs: dto.responseTimeMs ?? null,
+            quizQuestionId: item.quizQuestion.id,
+            selectedOptionId: input.answer.selectedOptionId,
+            userAnswerText: input.answer.userAnswerText,
+            isCorrect: input.answer.isCorrect,
+            responseTimeMs: input.answer.responseTimeMs,
             attemptNumber: item._count.answers + 1,
-            hintsUsed: dto.hintsUsed ?? 0,
-            inferredReviewScore: inferredScore,
-            skillDimension: this.questionSelectionService.skillDimensionFor(
-              question.questionType,
-            ),
-            answeredAt: now,
+            hintsUsed: input.answer.hintsUsed,
+            inferredReviewScore: input.answer.inferredReviewScore,
+            skillDimension: input.answer.skillDimension,
+            answeredAt: input.answer.answeredAt,
           },
           select: { id: true },
         });
@@ -1446,84 +915,32 @@ export class ReviewSessionsRepository {
         }
         throw error;
       }
-      const wantsRetry =
-        !grading.isCorrect && item.retryCount < MAX_RETRY_COUNT;
-      const pendingItemsAfterCurrent = wantsRetry
-        ? await tx.reviewSessionItem.findMany({
-            where: {
-              reviewSessionId: session.id,
-              status: ReviewSessionItemStatus.PENDING,
-              id: { not: item.id },
-              sequenceNumber: { gt: item.sequenceNumber },
-            },
-            orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
-            take: 5,
-            select: { id: true, sequenceNumber: true },
-          })
-        : [];
-      const recentAttemptSnapshots =
-        wantsRetry && pendingItemsAfterCurrent.length >= 2 && vocabulary
-          ? ((await this.loadRecentAttemptSnapshots(tx, [vocabulary])).get(
-              vocabulary.id,
-            ) ?? [])
-          : [];
-      const retryQuestion =
-        wantsRetry && pendingItemsAfterCurrent.length >= 2
-          ? await this.assignRetryQuestion(
-              tx,
-              vocabulary,
-              question.questionType,
-              session.quizId,
-              recentAttemptSnapshots,
-            )
-          : null;
-      const shouldRetry = retryQuestion !== null;
-      const completed = grading.isCorrect || !shouldRetry;
+
       await tx.reviewSessionItem.update({
         where: { id: item.id },
         data: {
-          status: completed
-            ? ReviewSessionItemStatus.COMPLETED
-            : ReviewSessionItemStatus.PENDING,
-          retryCount: shouldRetry ? item.retryCount + 1 : item.retryCount,
-          finalInferredScore: completed ? inferredScore : null,
-          completedAt: completed ? now : null,
-          ...(retryQuestion
-            ? {
-                quizQuestionId: retryQuestion.id,
-              }
+          status: input.item.status,
+          retryCount: input.item.retryCount,
+          finalInferredScore: input.item.finalInferredScore,
+          completedAt: input.item.completedAt,
+          ...(input.item.retryQuestionId
+            ? { quizQuestionId: input.item.retryQuestionId }
             : {}),
         },
         select: { id: true },
       });
-
-      const fallbackRetestAfterItems = shouldRetry
-        ? this.defaultRetestOffset(pendingItemsAfterCurrent.length)
-        : null;
-      if (fallbackRetestAfterItems !== null) {
+      if (input.item.moveAfterPendingItems !== undefined) {
         await this.movePendingItemAfter(
           tx,
           session.id,
           item.id,
-          fallbackRetestAfterItems,
+          input.item.moveAfterPendingItems,
         );
       }
-
-      if (vocabulary && shouldRetry) {
+      if (item.userVocabularyId && input.vocabularySchedule) {
         await tx.userVocabulary.update({
-          where: { id: vocabulary.id },
-          data: this.reviewScoringService.schedule(0, vocabulary, now, true),
-          select: { id: true },
-        });
-      } else if (vocabulary && completed) {
-        await tx.userVocabulary.update({
-          where: { id: vocabulary.id },
-          data: this.reviewScoringService.schedule(
-            inferredScore,
-            vocabulary,
-            now,
-            !grading.isCorrect && item.retryCount === 0,
-          ),
+          where: { id: item.userVocabularyId },
+          data: input.vocabularySchedule,
           select: { id: true },
         });
       }
@@ -1540,7 +957,7 @@ export class ReviewSessionsRepository {
             where: { id: session.id },
             data: {
               status: ReviewSessionStatus.COMPLETED,
-              completedAt: now,
+              completedAt: input.answer.answeredAt,
             },
             select: sessionSelect,
           })
@@ -1550,136 +967,67 @@ export class ReviewSessionsRepository {
         ? await this.getCompletionSummaryWithClient(
             tx,
             session.id,
-            currentSession.completedAt ?? now,
+            currentSession.completedAt ?? input.answer.answeredAt,
           )
         : undefined;
 
-      const attemptNumber = item._count.answers + 1;
-      const learnerAnswer =
-        grading.selectedOptionId === null
-          ? (dto.userAnswerText ?? '')
-          : (question.options.find(({ id }) => id === grading.selectedOptionId)
-              ?.optionText ?? '');
-      const diagnosisSkillAggregates =
-        !grading.isCorrect &&
-        shouldRetry &&
-        retryQuestion &&
-        vocabulary &&
-        fallbackRetestAfterItems !== null
-          ? await this.loadSkillAggregates(
-              tx,
-              userId,
-              now,
-              DIAGNOSIS_SKILL_WINDOW_DAYS,
-            )
-          : [];
-      const diagnosisSnapshot: PostAnswerDiagnosisSnapshot | undefined =
-        !grading.isCorrect &&
-        shouldRetry &&
-        retryQuestion &&
-        vocabulary &&
-        fallbackRetestAfterItems !== null
-          ? {
-              request: {
-                reviewSessionItemId: item.id,
-                reviewAnswerId: answer.id,
-                isCorrect: false,
-                wasSkipped: false,
-                lapseCount: vocabulary.lapseCount,
-                input: {
-                  targetCefr: vocabulary.savedCefrLevel,
-                  wordOrPhrase: vocabulary.savedWordDisplay,
-                  lemma: vocabulary.savedLemma,
-                  partOfSpeech: vocabulary.savedPartOfSpeech,
-                  contextualMeaningVi: vocabulary.savedMeaningVi,
-                  originalSentence: vocabulary.savedContextSentence,
-                  questionType: question.questionType,
-                  learnerAnswer,
-                  correctAnswer: grading.correctAnswer,
-                  responseTimeMs: dto.responseTimeMs ?? 0,
-                  hintsUsed: dto.hintsUsed ?? 0,
-                  attemptNumber,
-                  recentAttempts: recentAttemptSnapshots
-                    .filter(({ answerId }) => answerId !== answer.id)
-                    .map(
-                      ({
-                        questionType,
-                        skillDimension,
-                        isCorrect,
-                        responseTimeMs,
-                        hintsUsed,
-                      }) => ({
-                        questionType,
-                        skillDimension,
-                        isCorrect,
-                        responseTimeMs: responseTimeMs ?? 0,
-                        hintsUsed,
-                      }),
-                    ),
-                  skillAggregates: diagnosisSkillAggregates.map(
-                    ({
-                      skillDimension,
-                      attemptCount,
-                      correctCount,
-                      averageResponseTimeMs,
-                    }) => ({
-                      skillDimension,
-                      attempts: attemptCount,
-                      correct: correctCount,
-                      averageResponseTimeMs: averageResponseTimeMs ?? 0,
-                    }),
-                  ),
-                  allowedSkillDimensions: [
-                    ReviewSkillDimension.RECOGNITION,
-                    ReviewSkillDimension.RECALL,
-                    ReviewSkillDimension.SPELLING,
-                    ReviewSkillDimension.CONTEXT,
-                  ],
-                  allowedActions: [
-                    ReviewAgentAction.CONTINUE,
-                    ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
-                    ReviewAgentAction.TEACH_AND_REQUEUE,
-                    ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
-                  ],
-                  allowedRetestQuestionTypes: [
-                    retryQuestion.questionType,
-                    ...Object.values(QuestionType).filter(
-                      (candidate) =>
-                        candidate !== question.questionType &&
-                        candidate !== retryQuestion.questionType,
-                    ),
-                  ],
-                  allowedRetestAfterItems: [2, 3, 4, 5].filter(
-                    (offset): offset is ReviewRetestAfterItems =>
-                      offset <= pendingItemsAfterCurrent.length,
-                  ),
-                },
-              },
-              vocabulary: this.toQuestionSnapshot(vocabulary),
-              originalQuestionType: question.questionType,
-              fallbackRetestQuestionType: retryQuestion.questionType,
-              fallbackRetestAfterItems,
-              attemptNumber,
-            }
-          : undefined;
-
       return {
         answerId: answer.id,
-        isCorrect: grading.isCorrect,
-        correctAnswer: grading.correctAnswer,
-        explanation: grading.explanation,
-        earnedPoints: grading.earnedPoints,
-        inferredReviewScore: inferredScore,
-        willReturnLater: shouldRetry,
         sessionCompleted,
         ...(completionSummary ? { completionSummary } : {}),
-        ...(diagnosisSnapshot ? { diagnosisSnapshot } : {}),
         ...state,
       };
     });
   }
 
-  skipItem(userId: string, sessionId: string, dto: SkipReviewSessionItemDto) {
+  async getSkipItemContext(
+    userId: string,
+    sessionId: string,
+    dto: SkipReviewSessionItemDto,
+  ): Promise<SkipReviewItemContext> {
+    const session = await this.prisma.reviewSession.findFirst({
+      where: { id: sessionId, userId, status: ReviewSessionStatus.IN_PROGRESS },
+      select: { id: true },
+    });
+    if (!session) throw new ReviewSubmissionConflictError();
+    const item = await this.prisma.reviewSessionItem.findFirst({
+      where: {
+        reviewSessionId: session.id,
+        status: ReviewSessionItemStatus.PENDING,
+      },
+      orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        userVocabularyId: true,
+        retryCount: true,
+        _count: { select: { answers: true } },
+        quizQuestion: { select: { id: true } },
+      },
+    });
+    if (
+      !item ||
+      item.id !== dto.reviewSessionItemId ||
+      item.quizQuestion.id !== dto.quizQuestionId ||
+      item._count.answers !== item.retryCount ||
+      item.retryCount > MAX_RETRY_COUNT
+    ) {
+      throw new ReviewSubmissionConflictError();
+    }
+    const vocabulary = item.userVocabularyId
+      ? await this.prisma.userVocabulary.findUnique({
+          where: { id: item.userVocabularyId },
+          select: reviewVocabularySelect,
+        })
+      : null;
+    return { vocabulary, retryCount: item.retryCount };
+  }
+
+  skipItem(
+    userId: string,
+    sessionId: string,
+    dto: SkipReviewSessionItemDto,
+    vocabularySchedule?: VocabularyScheduleUpdate,
+  ) {
     return this.withSerializableRetry(async (tx) => {
       const session = await tx.reviewSession.findFirst({
         where: { id: sessionId, userId },
@@ -1714,12 +1062,6 @@ export class ReviewSessionsRepository {
         throw new ReviewSubmissionConflictError();
       }
 
-      const vocabulary = item.userVocabularyId
-        ? await tx.userVocabulary.findUnique({
-            where: { id: item.userVocabularyId },
-            select: reviewVocabularySelect,
-          })
-        : null;
       const now = new Date();
       await tx.reviewSessionItem.update({
         where: { id: item.id },
@@ -1730,15 +1072,10 @@ export class ReviewSessionsRepository {
         },
         select: { id: true },
       });
-      if (vocabulary) {
+      if (item.userVocabularyId && vocabularySchedule) {
         await tx.userVocabulary.update({
-          where: { id: vocabulary.id },
-          data: this.reviewScoringService.schedule(
-            0,
-            vocabulary,
-            now,
-            item.retryCount === 0,
-          ),
+          where: { id: item.userVocabularyId },
+          data: vocabularySchedule,
           select: { id: true },
         });
       }
@@ -1997,7 +1334,7 @@ export class ReviewSessionsRepository {
               }
             : null,
           userAnswerText: answer.userAnswerText,
-          correctAnswer: this.answerGradingService.correctAnswer(question),
+          correctAnswer: correctAnswerFor(question),
           explanation:
             question.answerExplanation ?? selectedOption?.explanation ?? null,
           isCorrect: answer.isCorrect === true,
@@ -2025,9 +1362,7 @@ export class ReviewSessionsRepository {
             userVocabularyId: userVocabulary?.id ?? null,
             wordOrPhrase:
               userVocabulary?.savedWordDisplay ??
-              this.answerGradingService.correctAnswer(
-                incorrectAnswer.quizQuestion,
-              ),
+              correctAnswerFor(incorrectAnswer.quizQuestion),
             meaningVi: userVocabulary?.savedMeaningVi ?? null,
             skillDimension: incorrectAnswer.skillDimension,
             errorType: incorrectAnswer.errorType,
@@ -2372,7 +1707,7 @@ export class ReviewSessionsRepository {
     const history = await this.loadRecentAttemptHistory(tx, vocabularies);
     const preferences = vocabularies.map((vocabulary) => ({
       vocabulary,
-      preferredTypes: this.questionSelectionService.preferredTypes(
+      preferredTypes: preferredQuestionTypes(
         vocabulary,
         history.get(vocabulary.id) ?? [],
         undefined,
@@ -2471,7 +1806,7 @@ export class ReviewSessionsRepository {
     const currentIndex = pending.findIndex(({ id }) => id === itemId);
     const otherItems = pending.filter(({ id }) => id !== itemId);
     if (currentIndex < 0 || otherItems.length < afterItems) {
-      throw new ReviewAgentDecisionConflictError();
+      throw new ReviewSessionStateConflictError();
     }
     const reordered = [...otherItems];
     const current = pending[currentIndex];
@@ -2611,70 +1946,92 @@ export class ReviewSessionsRepository {
     };
   }
 
-  private async assignRetryQuestion(
+  private async loadActiveAnswerSubmissionState(
     tx: Prisma.TransactionClient,
-    vocabulary: ReviewVocabulary | null,
-    previousType: QuestionType,
-    quizId: string | null,
-    recentAttempts: LearnerSnapshotAttempt[],
+    userId: string,
+    sessionId: string,
   ) {
-    if (!vocabulary) throw new ReviewResourceNotFoundError();
-    const preferredTypes = this.questionSelectionService.preferredTypes(
-      vocabulary,
-      recentAttempts.map(({ questionType, isCorrect }) => ({
-        questionType,
-        isCorrect,
-      })),
-      previousType,
-    );
-    if (quizId) {
-      const questions = await tx.quizQuestion.findMany({
-        where: {
-          quizId,
-          articleSentenceTermId: vocabulary.articleSentenceTermId,
-          isActive: true,
-          questionType: { not: previousType },
-        },
-        orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-        select: { id: true, articleSentenceTermId: true, questionType: true },
-      });
-      const selected = this.selectExistingQuestion(questions, preferredTypes);
-      if (selected) return selected;
+    const session = await tx.reviewSession.findFirst({
+      where: { id: sessionId, userId },
+      select: sessionSelect,
+    });
+    if (!session) throw new ReviewResourceNotFoundError();
+    if (session.status !== ReviewSessionStatus.IN_PROGRESS) {
+      throw new ReviewSessionStateConflictError();
     }
 
-    const cached = await tx.quizQuestion.findMany({
+    const item = await tx.reviewSessionItem.findFirst({
       where: {
-        quizId: null,
-        articleSentenceTermId: vocabulary.articleSentenceTermId,
-        difficultyCefr: vocabulary.savedCefrLevel,
-        questionType: { in: preferredTypes },
-        generationSource: QuestionGenerationSource.AI,
-        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
-        isActive: true,
+        reviewSessionId: session.id,
+        status: ReviewSessionItemStatus.PENDING,
       },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      select: { id: true, articleSentenceTermId: true, questionType: true },
+      orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        userVocabularyId: true,
+        retryCount: true,
+        sequenceNumber: true,
+        _count: { select: { answers: true } },
+        quizQuestion: { select: gradingQuestionSelect },
+      },
     });
-    return this.selectExistingQuestion(cached, preferredTypes) ?? null;
+    if (!item) throw new ReviewSubmissionConflictError();
+    return { session, item };
   }
 
-  private toQuestionSnapshot(
+  private assertAnswerSubmissionExpectation(
+    item: {
+      id: string;
+      retryCount: number;
+      _count: { answers: number };
+      quizQuestion: { id: string };
+    },
+    expected: {
+      reviewSessionItemId: string;
+      quizQuestionId: string;
+    },
+  ): void {
+    if (
+      item.id !== expected.reviewSessionItemId ||
+      item.quizQuestion.id !== expected.quizQuestionId ||
+      item._count.answers !== item.retryCount ||
+      item.retryCount > MAX_RETRY_COUNT
+    ) {
+      throw new ReviewSubmissionConflictError();
+    }
+  }
+
+  private async loadRetryQuestionCandidates(
+    tx: Prisma.TransactionClient,
+    quizId: string | null,
     vocabulary: ReviewVocabulary,
-  ): VocabularyQuestionSnapshot {
-    return {
-      id: vocabulary.id,
-      articleSentenceTermId: vocabulary.articleSentenceTermId,
-      savedWordDisplay: vocabulary.savedWordDisplay,
-      savedLemma: vocabulary.savedLemma,
-      savedPartOfSpeech: vocabulary.savedPartOfSpeech,
-      savedCefrLevel: vocabulary.savedCefrLevel,
-      savedContextSentence: vocabulary.savedContextSentence,
-      savedMeaningVi: vocabulary.savedMeaningVi,
-      savedExplanation: vocabulary.savedExplanation,
-      categoryId: vocabulary.articleSentenceTerm.sentence.article.categoryId,
-      articleTopic:
-        vocabulary.articleSentenceTerm.sentence.article.category?.name,
-    };
+  ): Promise<ReviewAnswerSubmissionContext['retryQuestionCandidates']> {
+    const [quiz, cached] = await Promise.all([
+      quizId
+        ? tx.quizQuestion.findMany({
+            where: {
+              quizId,
+              articleSentenceTermId: vocabulary.articleSentenceTermId,
+              isActive: true,
+            },
+            orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+            select: { id: true, questionType: true },
+          })
+        : [],
+      tx.quizQuestion.findMany({
+        where: {
+          quizId: null,
+          articleSentenceTermId: vocabulary.articleSentenceTermId,
+          difficultyCefr: vocabulary.savedCefrLevel,
+          generationSource: QuestionGenerationSource.AI,
+          generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
+          isActive: true,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        select: { id: true, questionType: true },
+      }),
+    ]);
+    return { quiz, cached };
   }
 
   private toLearnerSnapshotVocabulary(
@@ -2770,24 +2127,6 @@ export class ReviewSessionsRepository {
     return skillAggregates;
   }
 
-  private toPreparedAiQuestion(
-    userVocabularyId: string,
-    question: {
-      id: string;
-      articleSentenceTermId: string;
-      difficultyCefr: CefrLevel;
-      questionType: QuestionType;
-    },
-  ): PreparedAiReviewQuestion {
-    return {
-      userVocabularyId,
-      quizQuestionId: question.id,
-      articleSentenceTermId: question.articleSentenceTermId,
-      difficultyCefr: question.difficultyCefr,
-      questionType: question.questionType,
-    };
-  }
-
   private async loadRecentAttemptHistory(
     tx: Prisma.TransactionClient,
     vocabularies: ReviewVocabulary[],
@@ -2860,8 +2199,7 @@ export class ReviewSessionsRepository {
         answerId: row.answerId,
         questionType: row.questionType,
         skillDimension:
-          row.skillDimension ??
-          this.questionSelectionService.skillDimensionFor(row.questionType),
+          row.skillDimension ?? skillDimensionForQuestion(row.questionType),
         errorType: row.errorType,
         isCorrect: row.isCorrect,
         responseTimeMs: row.responseTimeMs,
@@ -3043,7 +2381,7 @@ export class ReviewSessionsRepository {
 
   private mapSafeQuestion(question: {
     id: string;
-    questionType: GradingQuestion['questionType'];
+    questionType: QuestionType;
     prompt: string;
     blankSentence: string | null;
     correctAnswerText: string | null;
@@ -3105,12 +2443,6 @@ export class ReviewSessionsRepository {
       'code' in error &&
       error.code === code
     );
-  }
-
-  private assertAiCallMaximum(value: number, name: string): void {
-    if (!Number.isInteger(value) || value < 1 || value > 32_767) {
-      throw new RangeError(`${name} must be a positive SmallInt`);
-    }
   }
 
   private assertInitialAiCallCount(value: number): void {
