@@ -1,7 +1,9 @@
 # Prisma schema
 
-`vocab_mate_mvp_schema.sql` is the source of truth for the MVP database.
-The Prisma schema is split by business domain under `models/`; Prisma loads
+The Prisma models and committed migrations are the source of truth for the MVP
+database. `vocab_mate_mvp_schema.sql` is a generated snapshot of the current
+Prisma structure for reference. The Prisma schema is split by business domain
+under `models/`; Prisma loads
 all `.prisma` files recursively through the `schema: "prisma"` setting in
 `prisma.config.ts`.
 
@@ -9,8 +11,8 @@ all `.prisma` files recursively through the `schema: "prisma"` setting in
 table mappings, relations, defaults, unique constraints, and indexes for their
 related backend modules.
 
-The following PostgreSQL features from the source SQL are not fully expressed
-by Prisma Schema Language and must be preserved in a customized migration:
+The following PostgreSQL features are not fully expressed by Prisma Schema
+Language and must be preserved in customized migrations:
 
 - the `pgcrypto` and `citext` extensions;
 - named `CHECK` constraints;
@@ -51,6 +53,11 @@ decision table. Existing sessions and answers require no backfill.
 `20260808120000_agentic_review_call_budget_hardening` adds a default-zero
 diagnosis-call counter so the total and diagnosis-specific budgets can both be
 reserved atomically. Existing sessions require no backfill.
+`20260825000000_daily_review_only` removes quiz-, article-, and
+collection-scoped review sessions together with the Admin/Public Quiz feature.
+It deletes history backed by retired sources or non-AI questions, drops the
+Quiz model and API persistence, and renames the retained AI question cache to
+Daily Review terminology. Compatible Daily Review history is preserved.
 
 ### Existing database
 
@@ -92,10 +99,10 @@ npm run prisma:verify-review-migrations
 ```
 
 The verifier creates an isolated generated schema, replays every committed
-migration, checks the final invisible-review tables, source enum, unique active
-session indexes, AI cache key, answer-attempt key, and removal of obsolete
-columns/types. Its rollback check drops only that disposable schema and verifies
-that it no longer exists.
+migration, checks the final Daily Review tables, single active-session index,
+AI cache key, answer-attempt key, and removal of retired source columns/types.
+Its rollback check drops only that disposable schema and verifies that it no
+longer exists.
 
 Prisma migrations do not provide automatic production down migrations. Before
 deploying `20260803149000` through `20260803153000`, take and test a database

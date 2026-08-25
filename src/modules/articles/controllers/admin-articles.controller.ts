@@ -102,7 +102,7 @@ export class AdminArticlesController {
     operationId: 'getAdminArticlesByArticleId',
     summary: 'Get article administration detail',
     description:
-      'Returns current article content and aggregate current-version sentence, term, and quiz counts without loading related records.',
+      'Returns current article content and aggregate current-version sentence and term counts without loading related records.',
   })
   @ApiOkResponse({ type: AdminArticleDetailSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -228,7 +228,7 @@ export class AdminArticlesController {
     operationId: 'postAdminArticleArchive',
     summary: 'Archive a draft or published article',
     description:
-      'Conditionally hides the article without deleting content, learning progress, vocabulary, quizzes, or history.',
+      'Conditionally hides the article without deleting content, learning progress, vocabulary, or history.',
   })
   @ApiOkResponse({ type: ArticleArchiveSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -330,7 +330,7 @@ export class AdminArticlesController {
     operationId: 'deleteAdminArticlesByArticleId',
     summary: 'Delete an unused draft article',
     description:
-      'Hard deletion is limited to drafts with no learning, quiz, or review history. Used articles should be archived.',
+      'Hard deletion is limited to drafts with no learning or review history. Used articles should be archived.',
   })
   @ApiNoContentResponse({ description: 'Unused draft deleted.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

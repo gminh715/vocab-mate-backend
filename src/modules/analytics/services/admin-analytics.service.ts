@@ -4,7 +4,6 @@ import { APP_CONFIG } from '../../../config/config.module';
 import {
   fillMissingBuckets,
   roundRatio,
-  toRatio,
   toSafeCount,
 } from '../analytics.helpers';
 import {
@@ -51,7 +50,7 @@ export class AdminAnalyticsService {
     requestTime = new Date(),
   ) {
     const range = resolveAnalyticsDateRange(query, requestTime);
-    const [topRows, completionRows, termRows, quizRows] = await Promise.all([
+    const [topRows, completionRows, termRows] = await Promise.all([
       this.repository.queryTopArticles(range.from, range.to, query.categoryId),
       this.repository.queryCompletionRates(
         range.from,
@@ -63,11 +62,6 @@ export class AdminAnalyticsService {
         range.to,
         query.categoryId,
       ),
-      this.repository.queryQuizPerformance(
-        range.from,
-        range.to,
-        query.categoryId,
-      ),
     ]);
     return {
       topArticles: topRows.map((row) => ({
@@ -75,7 +69,6 @@ export class AdminAnalyticsService {
         openedCount: toSafeCount(row.openedCount),
         completedCount: toSafeCount(row.completedCount),
         savedVocabularyCount: toSafeCount(row.savedVocabularyCount),
-        completedQuizSessions: toSafeCount(row.completedQuizSessions),
       })),
       completionRates: completionRows.map((row) => {
         const opened = toSafeCount(row.opened);
@@ -92,19 +85,6 @@ export class AdminAnalyticsService {
         ...row,
         saveCount: toSafeCount(row.saveCount),
       })),
-      quizPerformance: quizRows.map((row) => {
-        const answers = toSafeCount(row.answers);
-        const correctAnswers = toSafeCount(row.correctAnswers);
-        return {
-          quizId: row.quizId,
-          quizTitle: row.quizTitle,
-          articleId: row.articleId,
-          articleTitle: row.articleTitle,
-          completedSessions: toSafeCount(row.completedSessions),
-          accuracy: roundRatio(correctAnswers, answers),
-          averageScore: toRatio(row.averageScore),
-        };
-      }),
     };
   }
 
@@ -154,7 +134,7 @@ export class AdminAnalyticsService {
       inactive: 0,
       readingOnly: 0,
       vocabularyOnly: 0,
-      quizOnly: 0,
+      reviewOnly: 0,
       multiActivity: 0,
     };
     return {
@@ -178,7 +158,7 @@ export class AdminAnalyticsService {
         inactive: toSafeCount(distribution.inactive),
         readingOnly: toSafeCount(distribution.readingOnly),
         vocabularyOnly: toSafeCount(distribution.vocabularyOnly),
-        quizOnly: toSafeCount(distribution.quizOnly),
+        reviewOnly: toSafeCount(distribution.reviewOnly),
         multiActivity: toSafeCount(distribution.multiActivity),
       },
     };

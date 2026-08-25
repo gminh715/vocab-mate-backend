@@ -36,7 +36,7 @@ describe('ReviewAnswerTransactionService', () => {
   );
   const dto = {
     reviewSessionItemId: 'item',
-    quizQuestionId: 'question',
+    reviewQuestionId: 'question',
     selectedOptionId: 'option',
     hintsUsed: 0,
   };
@@ -44,7 +44,6 @@ describe('ReviewAnswerTransactionService', () => {
     ({
       session: {
         id: 'session',
-        quizId: 'quiz',
         status: ReviewSessionStatus.IN_PROGRESS,
       },
       item: {
@@ -92,7 +91,7 @@ describe('ReviewAnswerTransactionService', () => {
       },
       pendingItemsAfterCurrent: [],
       recentAttempts: [],
-      retryQuestionCandidates: { quiz: [], cached: [] },
+      retryQuestionCandidates: [],
     }) as unknown as ReviewAnswerSubmissionContext;
 
   beforeEach(() => {
@@ -196,7 +195,7 @@ describe('ReviewAnswerTransactionService', () => {
       { id: 'next-1', sequenceNumber: 2 },
       { id: 'next-2', sequenceNumber: 3 },
     ];
-    incorrectContext.retryQuestionCandidates.quiz = [
+    incorrectContext.retryQuestionCandidates = [
       { id: 'retest', questionType: QuestionType.SELECT_WORD },
     ];
     sessions.getAnswerSubmissionContext.mockResolvedValue(incorrectContext);
@@ -257,7 +256,7 @@ describe('ReviewAnswerTransactionService', () => {
     });
     const dto = {
       reviewSessionItemId: 'item',
-      quizQuestionId: 'question',
+      reviewQuestionId: 'question',
       reason: 'Need more time',
     };
 

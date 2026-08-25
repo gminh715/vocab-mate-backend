@@ -55,17 +55,6 @@ export class VocabularyAnalyticsQueryDto extends AnalyticsDateRangeQueryDto {
   groupBy?: AnalyticsGroupBy;
 }
 
-export class QuizAnalyticsQueryDto extends AnalyticsDateRangeQueryDto {
-  @ApiPropertyOptional({
-    format: 'uuid',
-    description:
-      'Restricts completed review sessions to this article. A valid UUID with no matching activity returns zero analytics.',
-  })
-  @IsOptional()
-  @IsUUID()
-  articleId?: string;
-}
-
 export class AdminContentAnalyticsQueryDto extends AnalyticsDateRangeQueryDto {
   @ApiPropertyOptional({
     format: 'uuid',

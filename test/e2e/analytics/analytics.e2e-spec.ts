@@ -18,7 +18,6 @@ import {
   AdminContentAnalyticsQueryDto,
   AdminUserAnalyticsQueryDto,
   AnalyticsDateRangeQueryDto,
-  QuizAnalyticsQueryDto,
   resolveAnalyticsDateRange,
 } from '../../../src/modules/analytics/dto/analytics-query.dto';
 import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
@@ -69,7 +68,7 @@ class InMemoryAnalyticsService {
         dueToday: 0,
         mastered: 0,
         articlesCompleted: 0,
-        quizAccuracy: 0,
+        reviewAccuracy: 0,
         sessions: 0,
       };
     }
@@ -78,7 +77,7 @@ class InMemoryAnalyticsService {
       dueToday: 1,
       mastered: 2,
       articlesCompleted: 3,
-      quizAccuracy: 0.75,
+      reviewAccuracy: 0.75,
       sessions: 2,
     };
   }
@@ -120,28 +119,6 @@ class InMemoryAnalyticsService {
       completionRate: userId === 'empty-id' ? 0 : 0.5,
       byCategory: [],
       trend: [{ bucket: '2026-07-23', opened: 0, completed: 0 }],
-    };
-  }
-
-  getQuizAnalytics(userId: string, query: QuizAnalyticsQueryDto) {
-    resolveAnalyticsDateRange(query, new Date('2026-07-24T00:00:00Z'));
-    this.calls.push({ operation: 'quizzes', userId });
-    return {
-      sessions: userId === 'empty-id' ? 0 : 2,
-      accuracy: userId === 'empty-id' ? 0 : 0.75,
-      averageScore: userId === 'empty-id' ? 0 : 0.625,
-      byQuestionType: [
-        'SELECT_MEANING',
-        'SELECT_WORD',
-        'SELECT_CORRECT_CONTEXT',
-        'FILL_BLANK',
-      ].map((questionType) => ({
-        questionType,
-        answers: 0,
-        correctAnswers: 0,
-        accuracy: 0,
-      })),
-      trend: [],
     };
   }
 
@@ -236,19 +213,16 @@ class InMemoryAnalyticsService {
             openedCount: 2,
             completedCount: 1,
             savedVocabularyCount: 1,
-            completedQuizSessions: 1,
           },
         ],
         completionRates: [],
         termSaveCounts: [],
-        quizPerformance: [],
       };
     }
     return {
       topArticles: [],
       completionRates: [],
       termSaveCounts: [],
-      quizPerformance: [],
     };
   }
 
@@ -267,7 +241,7 @@ class InMemoryAnalyticsService {
         inactive: 0,
         readingOnly: 0,
         vocabularyOnly: 0,
-        quizOnly: 0,
+        reviewOnly: 0,
         multiActivity: 0,
       },
     };
@@ -307,7 +281,6 @@ describe('Analytics APIs (e2e)', () => {
     const swagger = JSON.parse(response.text) as AnalyticsSwaggerDocument;
     const overview = swagger.paths['/api/v1/analytics/me/overview'].get;
     const vocabulary = swagger.paths['/api/v1/analytics/me/vocabulary'].get;
-    const quizzes = swagger.paths['/api/v1/analytics/me/quizzes'].get;
     const reviews = swagger.paths['/api/v1/analytics/me/reviews'].get;
     const adminOverview = swagger.paths['/api/v1/admin/analytics/overview'].get;
     const adminContent = swagger.paths['/api/v1/admin/analytics/content'].get;
@@ -334,17 +307,8 @@ describe('Analytics APIs (e2e)', () => {
       'dueToday',
       'mastered',
       'articlesCompleted',
-      'quizAccuracy',
+      'reviewAccuracy',
       'sessions',
-    ]);
-    expect(
-      Object.keys(swagger.components.schemas.QuizAnalyticsDataDto.properties),
-    ).toEqual([
-      'sessions',
-      'accuracy',
-      'averageScore',
-      'byQuestionType',
-      'trend',
     ]);
     expect(
       Object.keys(swagger.components.schemas.ReviewAnalyticsDataDto.properties),
@@ -381,15 +345,7 @@ describe('Analytics APIs (e2e)', () => {
       Object.keys(
         swagger.components.schemas.AdminContentAnalyticsDataDto.properties,
       ),
-    ).toEqual([
-      'topArticles',
-      'completionRates',
-      'termSaveCounts',
-      'quizPerformance',
-    ]);
-    expect(
-      quizzes.parameters.find(({ name }) => name === 'articleId'),
-    ).toBeDefined();
+    ).toEqual(['topArticles', 'completionRates', 'termSaveCounts']);
     expect(
       adminContent.parameters.find(({ name }) => name === 'categoryId'),
     ).toBeDefined();
@@ -404,9 +360,6 @@ describe('Analytics APIs (e2e)', () => {
       .expect(401);
     await request(app.getHttpServer())
       .get('/api/v1/analytics/me/reading')
-      .expect(401);
-    await request(app.getHttpServer())
-      .get('/api/v1/analytics/me/quizzes')
       .expect(401);
     await request(app.getHttpServer())
       .get('/api/v1/analytics/me/reviews')
@@ -433,7 +386,7 @@ describe('Analytics APIs (e2e)', () => {
             dueToday: 0,
             mastered: 0,
             articlesCompleted: 0,
-            quizAccuracy: 0,
+            reviewAccuracy: 0,
             sessions: 0,
           },
         });
@@ -465,21 +418,13 @@ describe('Analytics APIs (e2e)', () => {
     );
   });
 
-  it('scopes reading, quiz, and review analytics to the authenticated learner', async () => {
+  it('scopes reading and review analytics to the authenticated learner', async () => {
     const reading = await request(app.getHttpServer())
       .get('/api/v1/analytics/me/reading')
       .set('Authorization', 'Bearer user-a')
       .expect(200);
     const emptyReading = await request(app.getHttpServer())
       .get('/api/v1/analytics/me/reading')
-      .set('Authorization', 'Bearer empty')
-      .expect(200);
-    const quizzes = await request(app.getHttpServer())
-      .get('/api/v1/analytics/me/quizzes')
-      .set('Authorization', 'Bearer user-a')
-      .expect(200);
-    const emptyQuizzes = await request(app.getHttpServer())
-      .get('/api/v1/analytics/me/quizzes')
       .set('Authorization', 'Bearer empty')
       .expect(200);
     const reviews = await request(app.getHttpServer())
@@ -493,16 +438,12 @@ describe('Analytics APIs (e2e)', () => {
 
     expect(reading.body.data.opened).toBe(2);
     expect(emptyReading.body.data.opened).toBe(0);
-    expect(quizzes.body.data.sessions).toBe(2);
-    expect(emptyQuizzes.body.data.sessions).toBe(0);
     expect(reviews.body.data.sameSessionRetest.successRate).toBe(1);
     expect(emptyReviews.body.data.averageResponseTimeMs).toBeNull();
     expect(analytics.calls).toEqual(
       expect.arrayContaining([
         { operation: 'reading', userId: 'user-a-id' },
         { operation: 'reading', userId: 'empty-id' },
-        { operation: 'quizzes', userId: 'user-a-id' },
-        { operation: 'quizzes', userId: 'empty-id' },
         { operation: 'reviews', userId: 'user-a-id' },
         { operation: 'reviews', userId: 'empty-id' },
       ]),
@@ -571,10 +512,6 @@ describe('Analytics APIs (e2e)', () => {
       .expect(400);
     await request(app.getHttpServer())
       .get('/api/v1/analytics/me/vocabulary?groupBy=quarter')
-      .set('Authorization', 'Bearer user-a')
-      .expect(400);
-    await request(app.getHttpServer())
-      .get('/api/v1/analytics/me/quizzes?articleId=bad')
       .set('Authorization', 'Bearer user-a')
       .expect(400);
     await request(app.getHttpServer())

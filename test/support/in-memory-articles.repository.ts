@@ -36,10 +36,6 @@ import {
 } from '../../src/modules/articles/repositories/articles.repository';
 import { randomUUID } from 'node:crypto';
 
-interface QuizFixture {
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
-}
-
 interface ArticleFixture {
   id: string;
   title: string;
@@ -65,7 +61,6 @@ interface ArticleFixture {
   createdAt?: Date;
   updatedAt?: Date;
   category: { id: string; name: string; slug: string; isActive?: boolean };
-  quizzes: QuizFixture[];
 }
 
 interface SentenceFixture extends ArticleSentenceRecord {
@@ -96,12 +91,6 @@ export class InMemoryArticlesRepository {
         name: 'Technology',
         slug: 'technology',
       },
-      quizzes: [
-        { status: 'PUBLISHED' },
-        { status: 'PUBLISHED' },
-        { status: 'DRAFT' },
-        { status: 'ARCHIVED' },
-      ],
     },
     {
       id: '33333333-3333-4333-8333-333333333333',
@@ -121,7 +110,6 @@ export class InMemoryArticlesRepository {
         name: 'Technology',
         slug: 'technology',
       },
-      quizzes: [{ status: 'DRAFT' }],
     },
     {
       id: '22222222-2222-4222-8222-222222222222',
@@ -141,7 +129,6 @@ export class InMemoryArticlesRepository {
         name: 'Science',
         slug: 'science',
       },
-      quizzes: [{ status: 'PUBLISHED' }],
     },
     {
       id: '44444444-4444-4444-8444-444444444444',
@@ -161,7 +148,6 @@ export class InMemoryArticlesRepository {
         name: 'Technology',
         slug: 'technology',
       },
-      quizzes: [{ status: 'PUBLISHED' }],
     },
     {
       id: '55555555-5555-4555-8555-555555555555',
@@ -183,7 +169,6 @@ export class InMemoryArticlesRepository {
         slug: 'inactive-category',
         isActive: false,
       },
-      quizzes: [{ status: 'PUBLISHED' }],
     },
   ];
   private readonly baseline = structuredClone(this.articles);
@@ -294,8 +279,6 @@ export class InMemoryArticlesRepository {
         publishedAt: article.publishedAt,
       },
       category: { ...article.category },
-      quizCount: article.quizzes.filter(({ status }) => status === 'PUBLISHED')
-        .length,
     });
   }
 
@@ -358,7 +341,6 @@ export class InMemoryArticlesRepository {
                 sentence.isActive
               );
             }).length,
-            quizCount: article.quizzes.length,
           }
         : null,
     );
@@ -449,7 +431,6 @@ export class InMemoryArticlesRepository {
       createdAt: now,
       updatedAt: now,
       category: this.categoryForId(input.categoryId),
-      quizzes: [],
     };
     this.articles.push(article);
     return Promise.resolve(this.toAdmin(article));
@@ -930,8 +911,6 @@ export class InMemoryArticlesRepository {
       status: article.status,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      quizCount: article.quizzes.length,
-      reviewSessionCount: 0,
       reviewAnswerCount: 0,
       ...this.deleteSafety.get(articleId),
     });

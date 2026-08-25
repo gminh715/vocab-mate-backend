@@ -16,7 +16,6 @@ import {
   ReviewDecisionSource,
   ReviewErrorType,
   ReviewSessionStatus,
-  ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../generated/prisma/enums';
 import { AppModule } from '../../../src/app.module';
@@ -27,13 +26,10 @@ import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import { ReviewsService } from '../../../src/modules/reviews/services/reviews.service';
 
-const QUIZ_ID = '11111111-1111-4111-8111-111111111111';
 const QUESTION_ID = '33333333-3333-4333-8333-333333333333';
 const RETRY_QUESTION_ID = '33333333-3333-4333-8333-333333333334';
 const OPTION_ID = '44444444-4444-4444-8444-444444444444';
 const WRONG_OPTION_ID = '44444444-4444-4444-8444-444444444445';
-const ARTICLE_ID = '55555555-5555-4555-8555-555555555555';
-const COLLECTION_ID = '77777777-7777-4777-8777-777777777777';
 const USER_VOCABULARY_ID = '88888888-8888-4888-8888-888888888888';
 const SESSION_ITEM_ID = '99999999-9999-4999-8999-999999999999';
 
@@ -59,10 +55,6 @@ interface StoredSession {
   startedAt: Date;
   completedAt: Date | null;
   outcome: 'PENDING' | 'RETRY' | 'CORRECT' | 'INCORRECT' | 'SKIPPED';
-  sessionType: ReviewSessionType;
-  quizId: string | null;
-  articleId: string | null;
-  collectionId: string | null;
 }
 
 class InMemoryReviewsService {
@@ -74,23 +66,11 @@ class InMemoryReviewsService {
     this.nextId = 1;
   }
 
-  startSession(
-    userId: string,
-    dto: {
-      sessionType: ReviewSessionType;
-      quizId?: string | null;
-      articleId?: string | null;
-      collectionId?: string | null;
-    },
-  ) {
-    this.validateSource(dto);
+  startSession(userId: string) {
     const compatible = [...this.sessions.values()].find(
       (session) =>
         session.userId === userId &&
-        session.status === ReviewSessionStatus.IN_PROGRESS &&
-        session.sessionType === dto.sessionType &&
-        session.quizId === (dto.quizId ?? null) &&
-        session.collectionId === (dto.collectionId ?? null),
+        session.status === ReviewSessionStatus.IN_PROGRESS,
     );
     if (compatible) return this.getSession(userId, compatible.id);
 
@@ -102,13 +82,6 @@ class InMemoryReviewsService {
       startedAt: new Date('2026-08-03T00:00:00Z'),
       completedAt: null,
       outcome: 'PENDING',
-      sessionType: dto.sessionType,
-      quizId: dto.quizId ?? null,
-      articleId:
-        dto.sessionType === ReviewSessionType.QUIZ
-          ? ARTICLE_ID
-          : (dto.articleId ?? null),
-      collectionId: dto.collectionId ?? null,
     });
     return this.getSession(userId, id);
   }
@@ -147,7 +120,7 @@ class InMemoryReviewsService {
     sessionId: string,
     dto: {
       reviewSessionItemId: string;
-      quizQuestionId: string;
+      reviewQuestionId: string;
       selectedOptionId?: string;
       hintsUsed?: number;
     },
@@ -214,7 +187,7 @@ class InMemoryReviewsService {
   skipItem(
     userId: string,
     sessionId: string,
-    dto: { reviewSessionItemId: string; quizQuestionId: string },
+    dto: { reviewSessionItemId: string; reviewQuestionId: string },
   ) {
     const session = this.activeOwned(userId, sessionId);
     this.validateActivePair(session, dto);
@@ -245,7 +218,7 @@ class InMemoryReviewsService {
         session.outcome === 'CORRECT'
           ? [
               {
-                quizQuestionId: QUESTION_ID,
+                reviewQuestionId: QUESTION_ID,
                 questionType: QuestionType.SELECT_MEANING,
                 prompt: 'Choose the meaning',
                 selectedOption: {
@@ -270,23 +243,6 @@ class InMemoryReviewsService {
   getToday() {
     return {
       dueVocabularyCount: 1,
-      recommendedQuizzes: [
-        {
-          id: QUIZ_ID,
-          title: 'Quiz',
-          description: null,
-          publishedAt: new Date('2026-08-01T00:00:00Z'),
-          matchingDueVocabularyCount: 1,
-          activeQuestionCount: 1,
-          totalPoints: 2,
-          article: {
-            id: ARTICLE_ID,
-            title: 'Article',
-            slug: 'article',
-            thumbnailUrl: null,
-          },
-        },
-      ],
     };
   }
 
@@ -305,41 +261,18 @@ class InMemoryReviewsService {
     };
   }
 
-  private validateSource(dto: {
-    sessionType: ReviewSessionType;
-    quizId?: string | null;
-    articleId?: string | null;
-    collectionId?: string | null;
-  }): void {
-    if (dto.sessionType === ReviewSessionType.QUIZ && dto.quizId !== QUIZ_ID) {
-      throw new NotFoundException();
-    }
-    if (
-      dto.sessionType === ReviewSessionType.ARTICLE_REVIEW &&
-      dto.articleId !== ARTICLE_ID
-    ) {
-      throw new NotFoundException();
-    }
-    if (
-      dto.sessionType === ReviewSessionType.COLLECTION_REVIEW &&
-      dto.collectionId !== COLLECTION_ID
-    ) {
-      throw new NotFoundException();
-    }
-  }
-
   private validateActivePair(
     session: StoredSession,
     dto: {
       reviewSessionItemId: string;
-      quizQuestionId: string;
+      reviewQuestionId: string;
     },
   ): void {
     const expectedQuestionId =
       session.outcome === 'RETRY' ? RETRY_QUESTION_ID : QUESTION_ID;
     if (
       dto.reviewSessionItemId !== SESSION_ITEM_ID ||
-      dto.quizQuestionId !== expectedQuestionId
+      dto.reviewQuestionId !== expectedQuestionId
     ) {
       throw new ConflictException();
     }
@@ -367,10 +300,6 @@ class InMemoryReviewsService {
   private publicSession(session: StoredSession) {
     return {
       id: session.id,
-      sessionType: session.sessionType,
-      quizId: session.quizId,
-      articleId: session.articleId,
-      collectionId: session.collectionId,
       status: session.status,
       startedAt: session.startedAt,
       completedAt: session.completedAt,
@@ -459,12 +388,12 @@ describe('Review REST APIs (e2e)', () => {
     expect(answerProperties).toHaveProperty('reviewSessionItemId');
     expect(answerProperties).not.toHaveProperty('attemptNumber');
     expect(
-      response.body.components.schemas.SessionQuestionOptionDto.properties,
+      response.body.components.schemas.SessionReviewQuestionOptionDto
+        .properties,
     ).not.toHaveProperty('isCorrect');
     expect(
-      response.body.components.schemas.StartReviewSessionDto.properties
-        .sessionType.example,
-    ).toBe(ReviewSessionType.DAILY_REVIEW);
+      response.body.components.schemas.StartReviewSessionDto.properties,
+    ).not.toHaveProperty('sessionType');
     expect(answerProperties.hintsUsed.example).toBe(1);
     const createResponses = paths['/api/v1/review-sessions'].post.responses;
     expect(createResponses).toHaveProperty('400');
@@ -496,14 +425,13 @@ describe('Review REST APIs (e2e)', () => {
     });
   });
 
-  it('returns today recommendations without creating a session', async () => {
+  it('returns the Daily Review due count without creating a session', async () => {
     await request(app.getHttpServer())
-      .get(`/api/v1/reviews/today?limit=5&articleId=${ARTICLE_ID}`)
+      .get('/api/v1/reviews/today')
       .set('Authorization', 'Bearer user-a')
       .expect(200)
       .expect(({ body }) => {
         expect(body.data.dueVocabularyCount).toBe(1);
-        expect(body.data.recommendedQuizzes).toHaveLength(1);
       });
     await request(app.getHttpServer())
       .get('/api/v1/review-sessions/active')
@@ -511,75 +439,24 @@ describe('Review REST APIs (e2e)', () => {
       .expect(404);
   });
 
-  it.each([
-    {
-      label: 'daily',
-      payload: { sessionType: ReviewSessionType.DAILY_REVIEW },
-      expected: {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
-        quizId: null,
-        articleId: null,
-        collectionId: null,
-      },
-    },
-    {
-      label: 'article',
-      payload: {
-        sessionType: ReviewSessionType.ARTICLE_REVIEW,
-        articleId: ARTICLE_ID,
-      },
-      expected: {
-        sessionType: ReviewSessionType.ARTICLE_REVIEW,
-        quizId: null,
-        articleId: ARTICLE_ID,
-        collectionId: null,
-      },
-    },
-    {
-      label: 'collection',
-      payload: {
-        sessionType: ReviewSessionType.COLLECTION_REVIEW,
-        collectionId: COLLECTION_ID,
-      },
-      expected: {
-        sessionType: ReviewSessionType.COLLECTION_REVIEW,
-        quizId: null,
-        articleId: null,
-        collectionId: COLLECTION_ID,
-      },
-    },
-    {
-      label: 'fixed quiz',
-      payload: { sessionType: ReviewSessionType.QUIZ, quizId: QUIZ_ID },
-      expected: {
-        sessionType: ReviewSessionType.QUIZ,
-        quizId: QUIZ_ID,
-        articleId: ARTICLE_ID,
-        collectionId: null,
-      },
-    },
-  ])('creates a scoped $label session', async ({ payload, expected }) => {
+  it('creates a Daily Review session', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-a')
-      .send(payload)
+      .send({})
       .expect(201)
       .expect(({ body }) => {
-        expect(body.data.session).toMatchObject(expected);
+        expect(body.data.session).not.toHaveProperty('sessionType');
         expect(body.data.nextItem.userVocabularyId).toBe(USER_VOCABULARY_ID);
       });
   });
 
-  it('creates daily review with null sources, resumes it, answers, and returns its summary', async () => {
+  it('creates Daily Review, resumes it, answers, and returns its summary', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-a')
       .send({
-        sessionType: ReviewSessionType.DAILY_REVIEW,
         limit: 15,
-        articleId: null,
-        collectionId: null,
-        quizId: null,
       })
       .expect(201);
     const sessionId = created.body.data.session.id as string;
@@ -602,7 +479,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: OPTION_ID,
         responseTimeMs: 1_200,
         hintsUsed: 0,
@@ -623,7 +500,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: OPTION_ID,
       })
       .expect(409);
@@ -638,7 +515,7 @@ describe('Review REST APIs (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-a')
-      .send({ sessionType: ReviewSessionType.DAILY_REVIEW })
+      .send({})
       .expect(201);
     const sessionId = created.body.data.session.id as string;
 
@@ -647,7 +524,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: WRONG_OPTION_ID,
       })
       .expect(201)
@@ -693,7 +570,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: RETRY_QUESTION_ID,
+        reviewQuestionId: RETRY_QUESTION_ID,
         selectedOptionId: OPTION_ID,
       })
       .expect(201)
@@ -711,7 +588,7 @@ describe('Review REST APIs (e2e)', () => {
     const failed = await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-a')
-      .send({ sessionType: ReviewSessionType.DAILY_REVIEW })
+      .send({})
       .expect(201);
     const failedSessionId = failed.body.data.session.id as string;
 
@@ -720,7 +597,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: WRONG_OPTION_ID,
       })
       .expect(201);
@@ -729,7 +606,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: RETRY_QUESTION_ID,
+        reviewQuestionId: RETRY_QUESTION_ID,
         selectedOptionId: WRONG_OPTION_ID,
       })
       .expect(201)
@@ -744,14 +621,14 @@ describe('Review REST APIs (e2e)', () => {
     const hinted = await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-b')
-      .send({ sessionType: ReviewSessionType.DAILY_REVIEW })
+      .send({})
       .expect(201);
     await request(app.getHttpServer())
       .post(`/api/v1/review-sessions/${hinted.body.data.session.id}/answers`)
       .set('Authorization', 'Bearer user-b')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: OPTION_ID,
         hintsUsed: 1,
       })
@@ -765,7 +642,7 @@ describe('Review REST APIs (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-a')
-      .send({ quizId: QUIZ_ID })
+      .send({})
       .expect(201);
     const sessionId = created.body.data.session.id as string;
 
@@ -774,7 +651,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
       })
       .expect(200)
       .expect(({ body }) => {
@@ -798,7 +675,7 @@ describe('Review REST APIs (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
       .set('Authorization', 'Bearer user-a')
-      .send({ quizId: QUIZ_ID })
+      .send({})
       .expect(201);
     const sessionId = created.body.data.session.id as string;
 
@@ -811,7 +688,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: OPTION_ID,
       })
       .expect(409);
@@ -820,7 +697,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
         selectedOptionId: OPTION_ID,
         attemptNumber: 1,
       })
@@ -834,7 +711,7 @@ describe('Review REST APIs (e2e)', () => {
       .set('Authorization', 'Bearer user-a')
       .send({
         reviewSessionItemId: SESSION_ITEM_ID,
-        quizQuestionId: QUESTION_ID,
+        reviewQuestionId: QUESTION_ID,
       })
       .expect(409);
   });
@@ -843,7 +720,7 @@ describe('Review REST APIs (e2e)', () => {
     await request(app.getHttpServer()).get('/api/v1/reviews/today').expect(401);
     await request(app.getHttpServer())
       .post('/api/v1/review-sessions')
-      .send({ sessionType: ReviewSessionType.DAILY_REVIEW })
+      .send({})
       .expect(401);
   });
 });

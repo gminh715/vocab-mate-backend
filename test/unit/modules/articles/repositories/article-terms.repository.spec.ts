@@ -32,7 +32,7 @@ describe('ArticleTermsRepository', () => {
   const userVocabulary = {
     count: jest.fn<Promise<number>, [unknown]>(),
   };
-  const quizQuestion = {
+  const reviewQuestion = {
     count: jest.fn<Promise<number>, [unknown]>(),
   };
   const reviewAnswer = {
@@ -43,7 +43,7 @@ describe('ArticleTermsRepository', () => {
     articleSentence,
     articleSentenceTerm,
     userVocabulary,
-    quizQuestion,
+    reviewQuestion,
     reviewAnswer,
   };
   const prisma = {
@@ -97,7 +97,7 @@ describe('ArticleTermsRepository', () => {
     articleSentenceTerm.updateMany.mockResolvedValue({ count: 1 });
     articleSentenceTerm.deleteMany.mockResolvedValue({ count: 1 });
     userVocabulary.count.mockResolvedValue(0);
-    quizQuestion.count.mockResolvedValue(0);
+    reviewQuestion.count.mockResolvedValue(0);
     reviewAnswer.count.mockResolvedValue(0);
   });
 
@@ -266,7 +266,7 @@ describe('ArticleTermsRepository', () => {
   });
 
   it('checks all historical references before changing HTML or deleting', async () => {
-    quizQuestion.count.mockResolvedValue(1);
+    reviewQuestion.count.mockResolvedValue(1);
 
     await expect(
       repository.deleteTermWithMarker(marker),

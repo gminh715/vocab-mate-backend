@@ -1,20 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  CefrLevel,
-  LearningStatus,
-  QuestionType,
-} from '../../../../generated/prisma/enums';
+import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
 import type { ReturnTypeOfAppConfig } from '../../../config/app.config';
 import { APP_CONFIG } from '../../../config/config.module';
 import {
   fillMissingBuckets,
   roundRatio,
-  toRatio,
   toSafeCount,
 } from '../analytics.helpers';
 import {
   type AnalyticsDateRangeQueryDto,
-  type QuizAnalyticsQueryDto,
   resolveAnalyticsDateRange,
   resolveAnalyticsGroupBy,
   type VocabularyAnalyticsQueryDto,
@@ -36,13 +30,6 @@ const CEFR_LEVELS = [
   CefrLevel.C1,
   CefrLevel.C2,
 ] as const;
-const QUESTION_TYPES = [
-  QuestionType.SELECT_MEANING,
-  QuestionType.SELECT_WORD,
-  QuestionType.SELECT_CORRECT_CONTEXT,
-  QuestionType.FILL_BLANK,
-] as const;
-
 @Injectable()
 export class LearnerAnalyticsService {
   constructor(
@@ -80,7 +67,7 @@ export class LearnerAnalyticsService {
       dueToday,
       mastered,
       articlesCompleted,
-      quizAccuracy: roundRatio(correctAnswers, totalAnswers),
+      reviewAccuracy: roundRatio(correctAnswers, totalAnswers),
       sessions,
     };
   }
@@ -172,83 +159,6 @@ export class LearnerAnalyticsService {
           completed: toSafeCount(row.completed),
         }),
         (bucket) => ({ bucket, opened: 0, completed: 0 }),
-      ),
-    };
-  }
-
-  async getQuizAnalytics(
-    userId: string,
-    query: QuizAnalyticsQueryDto,
-    requestTime = new Date(),
-  ) {
-    const range = resolveAnalyticsDateRange(query, requestTime);
-    const groupBy = resolveAnalyticsGroupBy(range);
-    const [sessions, aggregateRows, typeRows, trendRows] = await Promise.all([
-      this.repository.getQuizSessionCount(
-        userId,
-        range.from,
-        range.to,
-        query.articleId,
-      ),
-      this.repository.queryQuizAggregate(
-        userId,
-        range.from,
-        range.to,
-        query.articleId,
-      ),
-      this.repository.queryQuestionTypes(
-        userId,
-        range.from,
-        range.to,
-        query.articleId,
-      ),
-      this.repository.queryQuizTrend(
-        userId,
-        range.from,
-        range.to,
-        groupBy,
-        query.articleId,
-      ),
-    ]);
-    const aggregate = aggregateRows[0] ?? {
-      answers: 0,
-      correctAnswers: 0,
-      averageScore: null,
-    };
-    const answers = toSafeCount(aggregate.answers);
-    const correctAnswers = toSafeCount(aggregate.correctAnswers);
-    const typeCounts = new Map(typeRows.map((row) => [row.questionType, row]));
-    return {
-      sessions,
-      accuracy: roundRatio(correctAnswers, answers),
-      averageScore: toRatio(aggregate.averageScore),
-      byQuestionType: QUESTION_TYPES.map((questionType) => {
-        const row = typeCounts.get(questionType);
-        const typeAnswers = row ? toSafeCount(row.answers) : 0;
-        const typeCorrect = row ? toSafeCount(row.correctAnswers) : 0;
-        return {
-          questionType,
-          answers: typeAnswers,
-          correctAnswers: typeCorrect,
-          accuracy: roundRatio(typeCorrect, typeAnswers),
-        };
-      }),
-      trend: fillMissingBuckets(
-        trendRows,
-        range.from,
-        range.to,
-        groupBy,
-        this.appConfig.analyticsTimezone,
-        (row) => ({
-          bucket: row.bucket,
-          sessions: toSafeCount(row.sessions),
-          accuracy: roundRatio(
-            toSafeCount(row.correctAnswers),
-            toSafeCount(row.answers),
-          ),
-          averageScore: toRatio(row.averageScore),
-        }),
-        (bucket) => ({ bucket, sessions: 0, accuracy: 0, averageScore: 0 }),
       ),
     };
   }

@@ -3,7 +3,7 @@ import { logWarn } from '../../../common/logging/structured-logger';
 import type { AiConfig } from '../../../config/ai.config';
 import { AI_CONFIG } from '../../../config/config.module';
 import {
-  QuestionGenerationSource,
+  ReviewQuestionGenerationSource,
   QuestionType,
 } from '../../../../generated/prisma/enums';
 import type {
@@ -355,10 +355,9 @@ export class AiAssistedQuestionGeneratorService {
   ): GeneratedAiQuestionSpec {
     const vocabulary = candidate.vocabulary;
     return {
-      quizId: null,
       articleSentenceTermId: vocabulary.articleSentenceTermId,
       questionType,
-      generationSource: QuestionGenerationSource.AI,
+      generationSource: ReviewQuestionGenerationSource.AI,
       generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
       difficultyCefr: vocabulary.savedCefrLevel,
       prompt: generated.prompt,
@@ -452,11 +451,11 @@ export class AiAssistedQuestionGeneratorService {
 
   private toPreparedQuestion(
     candidate: AiQuestionGenerationCandidate,
-    quizQuestionId: string,
+    reviewQuestionId: string,
   ): PreparedAiReviewQuestion {
     return {
       userVocabularyId: candidate.vocabulary.id,
-      quizQuestionId,
+      reviewQuestionId,
       articleSentenceTermId: candidate.vocabulary.articleSentenceTermId,
       difficultyCefr: candidate.vocabulary.savedCefrLevel,
       questionType: candidate.questionType,

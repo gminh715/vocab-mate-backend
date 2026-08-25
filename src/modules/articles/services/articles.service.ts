@@ -267,8 +267,6 @@ export class ArticlesService {
     const hasHistory =
       safety.readingProgressCount > 0 ||
       safety.savedVocabularyCount > 0 ||
-      safety.quizCount > 0 ||
-      safety.reviewSessionCount > 0 ||
       safety.reviewAnswerCount > 0;
     if (safety.status !== ArticleStatus.DRAFT || hasHistory) {
       throw new ConflictException(

@@ -64,8 +64,8 @@ try {
       WHERE table_schema = $1
         AND table_name IN (
           'user_vocabularies',
-          'quiz_questions',
-          'question_options',
+          'review_questions',
+          'review_question_options',
           'review_sessions',
           'review_session_items',
           'review_answers',
@@ -83,10 +83,9 @@ try {
           ('user_vocabularies', 'consecutive_correct_reviews'),
           ('user_vocabularies', 'lapse_count'),
           ('user_vocabularies', 'last_review_score'),
-          ('quiz_questions', 'generation_source'),
-          ('quiz_questions', 'generation_version'),
-          ('question_options', 'generation_source'),
-          ('review_sessions', 'collection_id'),
+          ('review_questions', 'generation_source'),
+          ('review_questions', 'generation_version'),
+          ('review_question_options', 'generation_source'),
           ('review_sessions', 'target_duration_minutes'),
           ('review_sessions', 'review_goal'),
           ('review_sessions', 'planned_item_count'),
@@ -102,7 +101,7 @@ try {
     [schemaName],
   );
   assert(
-    requiredColumns.count === 18,
+    requiredColumns.count === 17,
     'Review migration columns are incomplete',
   );
 
@@ -110,7 +109,7 @@ try {
     `SELECT COUNT(*)::int AS count
        FROM information_schema.columns
       WHERE table_schema = $1
-        AND table_name = 'quiz_questions'
+        AND table_name = 'review_questions'
         AND column_name = 'generation_version'
         AND is_nullable = 'YES'`,
     [schemaName],
@@ -188,7 +187,12 @@ try {
        FROM information_schema.columns
       WHERE table_schema = $1
         AND (
-          (table_name = 'quiz_questions' AND column_name = 'article_vocabulary_id')
+          (table_name = 'review_questions' AND column_name IN (
+            'article_vocabulary_id',
+            'quiz_id',
+            'created_by_user_id',
+            'updated_by_user_id'
+          ))
           OR (
             table_name = 'review_answers'
             AND column_name IN (
@@ -196,6 +200,15 @@ try {
               'article_vocabulary_id',
               'user_vocabulary_id',
               'item_type'
+            )
+          )
+          OR (
+            table_name = 'review_sessions'
+            AND column_name IN (
+              'session_type',
+              'quiz_id',
+              'article_id',
+              'collection_id'
             )
           )
         )`,
@@ -209,10 +222,8 @@ try {
       WHERE schemaname = $1
         AND indexname IN (
           'uq_review_sessions_active_daily',
-          'uq_review_sessions_active_quiz',
-          'uq_review_sessions_active_article',
-          'uq_review_sessions_active_collection',
-          'uq_quiz_questions_ai_cache',
+          'idx_review_sessions_active',
+          'uq_review_questions_ai_cache',
           'uq_review_answers_item_attempt',
           'uq_agent_decision_answer_kind',
           'idx_agent_decisions_session_kind',
@@ -220,23 +231,37 @@ try {
         )`,
     [schemaName],
   );
-  assert(indexes.count === 9, 'Review indexes are incomplete');
+  assert(indexes.count === 7, 'Review indexes are incomplete');
 
-  const sessionTypes = await client.query(
-    `SELECT enumlabel
-       FROM pg_enum
-       JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
+  const obsoleteSessionType = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM pg_type
        JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
       WHERE pg_namespace.nspname = $1
         AND pg_type.typname = 'review_session_type'`,
     [schemaName],
   );
   assert(
-    ['QUIZ', 'DAILY_REVIEW', 'ARTICLE_REVIEW', 'COLLECTION_REVIEW'].every(
-      (type) => sessionTypes.rows.some((row) => row.enumlabel === type),
-    ),
-    'Review session source enum is incomplete',
+    obsoleteSessionType.count === 0,
+    'Obsolete review_session_type enum remains',
   );
+
+  const obsoleteQuizSchema = await queryValue(
+    `SELECT (
+       SELECT COUNT(*)::int
+         FROM information_schema.tables
+        WHERE table_schema = $1
+          AND table_name IN ('quizzes', 'quiz_questions', 'question_options')
+     ) + (
+       SELECT COUNT(*)::int
+         FROM pg_type
+         JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+        WHERE pg_namespace.nspname = $1
+          AND pg_type.typname IN ('quiz_status', 'question_generation_source')
+     ) AS count`,
+    [schemaName],
+  );
+  assert(obsoleteQuizSchema.count === 0, 'Obsolete quiz schema remains');
 
   const agentEnumTypes = await queryValue(
     `SELECT COUNT(*)::int AS count

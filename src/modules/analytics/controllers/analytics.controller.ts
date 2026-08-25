@@ -24,12 +24,10 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import {
   AnalyticsDateRangeQueryDto,
-  QuizAnalyticsQueryDto,
   VocabularyAnalyticsQueryDto,
 } from '../dto/analytics-query.dto';
 import {
   AnalyticsOverviewSuccessResponseDto,
-  QuizAnalyticsSuccessResponseDto,
   ReadingAnalyticsSuccessResponseDto,
   ReviewAnalyticsSuccessResponseDto,
   VocabularyAnalyticsSuccessResponseDto,
@@ -55,12 +53,12 @@ export class AnalyticsController {
     operationId: 'getMyAnalyticsOverview',
     summary: 'Get the authenticated learner analytics overview',
     description:
-      'Saved, due, and mastered vocabulary are current stock metrics. Completed articles, completed sessions, and answer-level quiz accuracy use from <= timestamp < to. The default range is 30 days and the maximum is 366 days.',
+      'Saved, due, and mastered vocabulary are current stock metrics. Completed articles, completed Daily Review sessions, and answer-level review accuracy use from <= timestamp < to. The default range is 30 days and the maximum is 366 days.',
   })
   @ApiOkResponse({
     type: AnalyticsOverviewSuccessResponseDto,
     description:
-      'Zero-data response contains numeric zero for all fields, including quizAccuracy.',
+      'Zero-data response contains numeric zero for all fields, including reviewAccuracy.',
   })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
@@ -107,25 +105,6 @@ export class AnalyticsController {
     @Query() query: AnalyticsDateRangeQueryDto,
   ) {
     return this.learnerAnalyticsService.getReadingAnalytics(user.id, query);
-  }
-
-  @Get('me/quizzes')
-  @Version('1')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    operationId: 'getMyQuizAnalytics',
-    summary: 'Get the authenticated learner quiz analytics',
-    description:
-      'Includes only COMPLETED review sessions completed in the requested half-open range. Accuracy is answer-level; averageScore is the mean normalized active-question point ratio across sessions with a non-zero denominator. Zero-data responses include all question types and trend buckets.',
-  })
-  @ApiOkResponse({ type: QuizAnalyticsSuccessResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
-  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
-  getQuizAnalytics(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: QuizAnalyticsQueryDto,
-  ) {
-    return this.learnerAnalyticsService.getQuizAnalytics(user.id, query);
   }
 
   @Get('me/reviews')

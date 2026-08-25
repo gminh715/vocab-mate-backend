@@ -2,12 +2,10 @@
 import { Test } from '@nestjs/testing';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
-  ArticleStatus,
   CefrLevel,
   LearningStatus,
-  QuestionGenerationSource,
+  ReviewQuestionGenerationSource,
   QuestionType,
-  QuizStatus,
   ReviewAgentAction,
   ReviewDecisionKind,
   ReviewDecisionSource,
@@ -15,15 +13,12 @@ import {
   ReviewGoal,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
-  ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../src/database/prisma.service';
 import { REVIEW_QUESTION_PROMPT_VERSION } from '../../../../src/modules/ai/ai.contracts';
 import { QuestionSelectionService } from '../../../../src/modules/reviews/services/question-selection.service';
 import {
-  NoUsableReviewQuestionError,
-  ReviewResourceNotFoundError,
   ReviewSessionsRepository,
   ReviewSubmissionConflictError,
 } from '../../../../src/modules/reviews/repositories/review-sessions.repository';
@@ -36,9 +31,6 @@ import { ReviewQuestionsRepository } from '../../../../src/modules/reviews/repos
 
 describe('ReviewSessionsRepository', () => {
   const query = jest.fn();
-  const quizFindFirst = jest.fn();
-  const articleFindFirst = jest.fn();
-  const collectionFindFirst = jest.fn();
   const sessionFindFirst = jest.fn();
   const sessionCreate = jest.fn();
   const sessionUpdate = jest.fn();
@@ -68,22 +60,19 @@ describe('ReviewSessionsRepository', () => {
   const vocabularyUpdate = jest.fn();
   const tx = {
     $queryRaw: query,
-    quiz: { findFirst: quizFindFirst },
-    article: { findFirst: articleFindFirst },
-    vocabularyCollection: { findFirst: collectionFindFirst },
     reviewSession: {
       findFirst: sessionFindFirst,
       create: sessionCreate,
       update: sessionUpdate,
       updateMany: sessionUpdateMany,
     },
-    quizQuestion: {
+    reviewQuestion: {
       findFirst: questionFindFirst,
       findMany: questionFindMany,
       create: questionCreate,
       createManyAndReturn: questionCreateManyAndReturn,
     },
-    questionOption: { createMany: optionCreateMany },
+    reviewQuestionOption: { createMany: optionCreateMany },
     reviewSessionItem: {
       findFirst: itemFindFirst,
       findMany: itemFindMany,
@@ -160,10 +149,6 @@ describe('ReviewSessionsRepository', () => {
     questionCreateManyAndReturn.mockResolvedValue([]);
     sessionUpdate.mockResolvedValue({
       id: 'session',
-      sessionType: ReviewSessionType.QUIZ,
-      quizId: 'quiz',
-      articleId: 'article',
-      collectionId: null,
       status: ReviewSessionStatus.COMPLETED,
       startedAt: new Date(),
       completedAt: new Date(),
@@ -181,7 +166,7 @@ describe('ReviewSessionsRepository', () => {
               findFirst: sessionFindFirst,
               updateMany: sessionUpdateMany,
             },
-            quizQuestion: {
+            reviewQuestion: {
               count: questionCount,
               findFirst: questionFindFirst,
               findMany: questionFindMany,
@@ -255,10 +240,6 @@ describe('ReviewSessionsRepository', () => {
     };
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: null,
       targetDurationMinutes: 10,
       reviewGoal: ReviewGoal.RECALL,
       plannedItemCount: 1,
@@ -274,7 +255,7 @@ describe('ReviewSessionsRepository', () => {
             savedMeaningVi: 'tiết kiệm',
             savedExplanation: 'Uses resources carefully.',
           },
-          quizQuestion: question,
+          reviewQuestion: question,
           answers: [
             {
               selectedOptionId: null,
@@ -283,7 +264,7 @@ describe('ReviewSessionsRepository', () => {
               skillDimension: ReviewSkillDimension.RECALL,
               errorType: null,
               answeredAt: completedAt,
-              quizQuestion: question,
+              reviewQuestion: question,
             },
             {
               selectedOptionId: null,
@@ -292,7 +273,7 @@ describe('ReviewSessionsRepository', () => {
               skillDimension: ReviewSkillDimension.RECALL,
               errorType: ReviewErrorType.CONFUSABLE_WORD,
               answeredAt: new Date('2026-08-09T01:58:00Z'),
-              quizQuestion: question,
+              reviewQuestion: question,
             },
           ],
         },
@@ -335,10 +316,9 @@ describe('ReviewSessionsRepository', () => {
 
     await expect(
       questionsRepository.cacheAiQuestion({
-        quizId: null,
         articleSentenceTermId: 'term',
         questionType: QuestionType.SELECT_MEANING,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Choose the contextual meaning.',
@@ -367,15 +347,15 @@ describe('ReviewSessionsRepository', () => {
     ).resolves.toEqual({ id: 'created-ai' });
     expect(questionCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         options: {
           create: [
             expect.objectContaining({
-              generationSource: QuestionGenerationSource.AI,
+              generationSource: ReviewQuestionGenerationSource.AI,
               isCorrect: true,
             }),
             expect.objectContaining({
-              generationSource: QuestionGenerationSource.AI,
+              generationSource: ReviewQuestionGenerationSource.AI,
               isCorrect: false,
             }),
           ],
@@ -395,10 +375,9 @@ describe('ReviewSessionsRepository', () => {
 
     await expect(
       questionsRepository.cacheAiQuestion({
-        quizId: null,
         articleSentenceTermId: 'term',
         questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Complete the sentence.',
@@ -429,11 +408,10 @@ describe('ReviewSessionsRepository', () => {
 
     expect(questionFindFirst).toHaveBeenCalledWith({
       where: {
-        quizId: null,
         articleSentenceTermId: 'term',
         difficultyCefr: CefrLevel.B1,
         questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         isActive: true,
       },
@@ -466,7 +444,7 @@ describe('ReviewSessionsRepository', () => {
       ),
     ).resolves.toEqual({
       userVocabularyId: 'vocabulary',
-      quizQuestionId: 'fill-blank',
+      reviewQuestionId: 'fill-blank',
       articleSentenceTermId: 'term',
       difficultyCefr: CefrLevel.B1,
       questionType: QuestionType.FILL_BLANK,
@@ -474,13 +452,12 @@ describe('ReviewSessionsRepository', () => {
     expect(questionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          quizId: null,
           articleSentenceTermId: 'term',
           difficultyCefr: CefrLevel.B1,
           questionType: {
             in: [QuestionType.FILL_BLANK, QuestionType.SELECT_WORD],
           },
-          generationSource: QuestionGenerationSource.AI,
+          generationSource: ReviewQuestionGenerationSource.AI,
           generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
           isActive: true,
         }),
@@ -493,10 +470,9 @@ describe('ReviewSessionsRepository', () => {
 
     await expect(
       questionsRepository.cacheAiQuestion({
-        quizId: null,
         articleSentenceTermId: 'term',
         questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Complete the sentence.',
@@ -512,113 +488,6 @@ describe('ReviewSessionsRepository', () => {
     ).resolves.toEqual({ id: 'existing-ai' });
     expect(questionCreate).not.toHaveBeenCalled();
   });
-
-  it('starts a fixed quiz from eligible saved vocabularies in a Serializable transaction', async () => {
-    quizFindFirst.mockResolvedValue({
-      id: 'quiz',
-      articleId: 'article',
-      questions: [{ articleSentenceTermId: 'term' }],
-    });
-    sessionFindFirst.mockResolvedValue(null);
-    vocabularyFindMany.mockResolvedValue([]).mockResolvedValueOnce([
-      {
-        id: 'vocabulary',
-        articleSentenceTermId: 'term',
-        learningStatus: LearningStatus.REVIEWING,
-        savedWordDisplay: 'word',
-        savedMeaningVi: 'meaning',
-        savedContextSentence: 'A word here.',
-        savedCefrLevel: 'B1',
-        savedAt: new Date(),
-        nextReviewAt: new Date('2026-08-01T00:00:00Z'),
-        reviewIntervalDays: 2,
-        consecutiveCorrectReviews: 1,
-        lapseCount: 0,
-      },
-    ]);
-    questionFindMany.mockResolvedValue([
-      {
-        id: 'question',
-        articleSentenceTermId: 'term',
-        questionType: QuestionType.SELECT_WORD,
-      },
-    ]);
-    itemCreateMany.mockResolvedValue({ count: 1 });
-    sessionCreate.mockResolvedValue({
-      id: 'session',
-      sessionType: ReviewSessionType.QUIZ,
-      quizId: 'quiz',
-      articleId: 'article',
-      status: ReviewSessionStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      completedAt: null,
-    });
-
-    const result = await repository.startSession(
-      'user',
-      {
-        sessionType: ReviewSessionType.QUIZ,
-        quizId: 'quiz',
-        limit: 20,
-      },
-      new Date('2026-08-03T00:00:00Z'),
-    );
-
-    expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
-    expect(quizFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          id: 'quiz',
-          status: QuizStatus.PUBLISHED,
-          article: { is: { status: ArticleStatus.PUBLISHED } },
-          questions: { some: { isActive: true } },
-        },
-      }),
-    );
-    expect(itemCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          userVocabularyId: 'vocabulary',
-          quizQuestionId: 'question',
-          sequenceNumber: 1,
-        }),
-      ],
-    });
-    expect(result?.session.id).toBe('session');
-  });
-
-  it.each(['P2034', 'P2002'])(
-    'retries %s and re-runs the complete Serializable start transaction',
-    async (code) => {
-      transaction
-        .mockRejectedValueOnce({ code })
-        .mockImplementationOnce(
-          (operation: (client: typeof tx) => Promise<unknown>) => operation(tx),
-        );
-      quizFindFirst.mockResolvedValue({
-        id: 'quiz',
-        articleId: 'article',
-        questions: [{ articleSentenceTermId: 'term' }],
-      });
-      sessionFindFirst.mockResolvedValue(null);
-      vocabularyFindMany.mockResolvedValue([]);
-
-      await expect(
-        repository.startSession(
-          'user',
-          {
-            sessionType: ReviewSessionType.QUIZ,
-            quizId: 'quiz',
-            limit: 20,
-          },
-          new Date(),
-        ),
-      ).resolves.toBeNull();
-      expect(transaction).toHaveBeenCalledTimes(2);
-    },
-  );
 
   it('prioritizes overdue, lapsed unscheduled, then NEW vocabulary for daily review', async () => {
     sessionFindFirst.mockResolvedValue(null);
@@ -653,7 +522,7 @@ describe('ReviewSessionsRepository', () => {
         id: `cached-${suffix}`,
         articleSentenceTermId: `term-${suffix}`,
         questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         difficultyCefr: CefrLevel.B1,
         prompt: 'Complete the original sentence with the saved vocabulary.',
         blankSentence: 'A ___ here.',
@@ -666,10 +535,6 @@ describe('ReviewSessionsRepository', () => {
     );
     sessionCreate.mockResolvedValue({
       id: 'daily-session',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: null,
       status: ReviewSessionStatus.IN_PROGRESS,
       startedAt: new Date(),
       completedAt: null,
@@ -678,11 +543,11 @@ describe('ReviewSessionsRepository', () => {
 
     await repository.startSession(
       'user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 3 },
+      { limit: 3 },
       new Date('2026-08-03T00:00:00Z'),
       ['overdue', 'unscheduled', 'new'].map((suffix) => ({
         userVocabularyId: suffix,
-        quizQuestionId: `cached-${suffix}`,
+        reviewQuestionId: `cached-${suffix}`,
         articleSentenceTermId: `term-${suffix}`,
         difficultyCefr: CefrLevel.B1,
         questionType: QuestionType.FILL_BLANK,
@@ -755,7 +620,7 @@ describe('ReviewSessionsRepository', () => {
       const candidates =
         await questionsRepository.getAiQuestionGenerationCandidates(
           'owner',
-          { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 1 },
+          { limit: 1 },
           new Date('2026-08-03T00:00:00Z'),
         );
 
@@ -811,7 +676,6 @@ describe('ReviewSessionsRepository', () => {
       await questionsRepository.getAiQuestionGenerationCandidates(
         'owner',
         {
-          sessionType: ReviewSessionType.DAILY_REVIEW,
           limit: 4,
           reviewGoal: ReviewGoal.BALANCED,
         },
@@ -826,13 +690,13 @@ describe('ReviewSessionsRepository', () => {
     ]);
     expect(
       candidates.map(
-        ({ cachedQuestion }) => cachedQuestion?.quizQuestionId ?? null,
+        ({ cachedQuestion }) => cachedQuestion?.reviewQuestionId ?? null,
       ),
     ).toEqual(['meaning-cache-1', null, null, null]);
     expect(questionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          generationSource: QuestionGenerationSource.AI,
+          generationSource: ReviewQuestionGenerationSource.AI,
           generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         }),
       }),
@@ -840,14 +704,14 @@ describe('ReviewSessionsRepository', () => {
   });
 
   it('uses the same owner-scoped past-or-null eligibility for today due count', async () => {
-    query.mockResolvedValueOnce([{ count: 4 }]).mockResolvedValueOnce([]);
+    query.mockResolvedValueOnce([{ count: 4 }]);
     const now = new Date('2026-08-03T00:00:00Z');
 
     await expect(
-      repository.getDueRecommendations('owner', { limit: 2 }, now),
-    ).resolves.toEqual({ dueVocabularyCount: 4, recommendedQuizzes: [] });
+      repository.getDueRecommendations('owner', now),
+    ).resolves.toEqual({ dueVocabularyCount: 4 });
 
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledTimes(1);
     const countQuery = query.mock.calls[0][0] as Prisma.Sql;
     expect(countQuery.sql).toContain('uv.user_id = ?::uuid');
     expect(countQuery.sql).toContain('uv.next_review_at <= ?');
@@ -1146,10 +1010,6 @@ describe('ReviewSessionsRepository', () => {
     sessionFindFirst
       .mockResolvedValueOnce({
         id: 'session',
-        sessionType: ReviewSessionType.DAILY_REVIEW,
-        quizId: null,
-        articleId: null,
-        collectionId: null,
         planSummary: null,
         status: ReviewSessionStatus.IN_PROGRESS,
         startedAt,
@@ -1157,10 +1017,6 @@ describe('ReviewSessionsRepository', () => {
       })
       .mockResolvedValueOnce({
         id: 'session',
-        sessionType: ReviewSessionType.DAILY_REVIEW,
-        quizId: null,
-        articleId: null,
-        collectionId: null,
         planSummary: 'Prioritize the overdue item.',
         status: ReviewSessionStatus.IN_PROGRESS,
         startedAt,
@@ -1286,10 +1142,6 @@ describe('ReviewSessionsRepository', () => {
   it('applies persisted feedback and a different cached AI retest in a second short transaction', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: null,
       status: ReviewSessionStatus.IN_PROGRESS,
       startedAt: new Date(),
       completedAt: null,
@@ -1299,7 +1151,7 @@ describe('ReviewSessionsRepository', () => {
         id: 'item',
         userVocabularyId: 'vocabulary',
         retryCount: 1,
-        quizQuestion: {
+        reviewQuestion: {
           id: 'fallback-question',
           articleSentenceTermId: 'term',
           questionType: QuestionType.SELECT_WORD,
@@ -1353,7 +1205,7 @@ describe('ReviewSessionsRepository', () => {
       expectedAttemptNumber: 1,
       preparedRetestQuestion: {
         userVocabularyId: 'vocabulary',
-        quizQuestionId: 'ai-retest',
+        reviewQuestionId: 'ai-retest',
         articleSentenceTermId: 'term',
         difficultyCefr: CefrLevel.B1,
         questionType: QuestionType.SELECT_CORRECT_CONTEXT,
@@ -1383,7 +1235,7 @@ describe('ReviewSessionsRepository', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           id: 'ai-retest',
-          generationSource: QuestionGenerationSource.AI,
+          generationSource: ReviewQuestionGenerationSource.AI,
           questionType: QuestionType.SELECT_CORRECT_CONTEXT,
         }),
       }),
@@ -1400,7 +1252,7 @@ describe('ReviewSessionsRepository', () => {
     expect(itemUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'item' },
-        data: { quizQuestionId: 'ai-retest' },
+        data: { reviewQuestionId: 'ai-retest' },
       }),
     );
     expect(itemUpdate).toHaveBeenCalledWith(
@@ -1420,10 +1272,6 @@ describe('ReviewSessionsRepository', () => {
   it('persists a non-requeue intervention without replacing or moving the deterministic retest', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: null,
       status: ReviewSessionStatus.IN_PROGRESS,
       startedAt: new Date(),
       completedAt: null,
@@ -1433,7 +1281,7 @@ describe('ReviewSessionsRepository', () => {
         id: 'item',
         userVocabularyId: 'vocabulary',
         retryCount: 1,
-        quizQuestion: {
+        reviewQuestion: {
           id: 'fallback-question',
           articleSentenceTermId: 'term',
           questionType: QuestionType.SELECT_WORD,
@@ -1537,7 +1385,7 @@ describe('ReviewSessionsRepository', () => {
       id: 'item',
       userVocabularyId: 'vocabulary',
       retryCount: 2,
-      quizQuestion: {
+      reviewQuestion: {
         id: 'fallback-question',
         articleSentenceTermId: 'term',
         questionType: QuestionType.SELECT_WORD,
@@ -1577,378 +1425,9 @@ describe('ReviewSessionsRepository', () => {
     expect(decisionCreate).not.toHaveBeenCalled();
   });
 
-  it('selects collection review vocabulary only through that owned collection', async () => {
-    sessionFindFirst.mockResolvedValue(null);
-    collectionFindFirst.mockResolvedValue({ id: 'collection' });
-    vocabularyFindMany
-      .mockResolvedValueOnce([reviewVocabulary])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    questionFindMany.mockResolvedValue([
-      {
-        id: 'cached-question',
-        articleSentenceTermId: reviewVocabulary.articleSentenceTermId,
-        questionType: QuestionType.FILL_BLANK,
-        generationSource: QuestionGenerationSource.AI,
-        difficultyCefr: CefrLevel.B1,
-        prompt: 'Complete the original sentence with the saved vocabulary.',
-        blankSentence: 'A ___ here.',
-        correctAnswerText: 'word',
-        answerExplanation: null,
-        isCaseSensitive: false,
-        points: 1,
-        options: [],
-      },
-    ]);
-    sessionCreate.mockResolvedValue({
-      id: 'collection-session',
-      sessionType: ReviewSessionType.COLLECTION_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: 'collection',
-      status: ReviewSessionStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      completedAt: null,
-    });
-    itemCreateMany.mockResolvedValue({ count: 1 });
-
-    await repository.startSession(
-      'owner',
-      {
-        sessionType: ReviewSessionType.COLLECTION_REVIEW,
-        collectionId: 'collection',
-        limit: 20,
-      },
-      new Date('2026-08-03T00:00:00Z'),
-      [
-        {
-          userVocabularyId: reviewVocabulary.id,
-          quizQuestionId: 'cached-question',
-          articleSentenceTermId: reviewVocabulary.articleSentenceTermId,
-          difficultyCefr: CefrLevel.B1,
-          questionType: QuestionType.FILL_BLANK,
-        },
-      ],
-    );
-
-    expect(collectionFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'collection', userId: 'owner' } }),
-    );
-    for (const call of vocabularyFindMany.mock.calls.slice(0, 3)) {
-      expect(call[0].where).toEqual(
-        expect.objectContaining({
-          userId: 'owner',
-          collectionItems: { some: { collectionId: 'collection' } },
-        }),
-      );
-    }
-    expect(itemCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          userVocabularyId: reviewVocabulary.id,
-          sequenceNumber: 1,
-        }),
-      ],
-    });
-  });
-
-  it('reuses a compatible in-progress collection session without rematerializing items', async () => {
-    collectionFindFirst.mockResolvedValue({ id: 'collection' });
-    sessionFindFirst.mockResolvedValue({
-      id: 'existing',
-      sessionType: ReviewSessionType.COLLECTION_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: 'collection',
-      status: ReviewSessionStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      completedAt: null,
-    });
-    itemCount.mockResolvedValueOnce(2).mockResolvedValueOnce(1);
-    itemFindFirst.mockResolvedValue(null);
-
-    const result = await repository.startSession(
-      'owner',
-      {
-        sessionType: ReviewSessionType.COLLECTION_REVIEW,
-        collectionId: 'collection',
-        limit: 20,
-      },
-      new Date(),
-    );
-
-    expect(collectionFindFirst).not.toHaveBeenCalled();
-    expect(result?.session.id).toBe('existing');
-    expect(vocabularyFindMany).not.toHaveBeenCalled();
-    expect(sessionCreate).not.toHaveBeenCalled();
-  });
-
-  it('rejects a collection source that is not owned by the user', async () => {
-    sessionFindFirst.mockResolvedValue(null);
-    collectionFindFirst.mockResolvedValue(null);
-
-    await expect(
-      repository.startSession(
-        'owner',
-        {
-          sessionType: ReviewSessionType.COLLECTION_REVIEW,
-          collectionId: 'foreign-collection',
-          limit: 20,
-        },
-        new Date(),
-      ),
-    ).rejects.toBeInstanceOf(ReviewResourceNotFoundError);
-    expect(collectionFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'foreign-collection', userId: 'owner' },
-      }),
-    );
-    expect(sessionCreate).not.toHaveBeenCalled();
-  });
-
-  it('revalidates and attaches only the prepared AI question inside the start transaction', async () => {
-    articleFindFirst.mockResolvedValue({ id: 'article' });
-    sessionFindFirst.mockResolvedValue(null);
-    vocabularyFindMany
-      .mockResolvedValue([])
-      .mockResolvedValueOnce([reviewVocabulary]);
-    questionFindMany.mockResolvedValue([
-      {
-        id: 'prepared-ai-question',
-        articleSentenceTermId: 'term',
-        difficultyCefr: CefrLevel.B1,
-        questionType: QuestionType.FILL_BLANK,
-      },
-    ]);
-    sessionCreate.mockResolvedValue({
-      id: 'article-session',
-      sessionType: ReviewSessionType.ARTICLE_REVIEW,
-      quizId: null,
-      articleId: 'article',
-      collectionId: null,
-      status: ReviewSessionStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      completedAt: null,
-    });
-    itemCreateMany.mockResolvedValue({ count: 1 });
-
-    await repository.startSession(
-      'owner',
-      {
-        sessionType: ReviewSessionType.ARTICLE_REVIEW,
-        articleId: 'article',
-        limit: 20,
-      },
-      new Date('2026-08-03T00:00:00Z'),
-      [
-        {
-          userVocabularyId: 'vocabulary',
-          quizQuestionId: 'prepared-ai-question',
-          articleSentenceTermId: 'term',
-          difficultyCefr: CefrLevel.B1,
-          questionType: QuestionType.FILL_BLANK,
-        },
-      ],
-      2,
-    );
-
-    expect(articleFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'article', status: ArticleStatus.PUBLISHED },
-      }),
-    );
-    expect(questionFindMany).toHaveBeenCalledTimes(1);
-    expect(questionFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: { in: ['prepared-ai-question'] },
-          generationSource: QuestionGenerationSource.AI,
-        }),
-      }),
-    );
-    expect(itemCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          userVocabularyId: 'vocabulary',
-          quizQuestionId: 'prepared-ai-question',
-        }),
-      ],
-    });
-    expect(questionCreateManyAndReturn).not.toHaveBeenCalled();
-    expect(optionCreateMany).not.toHaveBeenCalled();
-    expect(sessionCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ aiCallCount: 2 }),
-      }),
-    );
-  });
-
-  it('refuses to create a partial session when a prepared AI question is unavailable', async () => {
-    const target = {
-      ...reviewVocabulary,
-      learningStatus: LearningStatus.NEW,
-      consecutiveCorrectReviews: 0,
-      lastReviewScore: null,
-    };
-    const distractor = {
-      ...reviewVocabulary,
-      id: 'distractor',
-      articleSentenceTermId: 'distractor-term',
-      savedWordDisplay: 'different',
-      savedLemma: 'different',
-      savedMeaningVi: 'khác',
-      savedContextSentence: 'A different term here.',
-    };
-    articleFindFirst.mockResolvedValue({ id: 'article' });
-    sessionFindFirst.mockResolvedValue(null);
-    vocabularyFindMany
-      .mockResolvedValue([])
-      .mockResolvedValueOnce([target, distractor]);
-    questionFindMany.mockResolvedValue([
-      {
-        id: 'available-question',
-        articleSentenceTermId: 'term',
-        difficultyCefr: CefrLevel.B1,
-        questionType: QuestionType.SELECT_MEANING,
-      },
-    ]);
-    sessionCreate.mockResolvedValue({
-      id: 'article-session',
-      sessionType: ReviewSessionType.ARTICLE_REVIEW,
-      quizId: null,
-      articleId: 'article',
-      collectionId: null,
-      status: ReviewSessionStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      completedAt: null,
-    });
-    itemCreateMany.mockResolvedValue({ count: 1 });
-
-    await expect(
-      repository.startSession(
-        'owner',
-        {
-          sessionType: ReviewSessionType.ARTICLE_REVIEW,
-          articleId: 'article',
-          limit: 2,
-        },
-        new Date('2026-08-03T00:00:00Z'),
-        [
-          {
-            userVocabularyId: 'vocabulary',
-            quizQuestionId: 'available-question',
-            articleSentenceTermId: 'term',
-            difficultyCefr: CefrLevel.B1,
-            questionType: QuestionType.SELECT_MEANING,
-          },
-          {
-            userVocabularyId: 'distractor',
-            quizQuestionId: 'missing-question',
-            articleSentenceTermId: 'distractor-term',
-            difficultyCefr: CefrLevel.B1,
-            questionType: QuestionType.SELECT_MEANING,
-          },
-        ],
-      ),
-    ).rejects.toBeInstanceOf(NoUsableReviewQuestionError);
-
-    expect(sessionCreate).not.toHaveBeenCalled();
-    expect(itemCreateMany).not.toHaveBeenCalled();
-    expect(questionCreateManyAndReturn).not.toHaveBeenCalled();
-    expect(optionCreateMany).not.toHaveBeenCalled();
-  });
-
-  it('does not create a session when no prepared AI question remains usable', async () => {
-    articleFindFirst.mockResolvedValue({ id: 'article' });
-    sessionFindFirst.mockResolvedValue(null);
-    vocabularyFindMany
-      .mockResolvedValue([])
-      .mockResolvedValueOnce([reviewVocabulary]);
-    questionFindMany.mockResolvedValue([]);
-
-    await expect(
-      repository.startSession(
-        'owner',
-        {
-          sessionType: ReviewSessionType.ARTICLE_REVIEW,
-          articleId: 'article',
-          limit: 1,
-        },
-        new Date('2026-08-03T00:00:00Z'),
-        [
-          {
-            userVocabularyId: 'vocabulary',
-            quizQuestionId: 'missing-question',
-            articleSentenceTermId: 'term',
-            difficultyCefr: CefrLevel.B1,
-            questionType: QuestionType.SELECT_MEANING,
-          },
-        ],
-      ),
-    ).rejects.toBeInstanceOf(NoUsableReviewQuestionError);
-    expect(sessionCreate).not.toHaveBeenCalled();
-    expect(itemCreateMany).not.toHaveBeenCalled();
-  });
-
-  it('selects SELECT_CORRECT_CONTEXT for a fixed quiz after low recent accuracy', async () => {
-    quizFindFirst.mockResolvedValue({
-      id: 'quiz',
-      articleId: 'article',
-      questions: [{ articleSentenceTermId: 'term' }],
-    });
-    sessionFindFirst.mockResolvedValue(null);
-    vocabularyFindMany.mockResolvedValueOnce([reviewVocabulary]);
-    query.mockResolvedValue([
-      {
-        userVocabularyId: 'vocabulary',
-        questionType: QuestionType.SELECT_WORD,
-        isCorrect: false,
-      },
-      {
-        userVocabularyId: 'vocabulary',
-        questionType: QuestionType.SELECT_MEANING,
-        isCorrect: false,
-      },
-    ]);
-    questionFindMany.mockResolvedValue([
-      {
-        id: 'meaning-question',
-        articleSentenceTermId: 'term',
-        questionType: QuestionType.SELECT_MEANING,
-      },
-      {
-        id: 'context-question',
-        articleSentenceTermId: 'term',
-        questionType: QuestionType.SELECT_CORRECT_CONTEXT,
-      },
-    ]);
-    sessionCreate.mockResolvedValue({
-      id: 'quiz-session',
-      sessionType: ReviewSessionType.QUIZ,
-      quizId: 'quiz',
-      articleId: 'article',
-      collectionId: null,
-      status: ReviewSessionStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      completedAt: null,
-    });
-    itemCreateMany.mockResolvedValue({ count: 1 });
-
-    await repository.startSession(
-      'owner',
-      { sessionType: ReviewSessionType.QUIZ, quizId: 'quiz', limit: 1 },
-      new Date('2026-08-03T00:00:00Z'),
-    );
-
-    expect(itemCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ quizQuestionId: 'context-question' })],
-    });
-  });
-
   it('scopes session and answer progress by owner/session and selects first unanswered', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      quizId: 'quiz',
       planSummary: 'Review recall first, then reinforce meaning in context.',
       status: ReviewSessionStatus.IN_PROGRESS,
     });
@@ -1986,7 +1465,7 @@ describe('ReviewSessionsRepository', () => {
   it('reveals every fill-blank character once in a shuffled order', async () => {
     itemFindFirst.mockResolvedValue({
       id: 'item',
-      quizQuestion: {
+      reviewQuestion: {
         id: 'question',
         questionType: QuestionType.FILL_BLANK,
         correctAnswerText: 'take into account',
@@ -2038,10 +1517,6 @@ describe('ReviewSessionsRepository', () => {
   it('restores persisted feedback only while its owner-scoped item is pending', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: null,
       status: ReviewSessionStatus.IN_PROGRESS,
       startedAt: new Date(),
       completedAt: null,
@@ -2089,7 +1564,6 @@ describe('ReviewSessionsRepository', () => {
   it('loads persisted answer-submission facts without grading or scoring them', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      quizId: 'quiz',
       status: ReviewSessionStatus.IN_PROGRESS,
     });
     itemFindFirst.mockResolvedValue({
@@ -2098,7 +1572,7 @@ describe('ReviewSessionsRepository', () => {
       retryCount: 0,
       sequenceNumber: 1,
       _count: { answers: 0 },
-      quizQuestion: {
+      reviewQuestion: {
         id: 'question',
         articleSentenceTermId: 'term',
         questionType: QuestionType.SELECT_MEANING,
@@ -2111,22 +1585,18 @@ describe('ReviewSessionsRepository', () => {
     });
     vocabularyFindUnique.mockResolvedValue(reviewVocabulary);
     itemFindMany.mockResolvedValue([{ id: 'next-item', sequenceNumber: 2 }]);
-    questionFindMany
-      .mockResolvedValueOnce([
-        { id: 'quiz-retry', questionType: QuestionType.SELECT_WORD },
-      ])
-      .mockResolvedValueOnce([
-        { id: 'cached-retry', questionType: QuestionType.FILL_BLANK },
-      ]);
+    questionFindMany.mockResolvedValueOnce([
+      { id: 'cached-retry', questionType: QuestionType.FILL_BLANK },
+    ]);
 
     const context = await repository.getAnswerSubmissionContext(
       'owner',
       'session',
-      { reviewSessionItemId: 'item', quizQuestionId: 'question' },
+      { reviewSessionItemId: 'item', reviewQuestionId: 'question' },
     );
 
     expect(context).toMatchObject({
-      session: { id: 'session', quizId: 'quiz' },
+      session: { id: 'session' },
       item: {
         id: 'item',
         retryCount: 0,
@@ -2135,10 +1605,9 @@ describe('ReviewSessionsRepository', () => {
       },
       vocabulary: { id: 'vocabulary' },
       pendingItemsAfterCurrent: [{ id: 'next-item', sequenceNumber: 2 }],
-      retryQuestionCandidates: {
-        quiz: [{ id: 'quiz-retry', questionType: QuestionType.SELECT_WORD }],
-        cached: [{ id: 'cached-retry', questionType: QuestionType.FILL_BLANK }],
-      },
+      retryQuestionCandidates: [
+        { id: 'cached-retry', questionType: QuestionType.FILL_BLANK },
+      ],
     });
     expect(answerCreate).not.toHaveBeenCalled();
     expect(vocabularyUpdate).not.toHaveBeenCalled();
@@ -2147,7 +1616,6 @@ describe('ReviewSessionsRepository', () => {
   it('atomically commits precomputed answer values and revalidates the snapshot', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      quizId: 'quiz',
       status: ReviewSessionStatus.IN_PROGRESS,
     });
     itemFindFirst.mockResolvedValue({
@@ -2156,7 +1624,7 @@ describe('ReviewSessionsRepository', () => {
       retryCount: 0,
       sequenceNumber: 1,
       _count: { answers: 0 },
-      quizQuestion: { id: 'question' },
+      reviewQuestion: { id: 'question' },
     });
     answerCreate.mockResolvedValue({ id: 'answer' });
     vocabularyUpdate.mockResolvedValue({ id: 'vocabulary' });
@@ -2169,7 +1637,7 @@ describe('ReviewSessionsRepository', () => {
       expected: {
         sessionId: 'session',
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         retryCount: 0,
         answerCount: 0,
         userVocabularyId: 'vocabulary',
@@ -2232,7 +1700,6 @@ describe('ReviewSessionsRepository', () => {
   it('maps a concurrent duplicate commit to a submission conflict', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      quizId: 'quiz',
       status: ReviewSessionStatus.IN_PROGRESS,
     });
     itemFindFirst.mockResolvedValue({
@@ -2241,7 +1708,7 @@ describe('ReviewSessionsRepository', () => {
       retryCount: 0,
       sequenceNumber: 1,
       _count: { answers: 0 },
-      quizQuestion: { id: 'question' },
+      reviewQuestion: { id: 'question' },
     });
     answerCreate.mockRejectedValue({ code: 'P2002' });
 
@@ -2250,7 +1717,7 @@ describe('ReviewSessionsRepository', () => {
         expected: {
           sessionId: 'session',
           reviewSessionItemId: 'item',
-          quizQuestionId: 'question',
+          reviewQuestionId: 'question',
           retryCount: 0,
           answerCount: 0,
           userVocabularyId: null,
@@ -2296,10 +1763,6 @@ describe('ReviewSessionsRepository', () => {
   it('skips, reschedules, and completes the session in one transaction', async () => {
     sessionFindFirst.mockResolvedValue({
       id: 'session',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      quizId: null,
-      articleId: null,
-      collectionId: null,
       status: ReviewSessionStatus.IN_PROGRESS,
       startedAt: new Date('2026-08-03T00:00:00Z'),
       completedAt: null,
@@ -2309,11 +1772,11 @@ describe('ReviewSessionsRepository', () => {
       userVocabularyId: 'vocabulary',
       retryCount: 0,
       _count: { answers: 0 },
-      quizQuestion: { id: 'question' },
+      reviewQuestion: { id: 'question' },
     });
     vocabularyUpdate.mockResolvedValue({ id: 'vocabulary' });
     itemFindMany.mockResolvedValue([
-      { quizQuestion: { points: 1 }, answers: [] },
+      { reviewQuestion: { points: 1 }, answers: [] },
     ]);
 
     const result = await repository.skipItem(
@@ -2321,7 +1784,7 @@ describe('ReviewSessionsRepository', () => {
       'session',
       {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
       },
       {
         learningStatus: LearningStatus.LEARNING,

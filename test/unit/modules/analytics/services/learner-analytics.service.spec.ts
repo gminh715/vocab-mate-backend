@@ -2,7 +2,6 @@
 import {
   CefrLevel,
   LearningStatus,
-  QuestionType,
 } from '../../../../../generated/prisma/enums';
 import { LearnerAnalyticsRepository } from '../../../../../src/modules/analytics/repositories/learner-analytics.repository';
 import { LearnerAnalyticsService } from '../../../../../src/modules/analytics/services/learner-analytics.service';
@@ -15,10 +14,6 @@ describe('LearnerAnalyticsService', () => {
     getReadingCounts: jest.fn(),
     queryReadingCategories: jest.fn(),
     queryReadingTrend: jest.fn(),
-    getQuizSessionCount: jest.fn(),
-    queryQuizAggregate: jest.fn(),
-    queryQuestionTypes: jest.fn(),
-    queryQuizTrend: jest.fn(),
   } as unknown as LearnerAnalyticsRepository;
   const service = new LearnerAnalyticsService(repository, {
     port: 3000,
@@ -35,10 +30,6 @@ describe('LearnerAnalyticsService', () => {
     jest.mocked(repository.getReadingCounts).mockResolvedValue([0, 0]);
     jest.mocked(repository.queryReadingCategories).mockResolvedValue([]);
     jest.mocked(repository.queryReadingTrend).mockResolvedValue([]);
-    jest.mocked(repository.getQuizSessionCount).mockResolvedValue(0);
-    jest.mocked(repository.queryQuizAggregate).mockResolvedValue([]);
-    jest.mocked(repository.queryQuestionTypes).mockResolvedValue([]);
-    jest.mocked(repository.queryQuizTrend).mockResolvedValue([]);
   });
 
   it('returns the unchanged zero-data overview contract', async () => {
@@ -49,7 +40,7 @@ describe('LearnerAnalyticsService', () => {
       dueToday: 0,
       mastered: 0,
       articlesCompleted: 0,
-      quizAccuracy: 0,
+      reviewAccuracy: 0,
       sessions: 0,
     });
   });
@@ -70,28 +61,5 @@ describe('LearnerAnalyticsService', () => {
       { bucket: '2026-07-02', count: 0 },
       { bucket: '2026-07-03', count: 0 },
     ]);
-  });
-
-  it('keeps answer accuracy distinct from normalized quiz score and fills question types', async () => {
-    jest.mocked(repository.getQuizSessionCount).mockResolvedValue(1);
-    jest
-      .mocked(repository.queryQuizAggregate)
-      .mockResolvedValue([
-        { answers: 4n, correctAnswers: 3n, averageScore: 0.625 },
-      ]);
-    const result = await service.getQuizAnalytics('owner-id', {
-      from: '2026-07-01T00:00:00Z',
-      to: '2026-07-02T00:00:00Z',
-    });
-    expect(result.accuracy).toBe(0.75);
-    expect(result.averageScore).toBe(0.625);
-    expect(result.byQuestionType).toEqual(
-      Object.values(QuestionType).map((questionType) => ({
-        questionType,
-        answers: 0,
-        correctAnswers: 0,
-        accuracy: 0,
-      })),
-    );
   });
 });

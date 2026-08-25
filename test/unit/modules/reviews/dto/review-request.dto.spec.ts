@@ -6,52 +6,13 @@ import {
   StartReviewSessionDto,
   SubmitReviewAnswerDto,
 } from '../../../../../src/modules/reviews/dto/review-request.dto';
-import {
-  ReviewGoal,
-  ReviewSessionType,
-} from '../../../../../generated/prisma/enums';
+import { ReviewGoal } from '../../../../../generated/prisma/enums';
 
 const QUESTION_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('Review request DTOs', () => {
-  it.each([
-    [ReviewSessionType.DAILY_REVIEW, { reviewGoal: ReviewGoal.BALANCED }],
-    [ReviewSessionType.QUIZ, { quizId: QUESTION_ID }],
-    [ReviewSessionType.ARTICLE_REVIEW, { articleId: QUESTION_ID }],
-    [ReviewSessionType.COLLECTION_REVIEW, { collectionId: QUESTION_ID }],
-  ])('accepts the valid %s source shape', async (sessionType, source) => {
-    const dto = plainToInstance(StartReviewSessionDto, {
-      sessionType,
-      ...source,
-    });
-    await expect(validate(dto)).resolves.toHaveLength(0);
-  });
-
-  it('requires the identifier belonging to the selected source type', async () => {
-    const dto = plainToInstance(StartReviewSessionDto, {
-      sessionType: ReviewSessionType.COLLECTION_REVIEW,
-    });
-    expect((await validate(dto)).map(({ property }) => property)).toContain(
-      'collectionId',
-    );
-  });
-
-  it('accepts explicit null identifiers for an unscoped daily review', async () => {
-    const dto = plainToInstance(StartReviewSessionDto, {
-      sessionType: ReviewSessionType.DAILY_REVIEW,
-      limit: 15,
-      articleId: null,
-      collectionId: null,
-      quizId: null,
-      reviewGoal: ReviewGoal.BALANCED,
-    });
-
-    await expect(validate(dto)).resolves.toHaveLength(0);
-  });
-
   it('accepts only UUID preparation identifiers', async () => {
     const valid = plainToInstance(StartReviewSessionDto, {
-      sessionType: ReviewSessionType.DAILY_REVIEW,
       preparationId: QUESTION_ID,
       reviewGoal: ReviewGoal.BALANCED,
     });
@@ -67,7 +28,6 @@ describe('Review request DTOs', () => {
     'accepts the %i-minute daily plan contract',
     async (targetDurationMinutes) => {
       const dto = plainToInstance(StartReviewSessionDto, {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
         targetDurationMinutes,
         reviewGoal: ReviewGoal.SPELLING,
       });
@@ -78,7 +38,6 @@ describe('Review request DTOs', () => {
 
   it('rejects unsupported duration and goal values', async () => {
     const dto = plainToInstance(StartReviewSessionDto, {
-      sessionType: ReviewSessionType.DAILY_REVIEW,
       targetDurationMinutes: 7,
       reviewGoal: 'GRAMMAR',
     });
@@ -115,7 +74,7 @@ describe('Review request DTOs', () => {
   it('rejects negative response time and hint counts', async () => {
     const dto = plainToInstance(SubmitReviewAnswerDto, {
       reviewSessionItemId: QUESTION_ID,
-      quizQuestionId: QUESTION_ID,
+      reviewQuestionId: QUESTION_ID,
       selectedOptionId: QUESTION_ID,
       responseTimeMs: -1,
       hintsUsed: -1,
@@ -130,7 +89,7 @@ describe('Review request DTOs', () => {
   it('rejects client-controlled attempt numbers through whitelist validation', async () => {
     const dto = plainToInstance(SubmitReviewAnswerDto, {
       reviewSessionItemId: QUESTION_ID,
-      quizQuestionId: QUESTION_ID,
+      reviewQuestionId: QUESTION_ID,
       selectedOptionId: QUESTION_ID,
       attemptNumber: 2,
     });

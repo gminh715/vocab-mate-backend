@@ -59,7 +59,6 @@ These are prerequisite fixes because agent behavior will amplify existing state 
 | Progress can regress in the FE | `transitionItem` advances locally, but the review session query is not updated with the latest `progress` and `nextQuestion`. | Patch the session query cache after answer/skip, or return a complete session transition object and set it atomically. |
 | Summary misses incorrect-answer details | Navigation state contains only aggregate metrics and disables the summary query. | Always load the persisted summary, using navigation metrics only as temporary placeholder data. |
 | Exit does not abandon | The FE Exit button navigates home without calling the existing abandon endpoint. | Add `reviewsApi.abandon`, a mutation hook, and a confirmation dialog. |
-| Available features are not exposed | Recommended quiz data, article review, review history, and learner quiz start paths exist partly or fully in the backend but are not connected in learner UI. | Connect them incrementally after the core review state is reliable. |
 | AI prewarming can exhaust free quota | `warmCache` iterates over every candidate and preferred type, potentially issuing many sequential provider calls before session creation. | Enforce a small generation budget, generate only for the selected plan, and add a bounded batch contract later. Reuse valid cached AI questions; new questions use Gemini with Groq fallback only. |
 
 ## 3. Product outcome
@@ -447,15 +446,14 @@ Rollout requirements:
 
 ## 7. API contract evolution
 
-All changes should remain backward compatible during rollout. Existing clients that send only `sessionType` and `limit` must continue to work.
+The review API exposes Daily Review only. Source-specific session fields are not part of the contract.
 
 ### 7.1 Start session
 
-Extend `POST /api/v1/review-sessions`:
+Request body for `POST /api/v1/review-sessions`:
 
 ```json
 {
-  "sessionType": "DAILY_REVIEW",
   "limit": 20,
   "targetDurationMinutes": 10,
   "reviewGoal": "BALANCED"
@@ -466,7 +464,6 @@ Validation:
 
 - duration is optional and must be one of `5`, `10`, or `15`;
 - goal is optional and must be a known enum;
-- source-ID rules for quiz/article/collection sessions remain unchanged;
 - the server remains free to select fewer items than `limit`.
 
 Extend the response with an optional plan:
@@ -550,8 +547,8 @@ Generate the first summary deterministically. An AI-written summary is optional 
 
 - `POST /review-sessions/:id/abandon`
 - `GET /reviews/history`
-- `recommendedQuizzes` from `GET /reviews/today`
-- learner entry points for `ARTICLE_REVIEW` and `QUIZ`
+- `GET /reviews/today` for the current Daily Review due count
+- the single learner entry point for Daily Review
 
 No new endpoint is needed solely to expose “the agent.” Agent behavior should be part of the existing review workflow.
 
@@ -731,14 +728,9 @@ The UI should not use the word “agent” on every answer. It should feel like 
 - Add a recommended next focus.
 - Connect review history in a later FE PR using the existing paginated API.
 
-### 9.6 Additional learner entry points
+### 9.6 Daily Review entry points
 
-After the daily flow is stable:
-
-- render `recommendedQuizzes` on Dashboard;
-- add “Review words from this article” to the published article reader when eligible words exist;
-- expose quiz start from learner-facing quiz cards;
-- preserve current collection review behavior.
+Learner review entry points should route to the single Daily Review flow. They must not create source-specific sessions.
 
 ### 9.7 Accessibility and localization
 
@@ -1074,7 +1066,7 @@ Avoid creating separate provider routers, generic repository interfaces, use-cas
 - `src/pages/Review/ReviewPage.tsx`
 - `src/pages/Review/ReviewSummaryPage.tsx`
 - `src/components/Dashboard/ReviewReadyCard.tsx`
-- article/quiz learner components when their entry points are connected
+- article learner components when their entry points are connected
 - existing locale resource files
 
 ### Justified new frontend components

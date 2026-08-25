@@ -6,11 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
-import {
-  ReviewGoal,
-  ReviewSessionType,
-  UserRole,
-} from '../../../generated/prisma/enums';
+import { ReviewGoal, UserRole } from '../../../generated/prisma/enums';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../../../src/app.module';
@@ -160,7 +156,6 @@ describe('HTTP security and throttling (e2e)', () => {
       .expect(429);
 
     const reviewRequest = {
-      sessionType: ReviewSessionType.DAILY_REVIEW,
       reviewGoal: ReviewGoal.RECALL,
     };
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -213,7 +208,7 @@ describe('HTTP security and throttling (e2e)', () => {
   it('throttles answer flows that can trigger diagnosis and AI retests', async () => {
     const answerRequest = {
       reviewSessionItemId: REVIEW_ITEM_ID,
-      quizQuestionId: QUESTION_ID,
+      reviewQuestionId: QUESTION_ID,
       selectedOptionId: OPTION_ID,
     };
     for (let attempt = 0; attempt < 20; attempt += 1) {

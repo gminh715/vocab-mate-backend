@@ -5,7 +5,6 @@ import {
   ArticleStatus,
   type CefrLevel,
   LexicalUnitType,
-  QuizStatus,
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
@@ -45,7 +44,6 @@ export interface PublicArticleMetadataRecord {
 export interface PublicArticleDetailRecord {
   article: PublicArticleMetadataRecord;
   category: PublicArticleCategoryRecord;
-  quizCount: number;
 }
 
 export interface FindPublishedArticlesQuery {
@@ -125,7 +123,6 @@ export interface AdminArticleDetailRecord {
   article: AdminArticleRecord;
   sentenceCount: number;
   termCount: number;
-  quizCount: number;
 }
 
 export interface CreateArticleInput {
@@ -246,8 +243,6 @@ export interface ArticleDeleteSafetyRecord {
   status: ArticleStatus;
   readingProgressCount: number;
   savedVocabularyCount: number;
-  quizCount: number;
-  reviewSessionCount: number;
   reviewAnswerCount: number;
 }
 
@@ -639,11 +634,6 @@ export class ArticlesRepository {
       select: {
         ...publicArticleMetadataSelect,
         category: { select: publicCategorySelect },
-        _count: {
-          select: {
-            quizzes: { where: { status: QuizStatus.PUBLISHED } },
-          },
-        },
       },
     });
 
@@ -651,8 +641,8 @@ export class ArticlesRepository {
       return null;
     }
 
-    const { category, _count, ...article } = result;
-    return { article, category, quizCount: _count.quizzes };
+    const { category, ...article } = result;
+    return { article, category };
   }
 
   async findAdminArticles(
@@ -712,9 +702,7 @@ export class ArticlesRepository {
           sentence: { is: currentSentenceWhere },
         },
       });
-      const quizCount = await tx.quiz.count({ where: { articleId } });
-
-      return { article, sentenceCount, termCount, quizCount };
+      return { article, sentenceCount, termCount };
     });
   }
 
@@ -933,15 +921,11 @@ export class ArticlesRepository {
       const savedVocabularyCount = await tx.userVocabulary.count({
         where: termRelation,
       });
-      const quizCount = await tx.quiz.count({ where: { articleId } });
-      const reviewSessionCount = await tx.reviewSession.count({
-        where: { articleId },
-      });
       const reviewAnswerCount = await tx.reviewAnswer.count({
         where: {
           reviewSessionItem: {
             is: {
-              quizQuestion: {
+              reviewQuestion: {
                 is: {
                   articleSentenceTerm: {
                     is: { sentence: { is: { articleId } } },
@@ -957,8 +941,6 @@ export class ArticlesRepository {
         ...article,
         readingProgressCount,
         savedVocabularyCount,
-        quizCount,
-        reviewSessionCount,
         reviewAnswerCount,
       };
     });

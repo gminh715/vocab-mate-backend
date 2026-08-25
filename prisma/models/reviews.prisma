@@ -1,10 +1,6 @@
 model ReviewSession {
   id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId                String              @map("user_id") @db.Uuid
-  sessionType           ReviewSessionType   @map("session_type")
-  quizId                String?             @map("quiz_id") @db.Uuid
-  articleId             String?             @map("article_id") @db.Uuid
-  collectionId          String?             @map("collection_id") @db.Uuid
   status                ReviewSessionStatus @default(IN_PROGRESS)
   targetDurationMinutes Int?                @map("target_duration_minutes") @db.SmallInt
   reviewGoal            ReviewGoal?         @map("review_goal")
@@ -19,20 +15,12 @@ model ReviewSession {
   updatedAt             DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   user           User                  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_user")
-  quiz           Quiz?                 @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_quiz")
-  article        Article?              @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_article")
-  collection     VocabularyCollection? @relation(fields: [collectionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_sessions_collection")
   items          ReviewSessionItem[]
   agentDecisions ReviewAgentDecision[]
 
-  @@unique([userId], map: "uq_review_sessions_active_daily", where: raw("status = 'IN_PROGRESS' AND session_type = 'DAILY_REVIEW'"))
-  @@unique([userId, quizId], map: "uq_review_sessions_active_quiz", where: raw("status = 'IN_PROGRESS' AND session_type = 'QUIZ'"))
-  @@unique([userId, articleId], map: "uq_review_sessions_active_article", where: raw("status = 'IN_PROGRESS' AND session_type = 'ARTICLE_REVIEW'"))
-  @@unique([userId, collectionId], map: "uq_review_sessions_active_collection", where: raw("status = 'IN_PROGRESS' AND session_type = 'COLLECTION_REVIEW'"))
+  @@unique([userId], map: "uq_review_sessions_active_daily", where: raw("status = 'IN_PROGRESS'"))
   @@index([userId, startedAt(sort: Desc)], map: "idx_review_sessions_user_started")
-  @@index([quizId], map: "idx_review_sessions_quiz", where: raw("quiz_id IS NOT NULL"))
-  @@index([collectionId], map: "idx_review_sessions_collection", where: raw("collection_id IS NOT NULL"))
-  @@index([userId, status, sessionType], map: "idx_review_sessions_active", where: raw("status = 'IN_PROGRESS'"))
+  @@index([userId, status], map: "idx_review_sessions_active", where: raw("status = 'IN_PROGRESS'"))
   @@map("review_sessions")
 }
 
@@ -40,7 +28,7 @@ model ReviewSessionItem {
   id                 String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   reviewSessionId    String                  @map("review_session_id") @db.Uuid
   userVocabularyId   String?                 @map("user_vocabulary_id") @db.Uuid
-  quizQuestionId     String                  @map("quiz_question_id") @db.Uuid
+  reviewQuestionId   String                  @map("review_question_id") @db.Uuid
   sequenceNumber     Int                     @map("sequence_number")
   status             ReviewSessionItemStatus @default(PENDING)
   retryCount         Int                     @default(0) @map("retry_count") @db.SmallInt
@@ -51,12 +39,12 @@ model ReviewSessionItem {
 
   reviewSession  ReviewSession         @relation(fields: [reviewSessionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_session")
   userVocabulary UserVocabulary?       @relation(fields: [userVocabularyId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_review_session_items_user_vocabulary")
-  quizQuestion   QuizQuestion          @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_quiz_question")
+  reviewQuestion ReviewQuestion        @relation(fields: [reviewQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_session_items_review_question")
   answers        ReviewAnswer[]
   agentDecisions ReviewAgentDecision[]
 
   @@unique([reviewSessionId, sequenceNumber], map: "uq_review_session_items_sequence")
-  @@unique([reviewSessionId, quizQuestionId], map: "uq_review_session_items_question")
+  @@unique([reviewSessionId, reviewQuestionId], map: "uq_review_session_items_question")
   @@index([reviewSessionId, status, sequenceNumber], map: "idx_review_session_items_active", where: raw("status = 'PENDING'"))
   @@index([userVocabularyId, createdAt(sort: Desc)], map: "idx_review_session_items_vocabulary_history", where: raw("user_vocabulary_id IS NOT NULL"))
   @@map("review_session_items")
@@ -65,7 +53,7 @@ model ReviewSessionItem {
 model ReviewAnswer {
   id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   reviewSessionItemId String                @map("review_session_item_id") @db.Uuid
-  quizQuestionId      String                @map("quiz_question_id") @db.Uuid
+  reviewQuestionId    String                @map("review_question_id") @db.Uuid
   selectedOptionId    String?               @map("selected_option_id") @db.Uuid
   userAnswerText      String?               @map("user_answer_text") @db.Text
   isCorrect           Boolean?              @map("is_correct")
@@ -79,13 +67,13 @@ model ReviewAnswer {
   createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
 
   reviewSessionItem ReviewSessionItem     @relation(fields: [reviewSessionItemId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_session_item")
-  quizQuestion      QuizQuestion          @relation(fields: [quizQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_quiz_question")
-  selectedOption    QuestionOption?       @relation(fields: [selectedOptionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_selected_option")
+  reviewQuestion    ReviewQuestion        @relation(fields: [reviewQuestionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_review_question")
+  selectedOption    ReviewQuestionOption? @relation(fields: [selectedOptionId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_review_answers_selected_option")
   agentDecisions    ReviewAgentDecision[]
 
   @@unique([reviewSessionItemId, attemptNumber], map: "uq_review_answers_item_attempt")
   @@index([reviewSessionItemId, answeredAt(sort: Desc)], map: "idx_review_answers_item_history")
-  @@index([quizQuestionId], map: "idx_review_answers_quiz_question")
+  @@index([reviewQuestionId], map: "idx_review_answers_review_question")
   @@map("review_answers")
 }
 

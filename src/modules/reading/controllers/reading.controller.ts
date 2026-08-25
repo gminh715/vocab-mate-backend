@@ -181,7 +181,7 @@ export class ReadingController {
     operationId: 'deleteReadingProgressByArticleId',
     summary: 'Delete only the authenticated user article-progress row',
     description:
-      'Does not delete saved vocabulary, collections, quizzes, or review history. Archived-article progress may still be reset by its owner.',
+      'Does not delete saved vocabulary, collections, or review history. Archived-article progress may still be reset by its owner.',
   })
   @ApiNoContentResponse({ description: 'Reading progress deleted.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

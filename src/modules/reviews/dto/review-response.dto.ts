@@ -1,15 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import {
-  ArticleStatus,
   QuestionType,
-  QuizStatus,
   ReviewAgentAction,
   ReviewDecisionSource,
   ReviewErrorType,
   ReviewGoal,
   ReviewSessionStatus,
-  ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import {
@@ -37,14 +34,6 @@ export class ReviewPreparationProgressDataDto {
 export class ReviewSessionDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
-  @ApiProperty({ enum: ReviewSessionType })
-  sessionType!: ReviewSessionType;
-  @ApiProperty({ format: 'uuid', nullable: true })
-  quizId!: string | null;
-  @ApiProperty({ format: 'uuid', nullable: true })
-  articleId!: string | null;
-  @ApiProperty({ format: 'uuid', nullable: true })
-  collectionId!: string | null;
   @ApiPropertyOptional({ enum: [5, 10, 15], nullable: true })
   targetDurationMinutes!: number | null;
   @ApiPropertyOptional({ enum: ReviewGoal, nullable: true })
@@ -66,7 +55,7 @@ export class ReviewSessionDto {
   completedAt!: Date | null;
 }
 
-export class SessionQuestionOptionDto {
+export class SessionReviewQuestionOptionDto {
   @ApiProperty({
     format: 'uuid',
     example: '8cc0eb2c-f9d1-4d87-ab2f-13b381a13017',
@@ -99,8 +88,8 @@ export class SessionQuestionDto {
   points!: number;
   @ApiProperty()
   displayOrder!: number;
-  @ApiProperty({ type: [SessionQuestionOptionDto] })
-  options!: SessionQuestionOptionDto[];
+  @ApiProperty({ type: [SessionReviewQuestionOptionDto] })
+  options!: SessionReviewQuestionOptionDto[];
 }
 
 export class RevealedReviewHintDataDto {
@@ -271,35 +260,9 @@ export class ReviewAggregateDto {
   accuracy!: number;
 }
 
-export class ReviewHistoryQuizDto {
-  @ApiProperty({ format: 'uuid' })
-  id!: string;
-  @ApiProperty()
-  title!: string;
-  @ApiProperty({ enum: QuizStatus })
-  status!: QuizStatus;
-}
-
-export class ReviewHistoryArticleDto {
-  @ApiProperty({ format: 'uuid' })
-  id!: string;
-  @ApiProperty()
-  title!: string;
-  @ApiProperty()
-  slug!: string;
-  @ApiProperty({ enum: ArticleStatus })
-  status!: ArticleStatus;
-  @ApiProperty({ nullable: true })
-  thumbnailUrl!: string | null;
-}
-
 export class ReviewHistoryItemDto {
   @ApiProperty({ type: ReviewSessionDto })
   session!: ReviewSessionDto;
-  @ApiProperty({ type: ReviewHistoryQuizDto, nullable: true })
-  quiz!: ReviewHistoryQuizDto | null;
-  @ApiProperty({ type: ReviewHistoryArticleDto, nullable: true })
-  article!: ReviewHistoryArticleDto | null;
   @ApiProperty({ type: ReviewAggregateDto })
   aggregates!: ReviewAggregateDto;
 }
@@ -313,13 +276,13 @@ export class ReviewHistoryDataDto {
 
 export class ReviewResultAnswerDto {
   @ApiProperty({ format: 'uuid' })
-  quizQuestionId!: string;
+  reviewQuestionId!: string;
   @ApiProperty({ enum: QuestionType })
   questionType!: QuestionType;
   @ApiProperty()
   prompt!: string;
-  @ApiProperty({ type: SessionQuestionOptionDto, nullable: true })
-  selectedOption!: SessionQuestionOptionDto | null;
+  @ApiProperty({ type: SessionReviewQuestionOptionDto, nullable: true })
+  selectedOption!: SessionReviewQuestionOptionDto | null;
   @ApiProperty({ nullable: true })
   userAnswerText!: string | null;
   @ApiProperty()
@@ -391,66 +354,9 @@ export class CompletedReviewResultDataDto {
   wordsToRevisit!: ReviewWordToRevisitDto[];
 }
 
-export class DueReviewArticleDto {
-  @ApiProperty({ format: 'uuid' })
-  id!: string;
-  @ApiProperty()
-  title!: string;
-  @ApiProperty()
-  slug!: string;
-  @ApiProperty({ nullable: true })
-  thumbnailUrl!: string | null;
-}
-
-export class RecommendedQuizDto {
-  @ApiProperty({ format: 'uuid' })
-  id!: string;
-  @ApiProperty()
-  title!: string;
-  @ApiProperty({ nullable: true })
-  description!: string | null;
-  @ApiProperty({ format: 'date-time', nullable: true })
-  publishedAt!: Date | null;
-  @ApiProperty()
-  matchingDueVocabularyCount!: number;
-  @ApiProperty()
-  activeQuestionCount!: number;
-  @ApiProperty()
-  totalPoints!: number;
-  @ApiProperty({ type: DueReviewArticleDto })
-  article!: DueReviewArticleDto;
-}
-
 export class DueReviewsDataDto {
   @ApiProperty()
   dueVocabularyCount!: number;
-  @ApiProperty({ type: () => [DailyReviewEstimateDto] })
-  dailyReviewEstimates!: DailyReviewEstimateDto[];
-  @ApiProperty({ type: [RecommendedQuizDto] })
-  recommendedQuizzes!: RecommendedQuizDto[];
-}
-
-export class DailyReviewEstimateDto {
-  @ApiProperty({ enum: [5, 10, 15] })
-  targetDurationMinutes!: number;
-  @ApiProperty({
-    minimum: 0,
-    description: 'Backward-compatible estimate for the BALANCED review goal.',
-  })
-  estimatedItemCount!: number;
-  @ApiProperty({
-    type: () => [DailyReviewGoalEstimateDto],
-    description:
-      'Goal-specific estimates ordered as BALANCED, RECALL, SPELLING, CONTEXT.',
-  })
-  goalEstimates!: DailyReviewGoalEstimateDto[];
-}
-
-export class DailyReviewGoalEstimateDto {
-  @ApiProperty({ enum: ReviewGoal })
-  reviewGoal!: ReviewGoal;
-  @ApiProperty({ minimum: 0 })
-  estimatedItemCount!: number;
 }
 
 const successResponse = <T>(dataType: new () => T) => {

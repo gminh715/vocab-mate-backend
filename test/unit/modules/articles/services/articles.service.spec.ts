@@ -130,7 +130,6 @@ describe('ArticlesService', () => {
         name: 'Technology',
         slug: 'technology',
       },
-      quizCount: 2,
     };
     repository.findPublishedBySlug.mockResolvedValue(detail);
 
@@ -404,8 +403,6 @@ describe('ArticlesService', () => {
       status: ArticleStatus.DRAFT,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      quizCount: 0,
-      reviewSessionCount: 0,
       reviewAnswerCount: 0,
     });
 
@@ -421,8 +418,6 @@ describe('ArticlesService', () => {
       status: ArticleStatus.DRAFT,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      quizCount: 0,
-      reviewSessionCount: 0,
       reviewAnswerCount: 0,
     });
     repository.delete.mockRejectedValue(
@@ -440,8 +435,6 @@ describe('ArticlesService', () => {
     { status: ArticleStatus.PUBLISHED },
     { status: ArticleStatus.DRAFT, readingProgressCount: 1 },
     { status: ArticleStatus.DRAFT, savedVocabularyCount: 1 },
-    { status: ArticleStatus.DRAFT, quizCount: 1 },
-    { status: ArticleStatus.DRAFT, reviewSessionCount: 1 },
     { status: ArticleStatus.DRAFT, reviewAnswerCount: 1 },
   ])('blocks unsafe deletion: $status', async (override) => {
     repository.findDeleteSafety.mockResolvedValue({
@@ -449,8 +442,6 @@ describe('ArticlesService', () => {
       status: ArticleStatus.DRAFT,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      quizCount: 0,
-      reviewSessionCount: 0,
       reviewAnswerCount: 0,
       ...override,
     });

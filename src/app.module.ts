@@ -15,7 +15,6 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { HealthModule } from './modules/health/health.module';
 import { NewsIngestionModule } from './modules/news-ingestion/news-ingestion.module';
-import { QuizzesModule } from './modules/quizzes/quizzes.module';
 import { ReadingModule } from './modules/reading/reading.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { UsersModule } from './modules/users/users.module';
@@ -42,7 +41,6 @@ import { VocabulariesModule } from './modules/vocabularies/vocabularies.module';
     ReadingModule,
     VocabulariesModule,
     CollectionsModule,
-    QuizzesModule,
     ReviewsModule,
     AnalyticsModule,
   ],

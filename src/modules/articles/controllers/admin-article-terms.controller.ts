@@ -183,7 +183,7 @@ export class AdminArticleTermsController {
     operationId: 'deleteAdminArticleTermById',
     summary: 'Delete an unused contextual term and unwrap its marker',
     description:
-      'Hard deletion is rejected when vocabulary, quiz, or review history references the term. HTML unwrapping and deletion are atomic.',
+      'Hard deletion is rejected when vocabulary or review history references the term. HTML unwrapping and deletion are atomic.',
   })
   @ApiNoContentResponse({ description: 'Unused term deleted.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

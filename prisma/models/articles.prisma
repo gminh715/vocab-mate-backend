@@ -31,8 +31,6 @@ model Article {
   updatedBy      User                  @relation("ArticleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_articles_updated_by")
   sentences      ArticleSentence[]
   readerProgress UserArticleProgress[]
-  quizzes        Quiz[]
-  reviewSessions ReviewSession[]
 
   @@unique([importSource, externalId], map: "uq_articles_import_source_external_id", where: raw("import_source IS NOT NULL AND external_id IS NOT NULL"))
   @@unique([canonicalUrl], map: "uq_articles_canonical_url", where: raw("canonical_url IS NOT NULL"))
@@ -109,7 +107,7 @@ model ArticleSentenceTerm {
   createdBy        User             @relation("ArticleSentenceTermCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_article_sentence_terms_created_by")
   updatedBy        User             @relation("ArticleSentenceTermUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_article_sentence_terms_updated_by")
   userVocabularies UserVocabulary[]
-  quizQuestions    QuizQuestion[]
+  reviewQuestions  ReviewQuestion[]
 
   @@index([cefrLevel, isActive, isLookupEnabled], map: "idx_article_sentence_terms_cefr_active")
   @@index([sentenceId, isLookupEnabled, isActive], map: "idx_article_sentence_terms_sentence_lookup")

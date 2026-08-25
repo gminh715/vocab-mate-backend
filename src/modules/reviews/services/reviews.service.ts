@@ -6,7 +6,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type {
-  GetDueReviewsQueryDto,
   GetReviewHistoryQueryDto,
   SkipReviewSessionItemDto,
   StartReviewSessionDto,
@@ -15,7 +14,6 @@ import type {
 import {
   InvalidAnswerRelationshipError,
   InvalidAnswerShapeError,
-  InvalidReviewSourceShapeError,
   NoUsableReviewQuestionError,
   ReviewConcurrencyConflictError,
   ReviewResourceNotFoundError,
@@ -31,10 +29,7 @@ import {
 } from '../repositories/review-agent.repository';
 import type { PreparedAiReviewQuestion } from '../repositories/review-questions.repository';
 import { ReviewAnswerTransactionService } from './review-answer-transaction.service';
-import {
-  QuestionType,
-  ReviewSessionType,
-} from '../../../../generated/prisma/enums';
+import { QuestionType } from '../../../../generated/prisma/enums';
 import { AiAssistedQuestionGeneratorService } from './ai-assisted-question-generator.service';
 import {
   type AnswerDiagnosisDecisionRequest,
@@ -70,23 +65,13 @@ export class ReviewsService {
     }
     try {
       const now = new Date();
-      const dueVocabularyCount =
-        dto.sessionType === ReviewSessionType.DAILY_REVIEW
-          ? (
-              await this.reviewsRepository.getDueRecommendations(
-                userId,
-                { limit: 1 },
-                now,
-              )
-            ).dueVocabularyCount
-          : null;
-      const effectiveDto =
-        dto.sessionType === ReviewSessionType.DAILY_REVIEW
-          ? {
-              ...dto,
-              limit: Math.max(dueVocabularyCount ?? 0, 1),
-            }
-          : dto;
+      const dueVocabularyCount = (
+        await this.reviewsRepository.getDueRecommendations(userId, now)
+      ).dueVocabularyCount;
+      const effectiveDto = {
+        ...dto,
+        limit: Math.max(dueVocabularyCount, 1),
+      };
       let initialAiCallCount = 0;
       if (preparationId) {
         this.preparationProgress.update(userId, preparationId, {
@@ -376,17 +361,9 @@ export class ReviewsService {
     return this.getResult(userId, sessionId);
   }
 
-  async getToday(userId: string, query: GetDueReviewsQueryDto) {
+  async getToday(userId: string) {
     const now = new Date();
-    const recommendations = await this.reviewsRepository.getDueRecommendations(
-      userId,
-      query,
-      now,
-    );
-    return {
-      ...recommendations,
-      dailyReviewEstimates: [],
-    };
+    return this.reviewsRepository.getDueRecommendations(userId, now);
   }
 
   private mapError(error: unknown): never {
@@ -398,11 +375,6 @@ export class ReviewsService {
     }
     if (error instanceof InvalidAnswerShapeError) {
       throw new BadRequestException(error.message);
-    }
-    if (error instanceof InvalidReviewSourceShapeError) {
-      throw new BadRequestException(
-        'Review session source does not match its type',
-      );
     }
     if (error instanceof NoUsableReviewQuestionError) {
       throw new ServiceUnavailableException(

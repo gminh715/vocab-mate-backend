@@ -461,19 +461,19 @@ export class ArticleTermsRepository {
         },
       });
       if (currentTermCount !== 1) throw new ArticleTermStateConflictError();
-      const [savedVocabularyCount, quizQuestionCount, reviewAnswerCount] =
+      const [savedVocabularyCount, reviewQuestionCount, reviewAnswerCount] =
         await Promise.all([
           tx.userVocabulary.count({
             where: { articleSentenceTermId: marker.termId },
           }),
-          tx.quizQuestion.count({
+          tx.reviewQuestion.count({
             where: { articleSentenceTermId: marker.termId },
           }),
           tx.reviewAnswer.count({
             where: {
               reviewSessionItem: {
                 is: {
-                  quizQuestion: {
+                  reviewQuestion: {
                     is: { articleSentenceTermId: marker.termId },
                   },
                 },
@@ -483,7 +483,7 @@ export class ArticleTermsRepository {
         ]);
       if (
         savedVocabularyCount > 0 ||
-        quizQuestionCount > 0 ||
+        reviewQuestionCount > 0 ||
         reviewAnswerCount > 0
       ) {
         throw new ArticleTermReferencedError();

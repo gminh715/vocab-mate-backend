@@ -421,7 +421,7 @@ export class ArticleTermsService {
         hasPrismaCode(error, 'P2003')
       ) {
         throw new ConflictException(
-          'Term is referenced by vocabulary, quiz, or review history and cannot be deleted',
+          'Term is referenced by vocabulary or review history and cannot be deleted',
         );
       }
       this.mapWriteError(error);

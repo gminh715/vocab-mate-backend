@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
-  IsDefined,
   IsIn,
   IsInt,
   IsISO8601,
@@ -14,12 +13,10 @@ import {
   MaxLength,
   Min,
   MinLength,
-  ValidateIf,
 } from 'class-validator';
 import {
   ReviewGoal,
   ReviewSessionStatus,
-  ReviewSessionType,
 } from '../../../../generated/prisma/enums';
 import {
   REVIEW_TARGET_DURATIONS,
@@ -42,61 +39,6 @@ export class StartReviewSessionDto {
   @IsOptional()
   @IsUUID()
   preparationId?: string;
-
-  @ApiPropertyOptional({
-    enum: ReviewSessionType,
-    default: ReviewSessionType.QUIZ,
-    example: ReviewSessionType.DAILY_REVIEW,
-    description:
-      'Review source. Supply only the identifier required by the selected source type.',
-  })
-  @IsOptional()
-  @IsEnum(ReviewSessionType)
-  sessionType: ReviewSessionType = ReviewSessionType.QUIZ;
-
-  @ApiPropertyOptional({
-    format: 'uuid',
-    nullable: true,
-    example: null,
-    description: 'Required only for a fixed QUIZ session.',
-  })
-  @ValidateIf(
-    (dto: StartReviewSessionDto) =>
-      dto.sessionType === ReviewSessionType.QUIZ || dto.quizId != null,
-  )
-  @IsDefined()
-  @IsUUID()
-  quizId?: string | null;
-
-  @ApiPropertyOptional({
-    format: 'uuid',
-    nullable: true,
-    example: null,
-    description: 'Required only for ARTICLE_REVIEW.',
-  })
-  @ValidateIf(
-    (dto: StartReviewSessionDto) =>
-      dto.sessionType === ReviewSessionType.ARTICLE_REVIEW ||
-      dto.articleId != null,
-  )
-  @IsDefined()
-  @IsUUID()
-  articleId?: string | null;
-
-  @ApiPropertyOptional({
-    format: 'uuid',
-    nullable: true,
-    example: null,
-    description: 'Required only for COLLECTION_REVIEW.',
-  })
-  @ValidateIf(
-    (dto: StartReviewSessionDto) =>
-      dto.sessionType === ReviewSessionType.COLLECTION_REVIEW ||
-      dto.collectionId != null,
-  )
-  @IsDefined()
-  @IsUUID()
-  collectionId?: string | null;
 
   @ApiPropertyOptional({
     minimum: 1,
@@ -170,7 +112,7 @@ export class SubmitReviewAnswerDto {
     example: '3f4c24ad-0776-45e0-83d4-34b19685da06',
   })
   @IsUUID()
-  quizQuestionId!: string;
+  reviewQuestionId!: string;
 
   @ApiPropertyOptional({
     format: 'uuid',
@@ -245,7 +187,7 @@ export class SkipReviewSessionItemDto {
     example: '3f4c24ad-0776-45e0-83d4-34b19685da06',
   })
   @IsUUID()
-  quizQuestionId!: string;
+  reviewQuestionId!: string;
 }
 
 export class GetReviewHistoryQueryDto {
@@ -267,16 +209,6 @@ export class GetReviewHistoryQueryDto {
   @IsEnum(ReviewSessionStatus)
   status?: ReviewSessionStatus;
 
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  articleId?: string;
-
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  quizId?: string;
-
   @ApiPropertyOptional({ format: 'date-time' })
   @IsOptional()
   @IsISO8601({ strict: true })
@@ -292,19 +224,4 @@ export class GetReviewHistoryQueryDto {
     message: 'to must include a UTC offset',
   })
   to?: string;
-}
-
-export class GetDueReviewsQueryDto {
-  @ApiPropertyOptional({ minimum: 1, maximum: MAX_PAGE_SIZE, default: 10 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(MAX_PAGE_SIZE)
-  limit = 10;
-
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  articleId?: string;
 }

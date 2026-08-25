@@ -6,7 +6,6 @@ import {
   AdminUserAnalyticsQueryDto,
   AnalyticsDateRangeQueryDto,
   AnalyticsGroupBy,
-  QuizAnalyticsQueryDto,
   resolveAnalyticsDateRange,
   resolveAnalyticsGroupBy,
   VocabularyAnalyticsQueryDto,
@@ -107,7 +106,6 @@ describe('Analytics query contract', () => {
   });
 
   it.each([
-    [QuizAnalyticsQueryDto, { articleId: 'not-a-uuid' }, 'articleId'],
     [AdminContentAnalyticsQueryDto, { categoryId: 'not-a-uuid' }, 'categoryId'],
     [AdminUserAnalyticsQueryDto, { status: 'DELETED' }, 'status'],
   ])('validates focused analytics filters on %p', async (Dto, input, field) => {

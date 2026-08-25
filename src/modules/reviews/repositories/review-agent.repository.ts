@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
-  QuestionGenerationSource,
+  ReviewQuestionGenerationSource,
   QuestionType,
   ReviewAgentAction,
   ReviewDecisionKind,
@@ -10,7 +10,6 @@ import {
   type ReviewGoal,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
-  type ReviewSessionType,
   type ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import {
@@ -80,10 +79,6 @@ const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const MAX_LEARNER_SNAPSHOT_VOCABULARIES = 100;
 const sessionSelect = {
   id: true,
-  sessionType: true,
-  quizId: true,
-  articleId: true,
-  collectionId: true,
   targetDurationMinutes: true,
   reviewGoal: true,
   plannedItemCount: true,
@@ -104,7 +99,7 @@ const safeQuestionSelect = {
     orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
     select: { id: true, optionText: true, displayOrder: true },
   },
-} satisfies Prisma.QuizQuestionSelect;
+} satisfies Prisma.ReviewQuestionSelect;
 const answerWordCharacters = (answer: string | null | undefined): string[][] =>
   answer
     ?.trim()
@@ -359,7 +354,7 @@ export class ReviewAgentRepository {
             id: true,
             userVocabularyId: true,
             retryCount: true,
-            quizQuestion: {
+            reviewQuestion: {
               select: {
                 id: true,
                 articleSentenceTermId: true,
@@ -383,34 +378,38 @@ export class ReviewAgentRepository {
             reviewSessionItemId: item.id,
             attemptNumber: input.expectedAttemptNumber,
             isCorrect: false,
-            quizQuestion: { is: { questionType: input.originalQuestionType } },
+            reviewQuestion: {
+              is: { questionType: input.originalQuestionType },
+            },
           },
           select: { id: true },
         });
         if (!answer) throw new ReviewAgentDecisionConflictError();
         let retestQuestionId: string | null = retest
-          ? item.quizQuestion.id
+          ? item.reviewQuestion.id
           : null;
-        if (retest && item.quizQuestion.questionType !== retest.questionType) {
+        if (
+          retest &&
+          item.reviewQuestion.questionType !== retest.questionType
+        ) {
           const prepared = input.preparedRetestQuestion;
           if (
             !prepared ||
             prepared.userVocabularyId !== item.userVocabularyId ||
             prepared.articleSentenceTermId !==
-              item.quizQuestion.articleSentenceTermId ||
+              item.reviewQuestion.articleSentenceTermId ||
             prepared.difficultyCefr !== item.userVocabulary.savedCefrLevel ||
             prepared.questionType !== retest.questionType
           ) {
             throw new ReviewAgentDecisionConflictError();
           }
-          const preparedQuestion = await tx.quizQuestion.findFirst({
+          const preparedQuestion = await tx.reviewQuestion.findFirst({
             where: {
-              id: prepared.quizQuestionId,
-              quizId: null,
+              id: prepared.reviewQuestionId,
               articleSentenceTermId: prepared.articleSentenceTermId,
               difficultyCefr: prepared.difficultyCefr,
               questionType: retest.questionType,
-              generationSource: QuestionGenerationSource.AI,
+              generationSource: ReviewQuestionGenerationSource.AI,
               generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
               isActive: true,
             },
@@ -428,10 +427,10 @@ export class ReviewAgentRepository {
           },
           select: { id: true },
         });
-        if (retestQuestionId && retestQuestionId !== item.quizQuestion.id) {
+        if (retestQuestionId && retestQuestionId !== item.reviewQuestion.id) {
           await tx.reviewSessionItem.update({
             where: { id: item.id },
-            data: { quizQuestionId: retestQuestionId },
+            data: { reviewQuestionId: retestQuestionId },
             select: { id: true },
           });
         }
@@ -595,10 +594,6 @@ export class ReviewAgentRepository {
     client: Prisma.TransactionClient,
     session: {
       id: string;
-      sessionType: ReviewSessionType;
-      quizId: string | null;
-      articleId: string | null;
-      collectionId: string | null;
       targetDurationMinutes: number | null;
       reviewGoal: ReviewGoal | null;
       plannedItemCount: number | null;
@@ -634,7 +629,7 @@ export class ReviewAgentRepository {
               id: true,
               userVocabularyId: true,
               retryCount: true,
-              quizQuestion: { select: safeQuestionSelect },
+              reviewQuestion: { select: safeQuestionSelect },
             },
           })
         : Promise.resolve(null),
@@ -648,7 +643,7 @@ export class ReviewAgentRepository {
             id: next.id,
             userVocabularyId: next.userVocabularyId,
             attemptNumber: next.retryCount + 1,
-            question: this.mapSafeQuestion(next.quizQuestion),
+            question: this.mapSafeQuestion(next.reviewQuestion),
           }
         : undefined,
     };

@@ -30,17 +30,11 @@ type SentenceUpdateManyMock = jest.MockedFunction<
 type TermCountMock = jest.MockedFunction<
   (args: Prisma.ArticleSentenceTermCountArgs) => Promise<number>
 >;
-type QuizCountMock = jest.MockedFunction<
-  (args: Prisma.QuizCountArgs) => Promise<number>
->;
 type ProgressCountMock = jest.MockedFunction<
   (args: Prisma.UserArticleProgressCountArgs) => Promise<number>
 >;
 type VocabularyCountMock = jest.MockedFunction<
   (args: Prisma.UserVocabularyCountArgs) => Promise<number>
->;
-type ReviewSessionCountMock = jest.MockedFunction<
-  (args: Prisma.ReviewSessionCountArgs) => Promise<number>
 >;
 type ReviewAnswerCountMock = jest.MockedFunction<
   (args: Prisma.ReviewAnswerCountArgs) => Promise<number>
@@ -56,10 +50,8 @@ describe('ArticlesRepository admin queries', () => {
   const sentenceCount: SentenceCountMock = jest.fn();
   const sentenceUpdateMany: SentenceUpdateManyMock = jest.fn();
   const termCount: TermCountMock = jest.fn();
-  const quizCount: QuizCountMock = jest.fn();
   const progressCount: ProgressCountMock = jest.fn();
   const vocabularyCount: VocabularyCountMock = jest.fn();
-  const reviewSessionCount: ReviewSessionCountMock = jest.fn();
   const reviewAnswerCount: ReviewAnswerCountMock = jest.fn();
   const prismaModels = {
     article: {
@@ -72,10 +64,8 @@ describe('ArticlesRepository admin queries', () => {
     },
     articleSentence: { count: sentenceCount, updateMany: sentenceUpdateMany },
     articleSentenceTerm: { count: termCount },
-    quiz: { count: quizCount },
     userArticleProgress: { count: progressCount },
     userVocabulary: { count: vocabularyCount },
-    reviewSession: { count: reviewSessionCount },
     reviewAnswer: { count: reviewAnswerCount },
   };
   type PrismaMock = typeof prismaModels & {
@@ -98,10 +88,8 @@ describe('ArticlesRepository admin queries', () => {
     articleCount.mockResolvedValue(0);
     sentenceCount.mockResolvedValue(0);
     termCount.mockResolvedValue(0);
-    quizCount.mockResolvedValue(0);
     progressCount.mockResolvedValue(0);
     vocabularyCount.mockResolvedValue(0);
-    reviewSessionCount.mockResolvedValue(0);
     reviewAnswerCount.mockResolvedValue(0);
   });
 
@@ -132,7 +120,6 @@ describe('ArticlesRepository admin queries', () => {
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
     expect(JSON.stringify(query.select)).not.toContain('contentHtml');
-    expect(JSON.stringify(query.select)).not.toContain('quizzes');
     expect(JSON.stringify(query.select)).not.toContain('sentences');
     expect(articleCount).toHaveBeenCalledWith({ where: query.where });
   });
@@ -159,11 +146,10 @@ describe('ArticlesRepository admin queries', () => {
     });
     sentenceCount.mockResolvedValue(4);
     termCount.mockResolvedValue(9);
-    quizCount.mockResolvedValue(2);
 
     await expect(
       repository.findAdminArticleDetail('article-id'),
-    ).resolves.toMatchObject({ sentenceCount: 4, termCount: 9, quizCount: 2 });
+    ).resolves.toMatchObject({ sentenceCount: 4, termCount: 9 });
     const currentWhere = {
       articleId: 'article-id',
       contentVersion: 3,
@@ -175,9 +161,6 @@ describe('ArticlesRepository admin queries', () => {
         isActive: true,
         sentence: { is: currentWhere },
       },
-    });
-    expect(quizCount).toHaveBeenCalledWith({
-      where: { articleId: 'article-id' },
     });
     expect(JSON.stringify(articleFindUnique.mock.calls[0][0])).not.toContain(
       'createdBy',
@@ -202,13 +185,11 @@ describe('ArticlesRepository admin queries', () => {
 
     expect(sentenceCount).toHaveBeenCalledTimes(1);
     expect(termCount).not.toHaveBeenCalled();
-    expect(quizCount).not.toHaveBeenCalled();
 
     resolveSentenceCount(4);
     await result;
 
     expect(termCount).toHaveBeenCalledTimes(1);
-    expect(quizCount).toHaveBeenCalledTimes(1);
   });
 
   it('forces draft/version/timestamps and trusted audits on create', async () => {
@@ -279,12 +260,6 @@ describe('ArticlesRepository admin queries', () => {
           is: { sentence: { is: { articleId: 'article-id' } } },
         },
       },
-    });
-    expect(quizCount).toHaveBeenCalledWith({
-      where: { articleId: 'article-id' },
-    });
-    expect(reviewSessionCount).toHaveBeenCalledWith({
-      where: { articleId: 'article-id' },
     });
     expect(reviewAnswerCount).toHaveBeenCalled();
   });

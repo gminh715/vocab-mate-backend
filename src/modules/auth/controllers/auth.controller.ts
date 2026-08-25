@@ -32,7 +32,10 @@ import { AuthenticatedUserThrottlerGuard } from '../../../common/guards/authenti
 import type { AuthConfig } from '../../../config/auth.config';
 import { AUTH_CONFIG } from '../../../config/config.module';
 import { AuthService } from '../services/auth.service';
-import type { AuthenticatedUser, RefreshAuthenticatedUser } from '../auth.types';
+import type {
+  AuthenticatedUser,
+  RefreshAuthenticatedUser,
+} from '../auth.types';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import {

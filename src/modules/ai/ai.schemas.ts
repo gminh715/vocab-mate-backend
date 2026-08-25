@@ -123,7 +123,7 @@ const promptDescription = (input: ReviewQuestionGenerationInput): string =>
     questionTypePromptGuidance(input),
     'The question-type wording and grammatical answer kind are mandatory and take priority over stylistic variety.',
     'Use only the shortest context needed for one unambiguous choice; do not retell the source or stack clauses.',
-    'Do not name the style or add decorative quiz language.',
+    'Do not name the style or add decorative game-like language.',
     'Do not use raw Markdown.',
     'Do not use generic What is/does ... mean/meaning wording, based on the clue, strong contextual clue, which term fits this action, in the supplied usage, or provided context.',
   ].join(' ');
@@ -181,7 +181,7 @@ export const reviewQuestionBatchGenerationSchema = (
             'The zero-based position of the matching input; items must remain in exact input order.',
         },
         prompt: requiredString(
-          'One immediately understandable plain-text task in one or two short sentences. For SELECT_MEANING, start with Which Vietnamese meaning and include wordOrPhrase; for SELECT_WORD, include Which English word or phrase; for SELECT_CORRECT_CONTEXT, start with Which sentence and include wordOrPhrase; for FILL_BLANK, start with Complete the sentence with your saved word or phrase. requestedQuestionType determines the grammatical answer kind, while promptStyle may shape only the shortest supporting cue. Do not name the style, retell the source, add decorative quiz language, or reveal the matching correct answer.',
+          'One immediately understandable plain-text task in one or two short sentences. For SELECT_MEANING, start with Which Vietnamese meaning and include wordOrPhrase; for SELECT_WORD, include Which English word or phrase; for SELECT_CORRECT_CONTEXT, start with Which sentence and include wordOrPhrase; for FILL_BLANK, start with Complete the sentence with your saved word or phrase. requestedQuestionType determines the grammatical answer kind, while promptStyle may shape only the shortest supporting cue. Do not name the style, retell the source, add decorative game-like language, or reveal the matching correct answer.',
         ),
         blankSentence: {
           type: ['string', 'null'],

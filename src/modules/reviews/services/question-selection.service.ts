@@ -34,7 +34,7 @@ export class QuestionSelectionService {
     );
   }
 
-  selectSessionTypes(
+  selectQuestionTypes(
     preferences: QuestionType[][],
     reviewGoal?: ReviewGoal,
   ): QuestionType[] {

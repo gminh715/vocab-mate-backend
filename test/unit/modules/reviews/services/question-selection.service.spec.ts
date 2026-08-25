@@ -96,7 +96,7 @@ describe('QuestionSelectionService', () => {
     );
 
     expect(
-      service.selectSessionTypes(preferences, ReviewGoal.BALANCED),
+      service.selectQuestionTypes(preferences, ReviewGoal.BALANCED),
     ).toEqual([
       QuestionType.SELECT_MEANING,
       QuestionType.SELECT_WORD,
@@ -120,7 +120,7 @@ describe('QuestionSelectionService', () => {
         service.preferredTypes(vocabulary, [], undefined, goal),
       );
 
-      expect(service.selectSessionTypes(preferences, goal)).toEqual(
+      expect(service.selectQuestionTypes(preferences, goal)).toEqual(
         Array.from({ length: 4 }, () => questionType),
       );
     },

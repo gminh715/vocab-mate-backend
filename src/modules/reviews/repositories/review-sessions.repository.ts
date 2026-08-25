@@ -1,12 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
-  ArticleStatus,
   type CefrLevel,
   LearningStatus,
-  QuestionGenerationSource,
+  ReviewQuestionGenerationSource,
   QuestionType,
-  QuizStatus,
   ReviewAgentAction,
   ReviewDecisionKind,
   ReviewDecisionSource,
@@ -14,7 +12,6 @@ import {
   type ReviewErrorType,
   ReviewSessionItemStatus,
   ReviewSessionStatus,
-  ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import {
@@ -24,16 +21,13 @@ import {
 } from '../../ai/ai.contracts';
 import { PrismaService } from '../../../database/prisma.service';
 import type {
-  GetDueReviewsQueryDto,
   GetReviewHistoryQueryDto,
   SkipReviewSessionItemDto,
   StartReviewSessionDto,
   SubmitReviewAnswerDto,
 } from '../dto/review-request.dto';
 import {
-  preferredQuestionTypes,
   RECENT_ACCURACY_WINDOW,
-  type RecentQuestionAttempt,
   skillDimensionForQuestion,
 } from '../services/question-selection';
 import type {
@@ -44,13 +38,11 @@ import { correctAnswerFor } from '../question-answer';
 import {
   InvalidAnswerRelationshipError,
   InvalidAnswerShapeError,
-  InvalidReviewSourceShapeError,
   ReviewConcurrencyConflictError,
   ReviewResourceNotFoundError,
 } from './review-errors';
 
 export {
-  InvalidReviewSourceShapeError,
   ReviewConcurrencyConflictError,
   ReviewResourceNotFoundError,
 } from './review-errors';
@@ -80,12 +72,10 @@ const REVIEW_SKILL_LABELS: Record<ReviewSkillDimension, string> = {
 const reviewEligibilityWhere = (
   userId: string,
   now: Date,
-  sourceWhere: Prisma.UserVocabularyWhereInput,
 ): Prisma.UserVocabularyWhereInput => ({
   userId,
   learningStatus: { in: REVIEW_ELIGIBLE_LEARNING_STATUSES },
   OR: [{ nextReviewAt: { lte: now } }, { nextReviewAt: null }],
-  ...sourceWhere,
 });
 
 const reviewEligibilitySql = (userId: string, now: Date) => Prisma.sql`
@@ -105,10 +95,6 @@ const reviewEligibilitySql = (userId: string, now: Date) => Prisma.sql`
 
 const sessionSelect = {
   id: true,
-  sessionType: true,
-  quizId: true,
-  articleId: true,
-  collectionId: true,
   targetDurationMinutes: true,
   reviewGoal: true,
   plannedItemCount: true,
@@ -137,7 +123,7 @@ const safeQuestionSelect = {
     orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
     select: safeOptionSelect,
   },
-} satisfies Prisma.QuizQuestionSelect;
+} satisfies Prisma.ReviewQuestionSelect;
 
 const answerWordCharacters = (answer: string | null | undefined): string[][] =>
   answer
@@ -194,7 +180,7 @@ const gradingQuestionSelect = {
       explanation: true,
     },
   },
-} satisfies Prisma.QuizQuestionSelect;
+} satisfies Prisma.ReviewQuestionSelect;
 
 const reviewVocabularySelect = {
   id: true,
@@ -254,7 +240,6 @@ export interface ReviewAnswerSubmissionQuestion {
 export interface ReviewAnswerSubmissionContext {
   session: {
     id: string;
-    quizId: string | null;
     status: ReviewSessionStatus;
   };
   item: {
@@ -268,10 +253,7 @@ export interface ReviewAnswerSubmissionContext {
   vocabulary: ReviewVocabulary | null;
   pendingItemsAfterCurrent: Array<{ id: string; sequenceNumber: number }>;
   recentAttempts: LearnerSnapshotAttempt[];
-  retryQuestionCandidates: {
-    quiz: Array<{ id: string; questionType: QuestionType }>;
-    cached: Array<{ id: string; questionType: QuestionType }>;
-  };
+  retryQuestionCandidates: Array<{ id: string; questionType: QuestionType }>;
 }
 
 /**
@@ -283,7 +265,7 @@ export interface CommitReviewAnswerInput {
   expected: {
     sessionId: string;
     reviewSessionItemId: string;
-    quizQuestionId: string;
+    reviewQuestionId: string;
     retryCount: number;
     answerCount: number;
     userVocabularyId: string | null;
@@ -324,7 +306,7 @@ export interface SkipReviewItemContext {
   retryCount: number;
 }
 
-export interface QuizResult {
+export interface ReviewResult {
   score: number;
   totalPoints: number;
   accuracy: number;
@@ -343,27 +325,6 @@ export interface ReviewHistoryQuery extends Omit<
 interface ResultQuestion {
   points: number;
   reviewAnswers: Array<{ isCorrect: boolean | null }>;
-}
-
-interface RawDueQuiz {
-  id: string;
-  title: string;
-  description: string | null;
-  publishedAt: Date | null;
-  articleId: string;
-  articleTitle: string;
-  articleSlug: string;
-  articleThumbnailUrl: string | null;
-  matchingDueVocabularyCount: number;
-  activeQuestionCount: number;
-  totalPoints: number;
-}
-
-interface ValidatedReviewSource {
-  quizId: string | null;
-  articleId: string | null;
-  collectionId: string | null;
-  termIds?: string[];
 }
 
 export interface LearnerSnapshotAttempt {
@@ -525,11 +486,7 @@ export class ReviewSessionsRepository {
       const vocabularies = await this.findEligibleVocabularies(
         tx,
         userId,
-        {
-          sessionType: ReviewSessionType.DAILY_REVIEW,
-          limit: boundedLimit,
-        },
-        undefined,
+        { limit: boundedLimit },
         now,
       );
       const [profile, attemptsByVocabulary, skillAggregates] =
@@ -631,20 +588,9 @@ export class ReviewSessionsRepository {
   ) {
     this.assertInitialAiCallCount(initialAiCallCount);
     return this.withSerializableRetry(async (tx) => {
-      this.assertSourceShape(dto);
       const active = await tx.reviewSession.findFirst({
         where: {
           userId,
-          sessionType: dto.sessionType,
-          ...(dto.sessionType === ReviewSessionType.QUIZ
-            ? { quizId: dto.quizId }
-            : {}),
-          ...(dto.sessionType === ReviewSessionType.ARTICLE_REVIEW
-            ? { articleId: dto.articleId }
-            : {}),
-          ...(dto.sessionType === ReviewSessionType.COLLECTION_REVIEW
-            ? { collectionId: dto.collectionId }
-            : {}),
           status: ReviewSessionStatus.IN_PROGRESS,
         },
         select: sessionSelect,
@@ -652,13 +598,10 @@ export class ReviewSessionsRepository {
       if (active) {
         return this.getSessionStateWithClient(tx, active);
       }
-      const source = await this.validateSource(tx, userId, dto);
-
       const vocabularies = await this.findEligibleVocabularies(
         tx,
         userId,
         dto,
-        source.termIds,
         now,
       );
       if (vocabularies.length === 0) return null;
@@ -666,9 +609,7 @@ export class ReviewSessionsRepository {
       const assignedQuestions = await this.assignInitialQuestions(
         tx,
         vocabularies,
-        source.quizId,
         preparedAiQuestions,
-        dto.reviewGoal,
       );
       if (assignedQuestions.length !== vocabularies.length) {
         throw new NoUsableReviewQuestionError();
@@ -677,10 +618,6 @@ export class ReviewSessionsRepository {
       const session = await tx.reviewSession.create({
         data: {
           userId,
-          sessionType: dto.sessionType,
-          quizId: source.quizId,
-          articleId: source.articleId,
-          collectionId: source.collectionId,
           status: ReviewSessionStatus.IN_PROGRESS,
           completedAt: null,
           targetDurationMinutes: dto.targetDurationMinutes,
@@ -693,7 +630,7 @@ export class ReviewSessionsRepository {
         data: assignedQuestions.map(({ vocabulary, question }, index) => ({
           reviewSessionId: session.id,
           userVocabularyId: vocabulary.id,
-          quizQuestionId: question.id,
+          reviewQuestionId: question.id,
           sequenceNumber: index + 1,
           status: ReviewSessionItemStatus.PENDING,
         })),
@@ -741,7 +678,7 @@ export class ReviewSessionsRepository {
       orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
-        quizQuestion: {
+        reviewQuestion: {
           select: {
             id: true,
             questionType: true,
@@ -758,7 +695,7 @@ export class ReviewSessionsRepository {
       id: questionId,
       questionType,
       correctAnswerText,
-    } = activeItem.quizQuestion;
+    } = activeItem.reviewQuestion;
     const words = answerWordCharacters(correctAnswerText);
     if (questionType !== QuestionType.FILL_BLANK || words.length === 0) {
       throw new InvalidAnswerShapeError(
@@ -793,7 +730,10 @@ export class ReviewSessionsRepository {
   getAnswerSubmissionContext(
     userId: string,
     sessionId: string,
-    dto: Pick<SubmitReviewAnswerDto, 'reviewSessionItemId' | 'quizQuestionId'>,
+    dto: Pick<
+      SubmitReviewAnswerDto,
+      'reviewSessionItemId' | 'reviewQuestionId'
+    >,
   ): Promise<ReviewAnswerSubmissionContext> {
     return this.prisma.$transaction(async (tx) => {
       const { session, item } = await this.loadActiveAnswerSubmissionState(
@@ -825,14 +765,13 @@ export class ReviewSessionsRepository {
             this.loadRecentAttemptSnapshots(tx, [vocabulary]).then(
               (attempts) => attempts.get(vocabulary.id) ?? [],
             ),
-            this.loadRetryQuestionCandidates(tx, session.quizId, vocabulary),
+            this.loadRetryQuestionCandidates(tx, vocabulary),
           ])
-        : [[], { quiz: [], cached: [] }];
+        : [[], []];
 
       return {
         session: {
           id: session.id,
-          quizId: session.quizId,
           status: session.status,
         },
         item: {
@@ -841,7 +780,7 @@ export class ReviewSessionsRepository {
           retryCount: item.retryCount,
           answerCount: item._count.answers,
           sequenceNumber: item.sequenceNumber,
-          question: item.quizQuestion,
+          question: item.reviewQuestion,
         },
         vocabulary,
         pendingItemsAfterCurrent,
@@ -896,7 +835,7 @@ export class ReviewSessionsRepository {
         answer = await tx.reviewAnswer.create({
           data: {
             reviewSessionItemId: item.id,
-            quizQuestionId: item.quizQuestion.id,
+            reviewQuestionId: item.reviewQuestion.id,
             selectedOptionId: input.answer.selectedOptionId,
             userAnswerText: input.answer.userAnswerText,
             isCorrect: input.answer.isCorrect,
@@ -924,7 +863,7 @@ export class ReviewSessionsRepository {
           finalInferredScore: input.item.finalInferredScore,
           completedAt: input.item.completedAt,
           ...(input.item.retryQuestionId
-            ? { quizQuestionId: input.item.retryQuestionId }
+            ? { reviewQuestionId: input.item.retryQuestionId }
             : {}),
         },
         select: { id: true },
@@ -1001,13 +940,13 @@ export class ReviewSessionsRepository {
         userVocabularyId: true,
         retryCount: true,
         _count: { select: { answers: true } },
-        quizQuestion: { select: { id: true } },
+        reviewQuestion: { select: { id: true } },
       },
     });
     if (
       !item ||
       item.id !== dto.reviewSessionItemId ||
-      item.quizQuestion.id !== dto.quizQuestionId ||
+      item.reviewQuestion.id !== dto.reviewQuestionId ||
       item._count.answers !== item.retryCount ||
       item.retryCount > MAX_RETRY_COUNT
     ) {
@@ -1049,13 +988,13 @@ export class ReviewSessionsRepository {
           userVocabularyId: true,
           retryCount: true,
           _count: { select: { answers: true } },
-          quizQuestion: { select: { id: true } },
+          reviewQuestion: { select: { id: true } },
         },
       });
       if (
         !item ||
         item.id !== dto.reviewSessionItemId ||
-        item.quizQuestion.id !== dto.quizQuestionId ||
+        item.reviewQuestion.id !== dto.reviewQuestionId ||
         item._count.answers !== item.retryCount ||
         item.retryCount > MAX_RETRY_COUNT
       ) {
@@ -1145,8 +1084,6 @@ export class ReviewSessionsRepository {
     const where: Prisma.ReviewSessionWhereInput = {
       userId,
       ...(query.status ? { status: query.status } : {}),
-      ...(query.articleId ? { articleId: query.articleId } : {}),
-      ...(query.quizId ? { quizId: query.quizId } : {}),
       ...(query.from || query.to
         ? {
             startedAt: {
@@ -1164,26 +1101,10 @@ export class ReviewSessionsRepository {
         orderBy: [{ startedAt: 'desc' }, { id: 'asc' }],
         select: {
           ...sessionSelect,
-          quiz: {
-            select: {
-              id: true,
-              title: true,
-              status: true,
-            },
-          },
-          article: {
-            select: {
-              id: true,
-              title: true,
-              slug: true,
-              status: true,
-              thumbnailUrl: true,
-            },
-          },
           items: {
             orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
             select: {
-              quizQuestion: { select: { points: true } },
+              reviewQuestion: { select: { points: true } },
               answers: {
                 orderBy: [{ attemptNumber: 'desc' }, { answeredAt: 'desc' }],
                 take: 1,
@@ -1198,17 +1119,13 @@ export class ReviewSessionsRepository {
 
     return {
       items: rows.map((row) => {
-        const questions = row.items.map(({ quizQuestion, answers }) => ({
-          points: quizQuestion.points,
+        const questions = row.items.map(({ reviewQuestion, answers }) => ({
+          points: reviewQuestion.points,
           reviewAnswers: answers,
         }));
         return {
           session: {
             id: row.id,
-            sessionType: row.sessionType,
-            quizId: row.quizId,
-            articleId: row.articleId,
-            collectionId: row.collectionId,
             targetDurationMinutes: row.targetDurationMinutes,
             reviewGoal: row.reviewGoal,
             plannedItemCount: row.plannedItemCount,
@@ -1217,14 +1134,6 @@ export class ReviewSessionsRepository {
             startedAt: row.startedAt,
             completedAt: row.completedAt,
           },
-          quiz: row.quiz
-            ? {
-                id: row.quiz.id,
-                title: row.quiz.title,
-                status: row.quiz.status,
-              }
-            : null,
-          article: row.article,
           aggregates: this.calculateAggregates(questions),
         };
       }),
@@ -1248,7 +1157,7 @@ export class ReviewSessionsRepository {
                 savedExplanation: true,
               },
             },
-            quizQuestion: {
+            reviewQuestion: {
               select: {
                 ...gradingQuestionSelect,
                 prompt: true,
@@ -1278,7 +1187,7 @@ export class ReviewSessionsRepository {
                 skillDimension: true,
                 errorType: true,
                 answeredAt: true,
-                quizQuestion: {
+                reviewQuestion: {
                   select: {
                     ...gradingQuestionSelect,
                     prompt: true,
@@ -1308,22 +1217,24 @@ export class ReviewSessionsRepository {
     ) {
       throw new ReviewSessionStateConflictError();
     }
-    const resultQuestions = session.items.map(({ quizQuestion, answers }) => ({
-      points: answers[0]?.quizQuestion.points ?? quizQuestion.points,
-      reviewAnswers: answers
-        .slice(0, 1)
-        .map(({ isCorrect }) => ({ isCorrect })),
-    }));
+    const resultQuestions = session.items.map(
+      ({ reviewQuestion, answers }) => ({
+        points: answers[0]?.reviewQuestion.points ?? reviewQuestion.points,
+        reviewAnswers: answers
+          .slice(0, 1)
+          .map(({ isCorrect }) => ({ isCorrect })),
+      }),
+    );
     const answers = session.items.flatMap(({ answers }) => {
       const answer = answers[0];
       if (!answer) return [];
-      const question = answer.quizQuestion;
+      const question = answer.reviewQuestion;
       const selectedOption =
         question.options.find(({ id }) => id === answer.selectedOptionId) ??
         null;
       return [
         {
-          quizQuestionId: question.id,
+          reviewQuestionId: question.id,
           questionType: question.questionType,
           prompt: question.prompt,
           selectedOption: selectedOption
@@ -1354,7 +1265,7 @@ export class ReviewSessionsRepository {
         );
         if (!incorrectAnswer) return [];
         const selectedOption =
-          incorrectAnswer.quizQuestion.options.find(
+          incorrectAnswer.reviewQuestion.options.find(
             ({ id }) => id === incorrectAnswer.selectedOptionId,
           ) ?? null;
         return [
@@ -1362,12 +1273,12 @@ export class ReviewSessionsRepository {
             userVocabularyId: userVocabulary?.id ?? null,
             wordOrPhrase:
               userVocabulary?.savedWordDisplay ??
-              correctAnswerFor(incorrectAnswer.quizQuestion),
+              correctAnswerFor(incorrectAnswer.reviewQuestion),
             meaningVi: userVocabulary?.savedMeaningVi ?? null,
             skillDimension: incorrectAnswer.skillDimension,
             errorType: incorrectAnswer.errorType,
             explanation:
-              incorrectAnswer.quizQuestion.answerExplanation ??
+              incorrectAnswer.reviewQuestion.answerExplanation ??
               selectedOption?.explanation ??
               userVocabulary?.savedExplanation ??
               null,
@@ -1462,201 +1373,28 @@ export class ReviewSessionsRepository {
     };
   }
 
-  async getDueRecommendations(
-    userId: string,
-    query: GetDueReviewsQueryDto,
-    now: Date,
-  ) {
-    const articleFilter = query.articleId
-      ? Prisma.sql`AND article.id = ${query.articleId}::uuid`
-      : Prisma.empty;
-    const quizArticleFilter = query.articleId
-      ? Prisma.sql`AND quiz.article_id = ${query.articleId}::uuid`
-      : Prisma.empty;
+  async getDueRecommendations(userId: string, now: Date) {
     const duePredicate = reviewEligibilitySql(userId, now);
-    const [countRows, recommendedQuizzes] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+    const countRows = await this.prisma.$queryRaw<Array<{ count: number }>>(
+      Prisma.sql`
         SELECT COUNT(DISTINCT uv.id)::int AS count
         FROM user_vocabularies uv
-        JOIN article_sentence_terms term
-          ON term.id = uv.article_sentence_term_id
-        JOIN article_sentences sentence ON sentence.id = term.sentence_id
-        JOIN articles article ON article.id = sentence.article_id
-        WHERE ${duePredicate} ${articleFilter}
-      `),
-      this.prisma.$queryRaw<RawDueQuiz[]>(Prisma.sql`
-        WITH due_vocabulary AS (
-          SELECT DISTINCT uv.id, uv.article_sentence_term_id
-          FROM user_vocabularies uv
-          JOIN article_sentence_terms term
-            ON term.id = uv.article_sentence_term_id
-          JOIN article_sentences sentence ON sentence.id = term.sentence_id
-          JOIN articles article ON article.id = sentence.article_id
-          WHERE ${duePredicate} ${articleFilter}
-        )
-        SELECT
-          quiz.id,
-          quiz.title,
-          quiz.description,
-          quiz.published_at AS "publishedAt",
-          article.id AS "articleId",
-          article.title AS "articleTitle",
-          article.slug AS "articleSlug",
-          article.thumbnail_url AS "articleThumbnailUrl",
-          COUNT(DISTINCT due.id)::int AS "matchingDueVocabularyCount",
-          (
-            SELECT COUNT(*)::int
-            FROM quiz_questions active_question
-            WHERE active_question.quiz_id = quiz.id
-              AND active_question.is_active = true
-          ) AS "activeQuestionCount",
-          (
-            SELECT COALESCE(SUM(active_question.points), 0)::int
-            FROM quiz_questions active_question
-            WHERE active_question.quiz_id = quiz.id
-              AND active_question.is_active = true
-          ) AS "totalPoints"
-        FROM quizzes quiz
-        JOIN articles article ON article.id = quiz.article_id
-        JOIN quiz_questions question
-          ON question.quiz_id = quiz.id AND question.is_active = true
-        JOIN due_vocabulary due
-          ON due.article_sentence_term_id = question.article_sentence_term_id
-        WHERE quiz.status = ${QuizStatus.PUBLISHED}::quiz_status
-          AND article.status = ${ArticleStatus.PUBLISHED}::article_status
-          ${quizArticleFilter}
-        GROUP BY quiz.id, article.id
-        ORDER BY
-          COUNT(DISTINCT due.id) DESC,
-          quiz.published_at DESC NULLS LAST,
-          quiz.id ASC
-        LIMIT ${query.limit}
-      `),
-    ]);
+        WHERE ${duePredicate}
+      `,
+    );
 
     return {
       dueVocabularyCount: countRows[0]?.count ?? 0,
-      recommendedQuizzes: recommendedQuizzes.map((quiz) => ({
-        id: quiz.id,
-        title: quiz.title,
-        description: quiz.description,
-        publishedAt: quiz.publishedAt,
-        matchingDueVocabularyCount: quiz.matchingDueVocabularyCount,
-        activeQuestionCount: quiz.activeQuestionCount,
-        totalPoints: quiz.totalPoints,
-        article: {
-          id: quiz.articleId,
-          title: quiz.articleTitle,
-          slug: quiz.articleSlug,
-          thumbnailUrl: quiz.articleThumbnailUrl,
-        },
-      })),
     };
-  }
-
-  private async validateSource(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    dto: StartReviewSessionDto,
-  ): Promise<ValidatedReviewSource> {
-    this.assertSourceShape(dto);
-
-    if (dto.sessionType === ReviewSessionType.QUIZ) {
-      const quiz = await tx.quiz.findFirst({
-        where: {
-          id: dto.quizId!,
-          status: QuizStatus.PUBLISHED,
-          article: { is: { status: ArticleStatus.PUBLISHED } },
-          questions: { some: { isActive: true } },
-        },
-        select: {
-          id: true,
-          articleId: true,
-          questions: {
-            where: { isActive: true },
-            select: { articleSentenceTermId: true },
-          },
-        },
-      });
-      if (!quiz) throw new ReviewResourceNotFoundError();
-      return {
-        quizId: quiz.id,
-        articleId: quiz.articleId,
-        collectionId: null,
-        termIds: [
-          ...new Set(
-            quiz.questions.map(
-              ({ articleSentenceTermId }) => articleSentenceTermId,
-            ),
-          ),
-        ],
-      };
-    }
-
-    if (dto.sessionType === ReviewSessionType.ARTICLE_REVIEW) {
-      const article = await tx.article.findFirst({
-        where: { id: dto.articleId!, status: ArticleStatus.PUBLISHED },
-        select: { id: true },
-      });
-      if (!article) throw new ReviewResourceNotFoundError();
-      return { quizId: null, articleId: article.id, collectionId: null };
-    }
-
-    if (dto.sessionType === ReviewSessionType.COLLECTION_REVIEW) {
-      const collection = await tx.vocabularyCollection.findFirst({
-        where: { id: dto.collectionId!, userId },
-        select: { id: true },
-      });
-      if (!collection) throw new ReviewResourceNotFoundError();
-      return { quizId: null, articleId: null, collectionId: collection.id };
-    }
-
-    return { quizId: null, articleId: null, collectionId: null };
-  }
-
-  private assertSourceShape(dto: StartReviewSessionDto): void {
-    const hasUnexpectedSource =
-      (dto.sessionType !== ReviewSessionType.QUIZ && dto.quizId != null) ||
-      (dto.sessionType !== ReviewSessionType.ARTICLE_REVIEW &&
-        dto.articleId != null) ||
-      (dto.sessionType !== ReviewSessionType.COLLECTION_REVIEW &&
-        dto.collectionId != null);
-    const missingSource =
-      (dto.sessionType === ReviewSessionType.QUIZ && !dto.quizId) ||
-      (dto.sessionType === ReviewSessionType.ARTICLE_REVIEW &&
-        !dto.articleId) ||
-      (dto.sessionType === ReviewSessionType.COLLECTION_REVIEW &&
-        !dto.collectionId);
-    const hasUnexpectedDailyPlan =
-      dto.sessionType !== ReviewSessionType.DAILY_REVIEW &&
-      (dto.targetDurationMinutes != null || dto.reviewGoal != null);
-    if (hasUnexpectedSource || missingSource || hasUnexpectedDailyPlan) {
-      throw new InvalidReviewSourceShapeError();
-    }
   }
 
   private async findEligibleVocabularies(
     tx: Prisma.TransactionClient,
     userId: string,
     dto: StartReviewSessionDto,
-    termIds: string[] | undefined,
     now: Date,
   ): Promise<ReviewVocabulary[]> {
-    const sourceWhere: Prisma.UserVocabularyWhereInput =
-      dto.sessionType === ReviewSessionType.QUIZ
-        ? { articleSentenceTermId: { in: termIds ?? [] } }
-        : dto.sessionType === ReviewSessionType.ARTICLE_REVIEW
-          ? {
-              articleSentenceTerm: {
-                is: { sentence: { is: { articleId: dto.articleId! } } },
-              },
-            }
-          : dto.sessionType === ReviewSessionType.COLLECTION_REVIEW
-            ? {
-                collectionItems: { some: { collectionId: dto.collectionId! } },
-              }
-            : {};
-    const commonWhere = reviewEligibilityWhere(userId, now, sourceWhere);
+    const commonWhere = reviewEligibilityWhere(userId, now);
     const selected: ReviewVocabulary[] = [];
     const take = async (
       where: Prisma.UserVocabularyWhereInput,
@@ -1700,53 +1438,8 @@ export class ReviewSessionsRepository {
   private async assignInitialQuestions(
     tx: Prisma.TransactionClient,
     vocabularies: ReviewVocabulary[],
-    quizId: string | null,
     preparedAiQuestions: PreparedAiReviewQuestion[],
-    reviewGoal?: ReviewGoal,
   ) {
-    const history = await this.loadRecentAttemptHistory(tx, vocabularies);
-    const preferences = vocabularies.map((vocabulary) => ({
-      vocabulary,
-      preferredTypes: preferredQuestionTypes(
-        vocabulary,
-        history.get(vocabulary.id) ?? [],
-        undefined,
-        reviewGoal,
-      ),
-    }));
-
-    if (quizId) {
-      const questions = await tx.quizQuestion.findMany({
-        where: {
-          quizId,
-          isActive: true,
-          articleSentenceTermId: {
-            in: vocabularies.map(
-              ({ articleSentenceTermId }) => articleSentenceTermId,
-            ),
-          },
-        },
-        orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          articleSentenceTermId: true,
-          questionType: true,
-        },
-      });
-      return preferences.map(({ vocabulary, preferredTypes }) => {
-        const candidates = questions.filter(
-          ({ articleSentenceTermId }) =>
-            articleSentenceTermId === vocabulary.articleSentenceTermId,
-        );
-        const selected = this.selectExistingQuestion(
-          candidates,
-          preferredTypes,
-        );
-        if (!selected) throw new ReviewResourceNotFoundError();
-        return { vocabulary, question: selected };
-      });
-    }
-
     if (preparedAiQuestions.length === 0) return [];
     const preparedByVocabularyId = new Map(
       preparedAiQuestions.map((question) => [
@@ -1754,13 +1447,14 @@ export class ReviewSessionsRepository {
         question,
       ]),
     );
-    const questions = await tx.quizQuestion.findMany({
+    const questions = await tx.reviewQuestion.findMany({
       where: {
         id: {
-          in: preparedAiQuestions.map(({ quizQuestionId }) => quizQuestionId),
+          in: preparedAiQuestions.map(
+            ({ reviewQuestionId }) => reviewQuestionId,
+          ),
         },
-        quizId: null,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         isActive: true,
       },
@@ -1777,7 +1471,7 @@ export class ReviewSessionsRepository {
       if (!prepared) return [];
       const question = questions.find(
         (candidate) =>
-          candidate.id === prepared.quizQuestionId &&
+          candidate.id === prepared.reviewQuestionId &&
           candidate.articleSentenceTermId ===
             vocabulary.articleSentenceTermId &&
           candidate.articleSentenceTermId === prepared.articleSentenceTermId &&
@@ -1972,7 +1666,7 @@ export class ReviewSessionsRepository {
         retryCount: true,
         sequenceNumber: true,
         _count: { select: { answers: true } },
-        quizQuestion: { select: gradingQuestionSelect },
+        reviewQuestion: { select: gradingQuestionSelect },
       },
     });
     if (!item) throw new ReviewSubmissionConflictError();
@@ -1984,16 +1678,16 @@ export class ReviewSessionsRepository {
       id: string;
       retryCount: number;
       _count: { answers: number };
-      quizQuestion: { id: string };
+      reviewQuestion: { id: string };
     },
     expected: {
       reviewSessionItemId: string;
-      quizQuestionId: string;
+      reviewQuestionId: string;
     },
   ): void {
     if (
       item.id !== expected.reviewSessionItemId ||
-      item.quizQuestion.id !== expected.quizQuestionId ||
+      item.reviewQuestion.id !== expected.reviewQuestionId ||
       item._count.answers !== item.retryCount ||
       item.retryCount > MAX_RETRY_COUNT
     ) {
@@ -2003,35 +1697,19 @@ export class ReviewSessionsRepository {
 
   private async loadRetryQuestionCandidates(
     tx: Prisma.TransactionClient,
-    quizId: string | null,
     vocabulary: ReviewVocabulary,
   ): Promise<ReviewAnswerSubmissionContext['retryQuestionCandidates']> {
-    const [quiz, cached] = await Promise.all([
-      quizId
-        ? tx.quizQuestion.findMany({
-            where: {
-              quizId,
-              articleSentenceTermId: vocabulary.articleSentenceTermId,
-              isActive: true,
-            },
-            orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-            select: { id: true, questionType: true },
-          })
-        : [],
-      tx.quizQuestion.findMany({
-        where: {
-          quizId: null,
-          articleSentenceTermId: vocabulary.articleSentenceTermId,
-          difficultyCefr: vocabulary.savedCefrLevel,
-          generationSource: QuestionGenerationSource.AI,
-          generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
-          isActive: true,
-        },
-        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-        select: { id: true, questionType: true },
-      }),
-    ]);
-    return { quiz, cached };
+    return tx.reviewQuestion.findMany({
+      where: {
+        articleSentenceTermId: vocabulary.articleSentenceTermId,
+        difficultyCefr: vocabulary.savedCefrLevel,
+        generationSource: ReviewQuestionGenerationSource.AI,
+        generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
+        isActive: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      select: { id: true, questionType: true },
+    });
   }
 
   private toLearnerSnapshotVocabulary(
@@ -2127,24 +1805,6 @@ export class ReviewSessionsRepository {
     return skillAggregates;
   }
 
-  private async loadRecentAttemptHistory(
-    tx: Prisma.TransactionClient,
-    vocabularies: ReviewVocabulary[],
-  ): Promise<Map<string, RecentQuestionAttempt[]>> {
-    const snapshots = await this.loadRecentAttemptSnapshots(tx, vocabularies);
-    const history = new Map<string, RecentQuestionAttempt[]>();
-    for (const [userVocabularyId, attempts] of snapshots) {
-      history.set(
-        userVocabularyId,
-        attempts.map(({ questionType, isCorrect }) => ({
-          questionType,
-          isCorrect,
-        })),
-      );
-    }
-    return history;
-  }
-
   private async loadRecentAttemptSnapshots(
     tx: Prisma.TransactionClient,
     vocabularies: ReviewVocabulary[],
@@ -2185,7 +1845,7 @@ export class ReviewSessionsRepository {
         FROM review_answers answer
         JOIN review_session_items item
           ON item.id = answer.review_session_item_id
-        JOIN quiz_questions question ON question.id = answer.quiz_question_id
+        JOIN review_questions question ON question.id = answer.review_question_id
         WHERE item.user_vocabulary_id IN (${vocabularyIds})
           AND answer.is_correct IS NOT NULL
       ) recent
@@ -2212,27 +1872,10 @@ export class ReviewSessionsRepository {
     return history;
   }
 
-  private selectExistingQuestion<T extends { questionType: QuestionType }>(
-    questions: T[],
-    preferredTypes: QuestionType[],
-  ): T | undefined {
-    for (const questionType of preferredTypes) {
-      const selected = questions.find(
-        (question) => question.questionType === questionType,
-      );
-      if (selected) return selected;
-    }
-    return undefined;
-  }
-
   private async getSessionStateWithClient(
     client: Prisma.TransactionClient,
     session: {
       id: string;
-      sessionType: ReviewSessionType;
-      quizId: string | null;
-      articleId: string | null;
-      collectionId: string | null;
       targetDurationMinutes: number | null;
       reviewGoal: ReviewGoal | null;
       plannedItemCount: number | null;
@@ -2269,7 +1912,7 @@ export class ReviewSessionsRepository {
                 id: true,
                 userVocabularyId: true,
                 retryCount: true,
-                quizQuestion: { select: safeQuestionSelect },
+                reviewQuestion: { select: safeQuestionSelect },
               },
             })
           : Promise.resolve(null),
@@ -2302,7 +1945,7 @@ export class ReviewSessionsRepository {
             id: next.id,
             userVocabularyId: next.userVocabularyId,
             attemptNumber: next.retryCount + 1,
-            question: this.mapSafeQuestion(next.quizQuestion),
+            question: this.mapSafeQuestion(next.reviewQuestion),
           }
         : undefined,
       ...(feedbackDecision
@@ -2315,12 +1958,12 @@ export class ReviewSessionsRepository {
     client: Prisma.TransactionClient,
     sessionId: string,
     completedAt: Date,
-  ): Promise<QuizResult> {
+  ): Promise<ReviewResult> {
     const items = await client.reviewSessionItem.findMany({
       where: { reviewSessionId: sessionId },
       orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }],
       select: {
-        quizQuestion: { select: { points: true } },
+        reviewQuestion: { select: { points: true } },
         answers: {
           orderBy: [
             { attemptNumber: 'desc' },
@@ -2330,14 +1973,14 @@ export class ReviewSessionsRepository {
           take: 1,
           select: {
             isCorrect: true,
-            quizQuestion: { select: { points: true } },
+            reviewQuestion: { select: { points: true } },
           },
         },
       },
     });
     return this.calculateResult(
-      items.map(({ quizQuestion, answers }) => ({
-        points: answers[0]?.quizQuestion.points ?? quizQuestion.points,
+      items.map(({ reviewQuestion, answers }) => ({
+        points: answers[0]?.reviewQuestion.points ?? reviewQuestion.points,
         reviewAnswers: answers.map(({ isCorrect }) => ({ isCorrect })),
       })),
       completedAt,
@@ -2347,7 +1990,7 @@ export class ReviewSessionsRepository {
   private calculateResult(
     questions: ResultQuestion[],
     completedAt: Date,
-  ): QuizResult {
+  ): ReviewResult {
     const aggregates = this.calculateAggregates(questions);
     return {
       score: aggregates.score,

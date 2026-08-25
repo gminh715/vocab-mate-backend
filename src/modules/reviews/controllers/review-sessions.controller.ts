@@ -59,7 +59,7 @@ const validationErrorExample = {
   error: {
     code: 'BAD_REQUEST',
     message: 'Validation failed',
-    details: ['quizId must be a UUID'],
+    details: ['reviewGoal must be a valid enum value'],
   },
 };
 const notFoundErrorExample = {
@@ -95,15 +95,14 @@ export class ReviewSessionsController {
   })
   @ApiCreatedResponse({ type: StartReviewSessionSuccessResponseDto })
   @ApiBadRequestResponse({
-    description: 'Invalid or mismatched review source fields.',
+    description: 'Invalid Daily Review settings.',
     type: ApiErrorResponseDto,
     example: validationErrorExample,
   })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
   @ApiForbiddenResponse({ type: ApiErrorResponseDto })
   @ApiNotFoundResponse({
-    description:
-      'The quiz, article, collection, or eligible vocabulary was not found.',
+    description: 'Eligible vocabulary was not found.',
     type: ApiErrorResponseDto,
     example: notFoundErrorExample,
   })

@@ -81,14 +81,6 @@ enum LexicalUnitType {
   @@map("lexical_unit_type")
 }
 
-enum QuizStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-
-  @@map("quiz_status")
-}
-
 enum QuestionType {
   SELECT_MEANING
   SELECT_WORD
@@ -98,21 +90,10 @@ enum QuestionType {
   @@map("question_type")
 }
 
-enum ReviewSessionType {
-  QUIZ
-  DAILY_REVIEW
-  ARTICLE_REVIEW
-  COLLECTION_REVIEW
-
-  @@map("review_session_type")
-}
-
-enum QuestionGenerationSource {
-  ADMIN
-  RULE_BASED
+enum ReviewQuestionGenerationSource {
   AI
 
-  @@map("question_generation_source")
+  @@map("review_question_generation_source")
 }
 
 enum ReviewSessionItemStatus {

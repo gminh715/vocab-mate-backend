@@ -1,4 +1,7 @@
-import { ArticleStatus, CefrLevel } from '../../../../../generated/prisma/enums';
+import {
+  ArticleStatus,
+  CefrLevel,
+} from '../../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../../src/database/prisma.service';
 import {
   ArticleStatusTransitionConflictError,

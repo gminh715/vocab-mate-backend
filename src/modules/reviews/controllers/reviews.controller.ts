@@ -22,10 +22,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import {
-  GetDueReviewsQueryDto,
-  GetReviewHistoryQueryDto,
-} from '../dto/review-request.dto';
+import { GetReviewHistoryQueryDto } from '../dto/review-request.dto';
 import {
   DueReviewsSuccessResponseDto,
   ReviewHistorySuccessResponseDto,
@@ -45,16 +42,13 @@ export class ReviewsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'getTodaysReviews',
-    summary: "Get today's due vocabulary and review recommendations",
+    summary: "Get today's due vocabulary count for Daily Review",
   })
   @ApiOkResponse({ type: DueReviewsSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
-  getToday(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: GetDueReviewsQueryDto,
-  ) {
-    return this.reviewsService.getToday(user.id, query);
+  getToday(@CurrentUser() user: AuthenticatedUser) {
+    return this.reviewsService.getToday(user.id);
   }
 
   @Get('history')
@@ -72,23 +66,5 @@ export class ReviewsController {
     @Query() query: GetReviewHistoryQueryDto,
   ) {
     return this.reviewsService.getHistory(user.id, query);
-  }
-
-  @Get('due')
-  @Version('1')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    operationId: 'getDueReviews',
-    summary: 'Get due review recommendations (deprecated; use /reviews/today)',
-    deprecated: true,
-  })
-  @ApiOkResponse({ type: DueReviewsSuccessResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
-  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
-  getDue(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: GetDueReviewsQueryDto,
-  ) {
-    return this.reviewsService.getToday(user.id, query);
   }
 }

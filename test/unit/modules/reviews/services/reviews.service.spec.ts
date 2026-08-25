@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   BadRequestException,
-  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -13,11 +12,9 @@ import {
   ReviewErrorType,
   ReviewGoal,
   ReviewSessionStatus,
-  ReviewSessionType,
   ReviewSkillDimension,
 } from '../../../../../generated/prisma/enums';
 import {
-  InvalidReviewSourceShapeError,
   NoUsableReviewQuestionError,
   ReviewSessionsRepository,
 } from '../../../../../src/modules/reviews/repositories/review-sessions.repository';
@@ -145,7 +142,6 @@ describe('ReviewsService', () => {
       getCompletedResult: jest.fn(),
       getDueRecommendations: jest.fn().mockResolvedValue({
         dueVocabularyCount: 0,
-        recommendedQuizzes: [],
       }),
       getRecentReviewTimingStats: jest.fn().mockResolvedValue({
         attemptCount: 0,
@@ -238,18 +234,6 @@ describe('ReviewsService', () => {
     expect(reviewAgent.persistSessionPlan).toHaveBeenCalledWith(request);
   });
 
-  it('returns generic not found for an ineligible quiz', async () => {
-    repository.startSession.mockResolvedValue(null);
-    await expect(
-      service.startSession('user', {
-        sessionType: ReviewSessionType.QUIZ,
-        quizId: 'quiz',
-        limit: 20,
-      }),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    expect(aiQuestionGenerator.warmCache).toHaveBeenCalledTimes(1);
-  });
-
   it('returns a compatible in-progress session instead of treating it as a conflict', async () => {
     repository.startSession.mockResolvedValue({
       session: { id: 'existing', status: ReviewSessionStatus.IN_PROGRESS },
@@ -259,7 +243,6 @@ describe('ReviewsService', () => {
     });
     await expect(
       service.startSession('user', {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
         limit: 20,
       }),
     ).resolves.toMatchObject({
@@ -272,7 +255,6 @@ describe('ReviewsService', () => {
   it('reviews every due item while preserving the selected daily plan', async () => {
     repository.getDueRecommendations.mockResolvedValue({
       dueVocabularyCount: 137,
-      recommendedQuizzes: [],
     });
     repository.getRecentReviewTimingStats.mockResolvedValue({
       attemptCount: 8,
@@ -290,7 +272,6 @@ describe('ReviewsService', () => {
     });
 
     await service.startSession('user', {
-      sessionType: ReviewSessionType.DAILY_REVIEW,
       limit: 20,
       targetDurationMinutes: 5,
       reviewGoal: ReviewGoal.SPELLING,
@@ -326,7 +307,7 @@ describe('ReviewsService', () => {
     const prepared = [
       {
         userVocabularyId: 'vocabulary',
-        quizQuestionId: 'ai-question',
+        reviewQuestionId: 'ai-question',
         articleSentenceTermId: 'term',
         difficultyCefr: 'B1',
         questionType: 'SELECT_MEANING',
@@ -351,7 +332,6 @@ describe('ReviewsService', () => {
     });
 
     await service.startSession('user', {
-      sessionType: ReviewSessionType.DAILY_REVIEW,
       limit: 20,
     });
 
@@ -395,7 +375,6 @@ describe('ReviewsService', () => {
 
     await service.startSession('user', {
       preparationId: '11111111-1111-4111-8111-111111111111',
-      sessionType: ReviewSessionType.DAILY_REVIEW,
       limit: 20,
     });
 
@@ -539,7 +518,6 @@ describe('ReviewsService', () => {
 
     await expect(
       service.startSession('user', {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
         limit: 20,
         targetDurationMinutes: 15,
         reviewGoal: ReviewGoal.CONTEXT,
@@ -572,7 +550,6 @@ describe('ReviewsService', () => {
 
     await expect(
       service.startSession('user', {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
         limit: 20,
       }),
     ).resolves.toMatchObject({
@@ -584,15 +561,10 @@ describe('ReviewsService', () => {
   it('returns the due count without time-based estimates', async () => {
     repository.getDueRecommendations.mockResolvedValue({
       dueVocabularyCount: 8,
-      recommendedQuizzes: [],
     });
 
-    await expect(
-      service.getToday('user', { limit: 10 }),
-    ).resolves.toMatchObject({
+    await expect(service.getToday('user')).resolves.toEqual({
       dueVocabularyCount: 8,
-      recommendedQuizzes: [],
-      dailyReviewEstimates: [],
     });
     expect(repository.getRecentReviewTimingStats).not.toHaveBeenCalled();
   });
@@ -604,26 +576,12 @@ describe('ReviewsService', () => {
 
     await expect(
       service.startSession('user', {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
         limit: 20,
       }),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('maps mismatched source fields to a bad request', async () => {
-    repository.startSession.mockRejectedValue(
-      new InvalidReviewSourceShapeError(),
-    );
-    await expect(
-      service.startSession('user', {
-        sessionType: ReviewSessionType.DAILY_REVIEW,
-        quizId: 'unexpected',
-        limit: 20,
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('calculates quiz progress with two-decimal percent rounding', async () => {
+  it('calculates review progress with two-decimal percent rounding', async () => {
     repository.getSessionState.mockResolvedValue({
       session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
       answeredCount: 2,
@@ -711,7 +669,7 @@ describe('ReviewsService', () => {
     await expect(
       service.submitAnswer('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         userAnswerText: 'wrong',
       }),
     ).resolves.toMatchObject({
@@ -744,7 +702,7 @@ describe('ReviewsService', () => {
 
     await service.submitAnswer('user', 'session', {
       reviewSessionItemId: 'item',
-      quizQuestionId: 'question',
+      reviewQuestionId: 'question',
       selectedOptionId: 'correct-option',
     });
 
@@ -778,7 +736,7 @@ describe('ReviewsService', () => {
     });
     const preparedRetestQuestion = {
       userVocabularyId: 'vocabulary',
-      quizQuestionId: 'ai-retest',
+      reviewQuestionId: 'ai-retest',
       articleSentenceTermId: 'term',
       difficultyCefr: 'B1',
       questionType: QuestionType.FILL_BLANK,
@@ -808,7 +766,7 @@ describe('ReviewsService', () => {
     await expect(
       service.submitAnswer('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         selectedOptionId: 'wrong-option',
       }),
     ).resolves.toMatchObject({
@@ -895,7 +853,7 @@ describe('ReviewsService', () => {
     await expect(
       service.submitAnswer('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         selectedOptionId: 'wrong-option',
       }),
     ).resolves.toMatchObject({
@@ -951,7 +909,7 @@ describe('ReviewsService', () => {
     await expect(
       service.submitAnswer('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         selectedOptionId: 'wrong-option',
       }),
     ).resolves.toMatchObject({
@@ -1011,7 +969,7 @@ describe('ReviewsService', () => {
     await expect(
       service.submitAnswer('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         selectedOptionId: 'wrong-option',
       }),
     ).resolves.toMatchObject({
@@ -1073,7 +1031,7 @@ describe('ReviewsService', () => {
     await expect(
       service.submitAnswer('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
         selectedOptionId: 'wrong-option',
       }),
     ).resolves.toMatchObject({
@@ -1104,7 +1062,7 @@ describe('ReviewsService', () => {
     await expect(
       service.skipItem('user', 'session', {
         reviewSessionItemId: 'item',
-        quizQuestionId: 'question',
+        reviewQuestionId: 'question',
       }),
     ).resolves.toMatchObject({
       inferredReviewScore: 0,

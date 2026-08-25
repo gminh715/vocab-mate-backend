@@ -1334,7 +1334,6 @@ describe('Auth and Users APIs (e2e)', () => {
         article: Record<string, unknown>;
         sentenceCount: number;
         termCount: number;
-        quizCount: number;
       };
     }>(response);
 
@@ -1346,7 +1345,6 @@ describe('Auth and Users APIs (e2e)', () => {
     expect(body.data).toMatchObject({
       sentenceCount: 0,
       termCount: 0,
-      quizCount: 4,
     });
     expect(body.data.article).not.toHaveProperty('createdBy');
 
@@ -2330,7 +2328,6 @@ describe('Auth and Users APIs (e2e)', () => {
     articlesRepository.setDeleteSafety(articleId, {
       readingProgressCount: 2,
       savedVocabularyCount: 1,
-      quizCount: 3,
     });
     articlesRepository.setTermReferenced(termId);
 
@@ -2350,7 +2347,6 @@ describe('Auth and Users APIs (e2e)', () => {
     expect(safety).toMatchObject({
       readingProgressCount: 2,
       savedVocabularyCount: 1,
-      quizCount: 3,
     });
     const archivedDetail = await request(app.getHttpServer())
       .get(`/api/v1/admin/articles/${articleId}`)

@@ -88,7 +88,6 @@ export class ArticlesController {
           name: 'Technology',
           slug: 'technology',
         },
-        quizCount: 2,
       },
     },
   })

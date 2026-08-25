@@ -116,7 +116,7 @@ describe('Articles public APIs (e2e)', () => {
       Object.keys(
         swagger.components.schemas['ArticleDetailDataDto'].properties ?? {},
       ),
-    ).toEqual(['article', 'category', 'quizCount']);
+    ).toEqual(['article', 'category']);
     expect(
       swagger.components.schemas['PublicArticleCardDto'].properties,
     ).not.toHaveProperty('contentHtml');
@@ -204,7 +204,7 @@ describe('Articles public APIs (e2e)', () => {
     });
   });
 
-  it('ART-002 normalizes the slug and returns metadata, category, and published quiz count', async () => {
+  it('ART-002 normalizes the slug and returns metadata and category', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/articles/HOW-TECHNOLOGY-CHANGES-LEARNING')
       .expect(200);
@@ -221,7 +221,6 @@ describe('Articles public APIs (e2e)', () => {
         name: 'Technology',
         slug: 'technology',
       },
-      quizCount: 2,
     });
     expect(JSON.stringify(body)).not.toContain('contentHtml');
     expect(JSON.stringify(body)).not.toContain('Private reader payload');

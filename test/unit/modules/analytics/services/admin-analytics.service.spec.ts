@@ -8,7 +8,6 @@ describe('AdminAnalyticsService', () => {
     queryTopArticles: jest.fn(),
     queryCompletionRates: jest.fn(),
     queryTermSaveCounts: jest.fn(),
-    queryQuizPerformance: jest.fn(),
     queryRegistrationTrend: jest.fn(),
     queryActiveUserCount: jest.fn(),
     queryRetention: jest.fn(),
@@ -25,7 +24,6 @@ describe('AdminAnalyticsService', () => {
     jest.mocked(repository.queryTopArticles).mockResolvedValue([]);
     jest.mocked(repository.queryCompletionRates).mockResolvedValue([]);
     jest.mocked(repository.queryTermSaveCounts).mockResolvedValue([]);
-    jest.mocked(repository.queryQuizPerformance).mockResolvedValue([]);
     jest.mocked(repository.queryRegistrationTrend).mockResolvedValue([]);
     jest.mocked(repository.queryActiveUserCount).mockResolvedValue([]);
     jest.mocked(repository.queryRetention).mockResolvedValue([]);
@@ -45,7 +43,6 @@ describe('AdminAnalyticsService', () => {
       topArticles: [],
       completionRates: [],
       termSaveCounts: [],
-      quizPerformance: [],
     });
   });
 
@@ -69,7 +66,7 @@ describe('AdminAnalyticsService', () => {
         inactive: 0,
         readingOnly: 0,
         vocabularyOnly: 0,
-        quizOnly: 0,
+        reviewOnly: 0,
         multiActivity: 0,
       },
     });

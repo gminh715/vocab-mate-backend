@@ -3,7 +3,6 @@ import {
   ArticleStatus,
   CefrLevel,
   LearningStatus,
-  QuestionType,
   ReviewDecisionSource,
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
@@ -35,7 +34,7 @@ export class AnalyticsOverviewDataDto {
     description:
       'Answer-level accuracy for completed review sessions in the range; zero when there are no answers.',
   })
-  quizAccuracy!: number;
+  reviewAccuracy!: number;
 
   @ApiProperty({
     example: 5,
@@ -151,45 +150,6 @@ export class ReadingAnalyticsDataDto {
 
 export class ReadingAnalyticsSuccessResponseDto extends successResponse(
   ReadingAnalyticsDataDto,
-) {}
-
-export class QuestionTypeAnalyticsDto {
-  @ApiProperty({ enum: QuestionType })
-  questionType!: QuestionType;
-  @ApiProperty()
-  answers!: number;
-  @ApiProperty()
-  correctAnswers!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-}
-
-export class QuizTrendBucketDto {
-  @ApiProperty({ example: '2026-07-24' })
-  bucket!: string;
-  @ApiProperty()
-  sessions!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-  @ApiProperty(ratioProperty)
-  averageScore!: number;
-}
-
-export class QuizAnalyticsDataDto {
-  @ApiProperty()
-  sessions!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-  @ApiProperty(ratioProperty)
-  averageScore!: number;
-  @ApiProperty({ type: [QuestionTypeAnalyticsDto] })
-  byQuestionType!: QuestionTypeAnalyticsDto[];
-  @ApiProperty({ type: [QuizTrendBucketDto] })
-  trend!: QuizTrendBucketDto[];
-}
-
-export class QuizAnalyticsSuccessResponseDto extends successResponse(
-  QuizAnalyticsDataDto,
 ) {}
 
 export class ReviewRetestAnalyticsDto {
@@ -344,8 +304,6 @@ export class AdminTopArticleDto {
   completedCount!: number;
   @ApiProperty()
   savedVocabularyCount!: number;
-  @ApiProperty()
-  completedQuizSessions!: number;
 }
 
 export class AdminArticleCompletionDto {
@@ -378,23 +336,6 @@ export class AdminTermSaveDto {
   saveCount!: number;
 }
 
-export class AdminQuizPerformanceDto {
-  @ApiProperty({ format: 'uuid' })
-  quizId!: string;
-  @ApiProperty()
-  quizTitle!: string;
-  @ApiProperty({ format: 'uuid' })
-  articleId!: string;
-  @ApiProperty()
-  articleTitle!: string;
-  @ApiProperty()
-  completedSessions!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-  @ApiProperty(ratioProperty)
-  averageScore!: number;
-}
-
 export class AdminContentAnalyticsDataDto {
   @ApiProperty({ type: [AdminTopArticleDto] })
   topArticles!: AdminTopArticleDto[];
@@ -402,8 +343,6 @@ export class AdminContentAnalyticsDataDto {
   completionRates!: AdminArticleCompletionDto[];
   @ApiProperty({ type: [AdminTermSaveDto] })
   termSaveCounts!: AdminTermSaveDto[];
-  @ApiProperty({ type: [AdminQuizPerformanceDto] })
-  quizPerformance!: AdminQuizPerformanceDto[];
 }
 
 export class AdminContentAnalyticsSuccessResponseDto extends successResponse(
@@ -436,7 +375,7 @@ export class LearningDistributionDto {
   @ApiProperty()
   vocabularyOnly!: number;
   @ApiProperty()
-  quizOnly!: number;
+  reviewOnly!: number;
   @ApiProperty()
   multiActivity!: number;
 }

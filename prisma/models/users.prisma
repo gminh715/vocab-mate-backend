@@ -20,10 +20,6 @@ model User {
   articleProgress             UserArticleProgress[]
   vocabularies                UserVocabulary[]
   vocabularyCollections       VocabularyCollection[]
-  quizzesCreated              Quiz[]                 @relation("QuizCreatedBy")
-  quizzesUpdated              Quiz[]                 @relation("QuizUpdatedBy")
-  quizQuestionsCreated        QuizQuestion[]         @relation("QuizQuestionCreatedBy")
-  quizQuestionsUpdated        QuizQuestion[]         @relation("QuizQuestionUpdatedBy")
   reviewSessions              ReviewSession[]
   refreshSessions             RefreshSession[]
 

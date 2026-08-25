@@ -1,21 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
-  ArticleStatus,
   type CefrLevel,
   LearningStatus,
-  QuestionGenerationSource,
+  ReviewQuestionGenerationSource,
   type QuestionType,
   ReviewSessionStatus,
-  ReviewSessionType,
 } from '../../../../generated/prisma/enums';
 import { REVIEW_QUESTION_PROMPT_VERSION } from '../../ai/ai.contracts';
 import { PrismaService } from '../../../database/prisma.service';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
-import {
-  InvalidReviewSourceShapeError,
-  ReviewResourceNotFoundError,
-} from './review-errors';
 import {
   RECENT_ACCURACY_WINDOW,
   preferredQuestionTypes,
@@ -45,10 +39,9 @@ export interface VocabularyQuestionSnapshot {
 }
 
 export interface GeneratedAiQuestionSpec {
-  quizId: null;
   articleSentenceTermId: string;
   questionType: QuestionType;
-  generationSource: typeof QuestionGenerationSource.AI;
+  generationSource: typeof ReviewQuestionGenerationSource.AI;
   generationVersion: string;
   difficultyCefr: CefrLevel;
   prompt: string;
@@ -69,7 +62,7 @@ export interface GeneratedAiQuestionSpec {
 
 export interface PreparedAiReviewQuestion {
   userVocabularyId: string;
-  quizQuestionId: string;
+  reviewQuestionId: string;
   articleSentenceTermId: string;
   difficultyCefr: CefrLevel;
   questionType: QuestionType;
@@ -145,27 +138,16 @@ export class ReviewQuestionsRepository {
     dto: StartReviewSessionDto,
     now: Date,
   ): Promise<AiQuestionGenerationCandidate[]> {
-    if (dto.sessionType === ReviewSessionType.QUIZ) return Promise.resolve([]);
-
     return this.prisma.$transaction(async (tx) => {
-      this.assertSourceShape(dto);
       const active = await tx.reviewSession.findFirst({
         where: {
           userId,
-          sessionType: dto.sessionType,
-          ...(dto.sessionType === ReviewSessionType.ARTICLE_REVIEW
-            ? { articleId: dto.articleId }
-            : {}),
-          ...(dto.sessionType === ReviewSessionType.COLLECTION_REVIEW
-            ? { collectionId: dto.collectionId }
-            : {}),
           status: ReviewSessionStatus.IN_PROGRESS,
         },
         select: { id: true },
       });
       if (active) return [];
 
-      await this.validateSource(tx, userId, dto);
       const vocabularies = await this.findEligibleVocabularies(
         tx,
         userId,
@@ -176,15 +158,14 @@ export class ReviewQuestionsRepository {
       const cachedQuestions =
         vocabularies.length === 0
           ? []
-          : await tx.quizQuestion.findMany({
+          : await tx.reviewQuestion.findMany({
               where: {
-                quizId: null,
                 articleSentenceTermId: {
                   in: vocabularies.map(
                     ({ articleSentenceTermId }) => articleSentenceTermId,
                   ),
                 },
-                generationSource: QuestionGenerationSource.AI,
+                generationSource: ReviewQuestionGenerationSource.AI,
                 generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
                 isActive: true,
               },
@@ -242,7 +223,7 @@ export class ReviewQuestionsRepository {
     difficultyCefr: CefrLevel,
     questionType: QuestionType,
   ) {
-    return this.prisma.quizQuestion.findFirst({
+    return this.prisma.reviewQuestion.findFirst({
       where: this.aiQuestionCacheWhere({
         articleSentenceTermId,
         difficultyCefr,
@@ -258,7 +239,7 @@ export class ReviewQuestionsRepository {
     difficultyCefr: CefrLevel,
     preferredQuestionTypes: QuestionType[],
   ): Promise<PreparedAiReviewQuestion | null> {
-    const cached = await this.prisma.quizQuestion.findMany({
+    const cached = await this.prisma.reviewQuestion.findMany({
       where: this.aiQuestionCacheWhere({
         articleSentenceTermId,
         difficultyCefr,
@@ -286,7 +267,7 @@ export class ReviewQuestionsRepository {
   async cacheAiQuestion(spec: GeneratedAiQuestionSpec) {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const cached = await tx.quizQuestion.findFirst({
+        const cached = await tx.reviewQuestion.findFirst({
           where: this.aiQuestionCacheWhere({
             articleSentenceTermId: spec.articleSentenceTermId,
             difficultyCefr: spec.difficultyCefr,
@@ -298,13 +279,13 @@ export class ReviewQuestionsRepository {
         if (cached) return cached;
 
         const { options, ...question } = spec;
-        return tx.quizQuestion.create({
+        return tx.reviewQuestion.create({
           data: {
             ...question,
             options: {
               create: options.map((option) => ({
                 ...option,
-                generationSource: QuestionGenerationSource.AI,
+                generationSource: ReviewQuestionGenerationSource.AI,
               })),
             },
           },
@@ -333,59 +314,15 @@ export class ReviewQuestionsRepository {
     difficultyCefr: CefrLevel;
     questionType: Prisma.EnumQuestionTypeFilter | QuestionType;
     generationVersion?: string;
-  }): Prisma.QuizQuestionWhereInput {
+  }): Prisma.ReviewQuestionWhereInput {
     return {
-      quizId: null,
       articleSentenceTermId,
       difficultyCefr,
       questionType,
-      generationSource: QuestionGenerationSource.AI,
+      generationSource: ReviewQuestionGenerationSource.AI,
       generationVersion,
       isActive: true,
     };
-  }
-
-  private async validateSource(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    dto: StartReviewSessionDto,
-  ): Promise<void> {
-    this.assertSourceShape(dto);
-    if (dto.sessionType === ReviewSessionType.ARTICLE_REVIEW) {
-      const article = await tx.article.findFirst({
-        where: { id: dto.articleId!, status: ArticleStatus.PUBLISHED },
-        select: { id: true },
-      });
-      if (!article) throw new ReviewResourceNotFoundError();
-    }
-    if (dto.sessionType === ReviewSessionType.COLLECTION_REVIEW) {
-      const collection = await tx.vocabularyCollection.findFirst({
-        where: { id: dto.collectionId!, userId },
-        select: { id: true },
-      });
-      if (!collection) throw new ReviewResourceNotFoundError();
-    }
-  }
-
-  private assertSourceShape(dto: StartReviewSessionDto): void {
-    const hasUnexpectedSource =
-      (dto.sessionType !== ReviewSessionType.QUIZ && dto.quizId != null) ||
-      (dto.sessionType !== ReviewSessionType.ARTICLE_REVIEW &&
-        dto.articleId != null) ||
-      (dto.sessionType !== ReviewSessionType.COLLECTION_REVIEW &&
-        dto.collectionId != null);
-    const missingSource =
-      (dto.sessionType === ReviewSessionType.QUIZ && !dto.quizId) ||
-      (dto.sessionType === ReviewSessionType.ARTICLE_REVIEW &&
-        !dto.articleId) ||
-      (dto.sessionType === ReviewSessionType.COLLECTION_REVIEW &&
-        !dto.collectionId);
-    const hasUnexpectedDailyPlan =
-      dto.sessionType !== ReviewSessionType.DAILY_REVIEW &&
-      (dto.targetDurationMinutes != null || dto.reviewGoal != null);
-    if (hasUnexpectedSource || missingSource || hasUnexpectedDailyPlan) {
-      throw new InvalidReviewSourceShapeError();
-    }
   }
 
   private async findEligibleVocabularies(
@@ -394,21 +331,10 @@ export class ReviewQuestionsRepository {
     dto: StartReviewSessionDto,
     now: Date,
   ): Promise<ReviewVocabulary[]> {
-    const sourceWhere: Prisma.UserVocabularyWhereInput =
-      dto.sessionType === ReviewSessionType.ARTICLE_REVIEW
-        ? {
-            articleSentenceTerm: {
-              is: { sentence: { is: { articleId: dto.articleId! } } },
-            },
-          }
-        : dto.sessionType === ReviewSessionType.COLLECTION_REVIEW
-          ? { collectionItems: { some: { collectionId: dto.collectionId! } } }
-          : {};
     const commonWhere: Prisma.UserVocabularyWhereInput = {
       userId,
       learningStatus: { in: REVIEW_ELIGIBLE_LEARNING_STATUSES },
       OR: [{ nextReviewAt: { lte: now } }, { nextReviewAt: null }],
-      ...sourceWhere,
     };
     const selected: ReviewVocabulary[] = [];
     const take = async (
@@ -480,8 +406,8 @@ export class ReviewQuestionsRepository {
         FROM review_answers answer
         JOIN review_session_items item
           ON item.id = answer.review_session_item_id
-        JOIN quiz_questions question
-          ON question.id = answer.quiz_question_id
+        JOIN review_questions question
+          ON question.id = answer.review_question_id
         WHERE item.user_vocabulary_id IN (${vocabularyIds})
           AND answer.is_correct IS NOT NULL
       ) recent
@@ -530,7 +456,7 @@ export class ReviewQuestionsRepository {
   ): PreparedAiReviewQuestion {
     return {
       userVocabularyId,
-      quizQuestionId: question.id,
+      reviewQuestionId: question.id,
       articleSentenceTermId: question.articleSentenceTermId,
       difficultyCefr: question.difficultyCefr,
       questionType: question.questionType,

@@ -49,7 +49,7 @@ export class AdminAnalyticsController {
     operationId: 'getAdminAnalyticsOverview',
     summary: 'Get aggregate operational analytics',
     description:
-      'ADMIN only. Users and articles are current all-status stock metrics. Active users are distinct learners with reading, vocabulary-save, or review-session activity in the half-open range. Saved vocabulary and completed sessions are period flows. Returns aggregate numbers only and zeroes when no data exists.',
+      'ADMIN only. Users and articles are current all-status stock metrics. Active users are distinct learners with reading, vocabulary-save, or Daily Review activity in the half-open range. Saved vocabulary and completed sessions are period flows. Returns aggregate numbers only and zeroes when no data exists.',
   })
   @ApiOkResponse({
     type: AdminAnalyticsOverviewSuccessResponseDto,
@@ -78,7 +78,7 @@ export class AdminAnalyticsController {
   @ApiOperation({
     operationId: 'getAdminContentAnalytics',
     summary: 'Get bounded aggregate content analytics',
-    description: `ADMIN only. Every ranked array is limited to the server-side top ${ANALYTICS_TOP_CONTENT_LIMIT}. Reading uses the first-opened cohort; quiz accuracy and normalized score match learner analytics. categoryId applies to every metric without excluding inactive categories or archived history. Empty data returns four empty arrays.`,
+    description: `ADMIN only. Every ranked array is limited to the server-side top ${ANALYTICS_TOP_CONTENT_LIMIT}. Reading uses the first-opened cohort. categoryId applies to every content metric without excluding inactive categories or archived history. Empty data returns three empty arrays.`,
   })
   @ApiOkResponse({
     type: AdminContentAnalyticsSuccessResponseDto,
@@ -95,7 +95,6 @@ export class AdminAnalyticsController {
             openedCount: 20,
             completedCount: 15,
             savedVocabularyCount: 30,
-            completedQuizSessions: 12,
           },
         ],
         completionRates: [
@@ -108,7 +107,6 @@ export class AdminAnalyticsController {
           },
         ],
         termSaveCounts: [],
-        quizPerformance: [],
       },
     },
   })
@@ -126,7 +124,7 @@ export class AdminAnalyticsController {
     operationId: 'getAdminUserAnalytics',
     summary: 'Get aggregate user-activity analytics',
     description:
-      'ADMIN only. status applies consistently to registrations, active learners, retention proxy, and distribution. The retention proxy compares activity in equal first/second windows and is not signup-cohort or D1/D7/D30 retention. Distribution is mutually exclusive across reading-only, vocabulary-only, quiz-only, multi-activity, and inactive users. No PII is returned.',
+      'ADMIN only. status applies consistently to registrations, active learners, retention proxy, and distribution. The retention proxy compares activity in equal first/second windows and is not signup-cohort or D1/D7/D30 retention. Distribution is mutually exclusive across reading-only, vocabulary-only, Daily-Review-only, multi-activity, and inactive users. No PII is returned.',
   })
   @ApiOkResponse({ type: AdminUserAnalyticsSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

@@ -151,9 +151,7 @@ export class ReviewAnswerTransactionService {
       })),
       context.item.question.questionType,
     );
-    const candidates = context.session.quizId
-      ? context.retryQuestionCandidates.quiz
-      : context.retryQuestionCandidates.cached;
+    const candidates = context.retryQuestionCandidates;
     for (const questionType of preferredTypes) {
       const selected = candidates.find(
         (candidate) => candidate.questionType === questionType,
@@ -191,7 +189,7 @@ export class ReviewAnswerTransactionService {
       expected: {
         sessionId,
         reviewSessionItemId: context.item.id,
-        quizQuestionId: context.item.question.id,
+        reviewQuestionId: context.item.question.id,
         retryCount: context.item.retryCount,
         answerCount: context.item.answerCount,
         userVocabularyId: context.item.userVocabularyId,

@@ -1,9 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '../../../../../generated/prisma/client';
-import {
-  ArticleStatus,
-  QuizStatus,
-} from '../../../../../generated/prisma/enums';
+import { ArticleStatus } from '../../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../../src/database/prisma.service';
 import { ArticlesRepository } from '../../../../../src/modules/articles/repositories/articles.repository';
 
@@ -194,7 +191,7 @@ describe('ArticlesRepository', () => {
     expect(JSON.stringify(query)).not.toContain('updatedBy');
   });
 
-  it('filters detail by slug and PUBLISHED and counts only PUBLISHED quizzes', async () => {
+  it('filters detail by slug and PUBLISHED', async () => {
     findFirst.mockResolvedValue({
       id: 'article-id',
       title: 'Article',
@@ -208,7 +205,6 @@ describe('ArticlesRepository', () => {
       status: ArticleStatus.PUBLISHED,
       publishedAt: new Date('2026-07-22T10:00:00Z'),
       category: { id: 'category-id', name: 'Technology', slug: 'technology' },
-      _count: { quizzes: 2 },
     });
 
     await expect(repository.findPublishedBySlug('article')).resolves.toEqual({
@@ -230,18 +226,12 @@ describe('ArticlesRepository', () => {
         name: 'Technology',
         slug: 'technology',
       },
-      quizCount: 2,
     });
     const query = findFirst.mock.calls[0][0];
     expect(query).toMatchObject({
       where: { slug: 'article', status: ArticleStatus.PUBLISHED },
       select: {
         category: { select: { id: true, name: true, slug: true } },
-        _count: {
-          select: {
-            quizzes: { where: { status: QuizStatus.PUBLISHED } },
-          },
-        },
       },
     });
     expect(JSON.stringify(query)).not.toContain('contentHtml');

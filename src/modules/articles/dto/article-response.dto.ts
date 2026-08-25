@@ -110,9 +110,6 @@ export class ArticleDetailDataDto {
 
   @ApiProperty({ type: PublicCategoryDto })
   category!: PublicCategoryDto;
-
-  @ApiProperty({ example: 2, minimum: 0 })
-  quizCount!: number;
 }
 
 export class ArticleDetailSuccessResponseDto {
@@ -290,9 +287,6 @@ export class AdminArticleDetailDataDto {
 
   @ApiProperty({ example: 30, minimum: 0 })
   termCount!: number;
-
-  @ApiProperty({ example: 2, minimum: 0 })
-  quizCount!: number;
 }
 
 export class AdminArticleDetailSuccessResponseDto {

@@ -4,9 +4,8 @@ import type { AiConfig } from '../../../../../src/config/ai.config';
 import { AI_CONFIG } from '../../../../../src/config/config.module';
 import {
   CefrLevel,
-  QuestionGenerationSource,
+  ReviewQuestionGenerationSource,
   QuestionType,
-  ReviewSessionType,
 } from '../../../../../generated/prisma/enums';
 import type { ReviewQuestionGenerationResult } from '../../../../../src/modules/ai/ai.contracts';
 import {
@@ -137,16 +136,12 @@ describe('AiAssistedQuestionGeneratorService', () => {
   });
 
   const warmCache = () =>
-    service.warmCache(
-      'user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
-      new Date('2026-08-03T00:00:00Z'),
-    );
+    service.warmCache('user', { limit: 20 }, new Date('2026-08-03T00:00:00Z'));
 
   it('returns a valid cache hit without calling either generation path', async () => {
     const cached: PreparedAiReviewQuestion = {
       userVocabularyId: 'vocabulary-1',
-      quizQuestionId: 'cached-ai',
+      reviewQuestionId: 'cached-ai',
       articleSentenceTermId: 'term-1',
       difficultyCefr: CefrLevel.B1,
       questionType: QuestionType.SELECT_WORD,
@@ -180,7 +175,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
         articleSentenceTermId: 'term-1',
         questionType: QuestionType.SELECT_MEANING,
         difficultyCefr: CefrLevel.B1,
-        generationSource: QuestionGenerationSource.AI,
+        generationSource: ReviewQuestionGenerationSource.AI,
         generationVersion: REVIEW_QUESTION_PROMPT_VERSION,
         correctAnswerText: null,
       }),
@@ -195,7 +190,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     expect(prepared).toEqual([
       expect.objectContaining({
         userVocabularyId: 'vocabulary-1',
-        quizQuestionId: 'question-term-1',
+        reviewQuestionId: 'question-term-1',
         questionType: QuestionType.SELECT_MEANING,
       }),
     ]);
@@ -259,7 +254,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
   it('uses a concurrently cached preferred AI question after provider failure', async () => {
     const cachedAlternative: PreparedAiReviewQuestion = {
       userVocabularyId: 'vocabulary-1',
-      quizQuestionId: 'cached-alternative',
+      reviewQuestionId: 'cached-alternative',
       articleSentenceTermId: 'term-1',
       difficultyCefr: CefrLevel.B1,
       questionType: QuestionType.SELECT_WORD,
@@ -310,7 +305,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     const onAiCallReserved = jest.fn();
     const prepared = await service.warmCache(
       'user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
+      { limit: 20 },
       new Date('2026-08-03T00:00:00Z'),
       onAiCallReserved,
     );
@@ -338,7 +333,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
     const prepared = await service.warmCache(
       'user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
+      { limit: 20 },
       new Date('2026-08-03T00:00:00Z'),
       undefined,
       onProgress,
@@ -360,7 +355,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
         candidateNumber <= 16
           ? {
               userVocabularyId: `vocabulary-${candidateNumber}`,
-              quizQuestionId: `cached-${candidateNumber}`,
+              reviewQuestionId: `cached-${candidateNumber}`,
               articleSentenceTermId: `term-${candidateNumber}`,
               difficultyCefr: CefrLevel.B1,
               questionType: QuestionType.SELECT_MEANING,
@@ -410,7 +405,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
 
     const prepared = await service.warmCache(
       'user',
-      { sessionType: ReviewSessionType.DAILY_REVIEW, limit: 20 },
+      { limit: 20 },
       new Date('2026-08-03T00:00:00Z'),
       onAiCallReserved,
     );
@@ -491,7 +486,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
         candidate.vocabulary,
         QuestionType.FILL_BLANK,
       ),
-    ).resolves.toMatchObject({ quizQuestionId: 'cached-retest' });
+    ).resolves.toMatchObject({ reviewQuestionId: 'cached-retest' });
     expect(repository.reserveGenerationCall).not.toHaveBeenCalled();
     expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
   });
