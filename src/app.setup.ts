@@ -11,6 +11,7 @@ import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { SuccessResponseInterceptor } from './common/interceptors/success-response.interceptor';
+import { requestLoggingMiddleware } from './common/logging/request-logging.middleware';
 
 const defaultAllowedOrigins = [
   'http://localhost:5173',
@@ -53,6 +54,7 @@ export const configureApp = (
         : defaultAllowedOrigins,
     credentials: true,
   });
+  app.use(requestLoggingMiddleware);
   app.use(cookieParser());
   app.useGlobalPipes(
     new ValidationPipe({

@@ -1,10 +1,8 @@
 import type { AiConfig } from '../../../../src/config/ai.config';
 import { APIError } from 'groq-sdk';
-import {
-  GeminiAiProvider,
-  GroqAiProvider,
-  type StructuredAiRequest,
-} from '../../../../src/modules/ai/ai.provider';
+import { type StructuredAiRequest } from '../../../../src/modules/ai/providers/ai-provider.contract';
+import { GeminiAiProvider } from '../../../../src/modules/ai/providers/gemini.provider';
+import { GroqAiProvider } from '../../../../src/modules/ai/providers/groq.provider';
 
 const groqCreate = jest.fn();
 const mockGroqConstructor = jest.fn();

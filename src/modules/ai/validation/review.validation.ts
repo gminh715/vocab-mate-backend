@@ -1,7 +1,6 @@
 import {
   AGENTIC_REVIEW_V1_SKILL_DIMENSIONS,
   CEFR_LEVELS,
-  LEXICAL_UNIT_TYPES,
   REVIEW_AGENT_ACTIONS,
   REVIEW_ERROR_TYPES,
   REVIEW_GOALS,
@@ -15,29 +14,17 @@ import {
   type ReviewAnswerDiagnosisResult,
   type ReviewAttemptSnapshot,
   type ReviewQuestionBatchGenerationResult,
-  type TermEnrichmentInput,
-  type TermEnrichmentResult,
-  type TermExample,
   type ReviewQuestionGenerationInput,
   type ReviewQuestionGenerationResult,
   type ReviewSessionPlanResult,
   type ReviewSkillAggregate,
-} from './ai.contracts';
-import { AiError, ProviderCallError } from './ai.errors';
+} from '../ai.contracts';
+import { AiError, ProviderCallError } from '../ai.errors';
 
 export const AI_OUTPUT_LIMITS = {
   termText: 200,
   partOfSpeech: 100,
   enrichmentText: 2000,
-  contextualMeaningWords: 4,
-  ipa: 100,
-  listItems: 8,
-  listItemText: 200,
-  vocabularyTopic: 200,
-  examples: 2,
-  exampleSentence: 500,
-  exampleTranslation: 1000,
-  sentenceTranslation: 5000,
   reviewPrompt: 500,
   reviewAnswer: 1000,
   reviewExplanation: 600,
@@ -105,19 +92,6 @@ const stringValue = (
   }
 
   return fail(boundary, field);
-};
-
-const nullableStringValue = (
-  value: unknown,
-  field: string,
-  maximum: number,
-  boundary: ValidationBoundary,
-): string | null => {
-  if (value === null) {
-    return null;
-  }
-
-  return stringValue(value, field, maximum, boundary);
 };
 
 const positiveIntegerValue = (
@@ -273,69 +247,6 @@ const uniqueAllowedIntegerArrayValue = <T extends readonly number[]>(
   }
 
   return items;
-};
-
-const stringArrayValue = (value: unknown, field: string): string[] => {
-  const items = arrayValue(value, field, AI_OUTPUT_LIMITS.listItems, 'output');
-  const strings = items.map((item, index) =>
-    stringValue(
-      item,
-      `${field}[${index}]`,
-      AI_OUTPUT_LIMITS.listItemText,
-      'output',
-    ),
-  );
-  const unique = new Set(
-    strings.map((item) => item.trim().toLocaleLowerCase('en-US')),
-  );
-  if (unique.size !== strings.length) {
-    fail('output', field);
-  }
-
-  return strings;
-};
-
-export const validateTermEnrichmentInput = (
-  input: TermEnrichmentInput,
-): void => {
-  const value = recordValue(
-    input,
-    'term',
-    [
-      'articleId',
-      'articleTitle',
-      'termId',
-      'value',
-      'lemma',
-      'unitType',
-      'parentSentenceText',
-      'surroundingSentenceContext',
-    ],
-    'input',
-  );
-
-  stringValue(value.articleId, 'articleId', 128, 'input');
-  stringValue(value.articleTitle, 'articleTitle', 500, 'input');
-  stringValue(value.termId, 'termId', 128, 'input');
-  const surfaceValue = stringValue(value.value, 'value', 200, 'input');
-  stringValue(value.lemma, 'lemma', 200, 'input');
-  enumValue(value.unitType, 'unitType', LEXICAL_UNIT_TYPES, 'input');
-  const sentence = stringValue(
-    value.parentSentenceText,
-    'parentSentenceText',
-    10000,
-    'input',
-  );
-  stringValue(
-    value.surroundingSentenceContext,
-    'surroundingSentenceContext',
-    4000,
-    'input',
-  );
-
-  if (!sentence.includes(surfaceValue)) {
-    fail('input', 'value');
-  }
 };
 
 export const validateReviewQuestionGenerationInput = (
@@ -759,142 +670,6 @@ export const validateDiagnoseReviewAnswerInput = (
     REVIEW_RETEST_AFTER_ITEMS.length,
     REVIEW_RETEST_AFTER_ITEMS,
   );
-};
-
-const parseExample = (value: unknown, index: number): TermExample => {
-  const example = recordValue(
-    value,
-    `examples[${index}]`,
-    ['sentence', 'translationVi'],
-    'output',
-  );
-
-  return {
-    sentence: stringValue(
-      example.sentence,
-      `examples[${index}].sentence`,
-      AI_OUTPUT_LIMITS.exampleSentence,
-      'output',
-    ),
-    translationVi: stringValue(
-      example.translationVi,
-      `examples[${index}].translationVi`,
-      AI_OUTPUT_LIMITS.exampleTranslation,
-      'output',
-    ),
-  };
-};
-
-export const parseTermEnrichmentResult = (
-  raw: unknown,
-  input: TermEnrichmentInput,
-): TermEnrichmentResult => {
-  const result = recordValue(
-    raw,
-    'result',
-    [
-      'wordDisplay',
-      'normalizedLemma',
-      'partOfSpeech',
-      'cefrLevel',
-      'contextualMeaningVi',
-      'definitionEn',
-      'contextualExplanation',
-      'ipa',
-      'synonyms',
-      'antonyms',
-      'collocations',
-      'relatedTerms',
-      'vocabularyTopic',
-      'examples',
-      'sentenceTranslationVi',
-    ],
-    'output',
-  );
-
-  const examples = arrayValue(
-    result.examples,
-    'examples',
-    AI_OUTPUT_LIMITS.examples,
-    'output',
-  ).map(parseExample);
-  const uniqueExamples = new Set(
-    examples.map(({ sentence }) => sentence.trim().toLocaleLowerCase('en-US')),
-  );
-  if (uniqueExamples.size !== examples.length) {
-    fail('output', 'examples');
-  }
-
-  const normalizedLemma = stringValue(
-    result.normalizedLemma,
-    'normalizedLemma',
-    AI_OUTPUT_LIMITS.termText,
-    'output',
-  ).toLocaleLowerCase('en-US');
-  if (normalizedLemma !== input.lemma.trim().toLocaleLowerCase('en-US')) {
-    fail('output', 'normalizedLemma');
-  }
-
-  const contextualMeaningVi = stringValue(
-    result.contextualMeaningVi,
-    'contextualMeaningVi',
-    AI_OUTPUT_LIMITS.enrichmentText,
-    'output',
-  );
-  if (
-    contextualMeaningVi.trim().split(/\s+/u).length >
-    AI_OUTPUT_LIMITS.contextualMeaningWords
-  ) {
-    fail('output', 'contextualMeaningVi');
-  }
-
-  return {
-    wordDisplay: stringValue(
-      result.wordDisplay,
-      'wordDisplay',
-      AI_OUTPUT_LIMITS.termText,
-      'output',
-    ),
-    normalizedLemma,
-    partOfSpeech: stringValue(
-      result.partOfSpeech,
-      'partOfSpeech',
-      AI_OUTPUT_LIMITS.partOfSpeech,
-      'output',
-    ).toLocaleLowerCase('en-US'),
-    cefrLevel: enumValue(result.cefrLevel, 'cefrLevel', CEFR_LEVELS, 'output'),
-    contextualMeaningVi,
-    definitionEn: stringValue(
-      result.definitionEn,
-      'definitionEn',
-      AI_OUTPUT_LIMITS.enrichmentText,
-      'output',
-    ),
-    contextualExplanation: stringValue(
-      result.contextualExplanation,
-      'contextualExplanation',
-      AI_OUTPUT_LIMITS.enrichmentText,
-      'output',
-    ),
-    ipa: nullableStringValue(result.ipa, 'ipa', AI_OUTPUT_LIMITS.ipa, 'output'),
-    synonyms: stringArrayValue(result.synonyms, 'synonyms'),
-    antonyms: stringArrayValue(result.antonyms, 'antonyms'),
-    collocations: stringArrayValue(result.collocations, 'collocations'),
-    relatedTerms: stringArrayValue(result.relatedTerms, 'relatedTerms'),
-    vocabularyTopic: nullableStringValue(
-      result.vocabularyTopic,
-      'vocabularyTopic',
-      AI_OUTPUT_LIMITS.vocabularyTopic,
-      'output',
-    ),
-    examples,
-    sentenceTranslationVi: stringValue(
-      result.sentenceTranslationVi,
-      'sentenceTranslationVi',
-      AI_OUTPUT_LIMITS.sentenceTranslation,
-      'output',
-    ),
-  };
 };
 
 const normalizeAnswer = (value: string): string =>

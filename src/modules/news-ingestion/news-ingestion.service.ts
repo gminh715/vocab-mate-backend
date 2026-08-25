@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { logInfo, logWarn } from '../../common/logging/structured-logger';
 import { ArticleSentencesService } from '../articles/services/article-sentences.service';
 import {
   ArticlesService,
@@ -150,7 +151,7 @@ export class NewsIngestionService {
       );
     }
 
-    return {
+    const result = {
       counts: {
         discovered: items.length,
         imported: items.filter(({ status }) => status === 'imported').length,
@@ -161,6 +162,12 @@ export class NewsIngestionService {
       },
       items,
     };
+    logInfo('news.ingestion.sync.completed', {
+      source: IMPORT_SOURCE,
+      requestedArticleCount: dto.articleIds?.length ?? null,
+      ...result.counts,
+    });
+    return result;
   }
 
   private async importOne(
@@ -255,20 +262,32 @@ export class NewsIngestionService {
         try {
           await this.articlesService.delete(actingAdminId, createdArticleId);
         } catch {
-          return {
+          const result: NewsSyncItem = {
             ...base,
             status: 'failed',
             errorCode: 'IMPORT_CLEANUP_FAILED',
             errorMessage: 'Imported draft could not be safely finalized',
           };
+          logWarn('news.ingestion.item_failed', {
+            source: IMPORT_SOURCE,
+            externalId: article.externalId,
+            errorCode: result.errorCode,
+          });
+          return result;
         }
       }
 
-      return {
+      const result: NewsSyncItem = {
         ...base,
         status: 'failed',
         ...this.safeItemError(error),
       };
+      logWarn('news.ingestion.item_failed', {
+        source: IMPORT_SOURCE,
+        externalId: article.externalId,
+        errorCode: result.errorCode,
+      });
+      return result;
     }
   }
 

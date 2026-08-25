@@ -4,9 +4,9 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { logError } from '../logging/structured-logger';
 
 interface ErrorEnvelope {
   success: false;
@@ -52,8 +52,6 @@ const errorCodes: Partial<Record<number, string>> = {
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(ApiExceptionFilter.name);
-
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
     const status =
@@ -105,10 +103,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
             : 'Internal server error';
 
     if (isInternalServerError) {
-      this.logger.error(
-        'Unhandled request error',
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      logError('http.request.unhandled_error', {
+        errorName: exception instanceof Error ? exception.name : 'UnknownError',
+      });
     }
 
     const body: ErrorEnvelope = {

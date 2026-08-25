@@ -3,10 +3,10 @@ import type { AiConfig } from '../../config/ai.config';
 import { AI_CONFIG } from '../../config/config.module';
 import {
   GEMINI_AI_PROVIDER,
-  GeminiAiProvider,
   GROQ_AI_PROVIDER,
-  GroqAiProvider,
-} from './ai.provider';
+} from './providers/ai-provider.contract';
+import { GeminiAiProvider } from './providers/gemini.provider';
+import { GroqAiProvider } from './providers/groq.provider';
 import { AiService } from './ai.service';
 
 @Module({

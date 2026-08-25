@@ -1,5 +1,4 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { Logger } from '@nestjs/common';
 import type { AiConfig } from '../../../../src/config/ai.config';
 import { AI_CONFIG } from '../../../../src/config/config.module';
 import type {
@@ -22,7 +21,7 @@ import {
   type AiProvider,
   GEMINI_AI_PROVIDER,
   GROQ_AI_PROVIDER,
-} from '../../../../src/modules/ai/ai.provider';
+} from '../../../../src/modules/ai/providers/ai-provider.contract';
 import { AiService } from '../../../../src/modules/ai/ai.service';
 
 const config: AiConfig = {
@@ -282,7 +281,12 @@ describe('AiService', () => {
   let gemini: jest.Mocked<AiProvider>;
   let groq: jest.Mocked<AiProvider>;
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   beforeEach(async () => {
+    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
     gemini = {
       generateStructured: jest.fn(),
     };
@@ -358,8 +362,8 @@ describe('AiService', () => {
 
   it('logs bounded provider latency and token metrics without prompt content', async () => {
     const metricLog = jest
-      .spyOn(Logger.prototype, 'log')
-      .mockImplementation(() => undefined);
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
     gemini.generateStructured.mockResolvedValue({
       content: JSON.stringify(reviewQuestionResult),
       usage: { inputTokens: 120, outputTokens: 45 },
@@ -367,13 +371,28 @@ describe('AiService', () => {
 
     await service.generateReviewQuestion(reviewQuestionInput);
 
-    expect(metricLog).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^AI_METRIC schema=review_question_generation_v2 provider=GEMINI status=success latencyMs=\d+ inputTokens=120 outputTokens=45 tokenSource=provider$/,
-      ),
-    );
+    const parsed: unknown = JSON.parse(String(metricLog.mock.calls[0]?.[0]));
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error('Expected an AI structured log record');
+    }
+    const record = parsed;
+    expect(record).toMatchObject({
+      event: 'ai.provider_call',
+      operationType: 'review_question_generation_v2',
+      provider: 'GEMINI',
+      model: config.geminiModel,
+      outcome: 'success',
+      fallbackOccurred: false,
+      inputTokens: 120,
+      outputTokens: 45,
+      tokenSource: 'provider',
+    });
+    expect(record).toHaveProperty('latencyMs', expect.any(Number));
     expect(metricLog.mock.calls.join(' ')).not.toContain('engaging');
-    metricLog.mockRestore();
   });
 
   it('generates up to four mixed review questions in one exact-order provider call', async () => {

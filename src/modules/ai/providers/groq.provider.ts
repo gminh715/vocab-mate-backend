@@ -1,64 +1,27 @@
-import { ApiError, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import Groq, {
   APIConnectionError,
   APIConnectionTimeoutError,
   APIError,
 } from 'groq-sdk';
-import type { AiConfig } from '../../config/ai.config';
-import { ProviderCallError, type ProviderFailureReason } from './ai.errors';
-
-export const GEMINI_AI_PROVIDER = 'GEMINI_AI_PROVIDER';
-export const GROQ_AI_PROVIDER = 'GROQ_AI_PROVIDER';
+import type { AiConfig } from '../../../config/ai.config';
+import { ProviderCallError, type ProviderFailureReason } from '../ai.errors';
+import type {
+  AiProvider,
+  StructuredAiRequest,
+  StructuredAiResponse,
+} from './ai-provider.contract';
 
 const GROQ_STRICT_SCHEMA_MODELS = new Set([
   'openai/gpt-oss-20b',
   'openai/gpt-oss-120b',
 ]);
 
-const GEMINI_MINIMAL_THINKING_MODELS = [
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-3-flash',
-];
-
-const GEMINI_DISABLED_THINKING_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-];
-
-const geminiThinkingConfig = (
-  model: string,
-):
-  { thinkingLevel: ThinkingLevel } | { thinkingBudget: number } | undefined => {
-  if (
-    GEMINI_MINIMAL_THINKING_MODELS.some((supportedModel) =>
-      model.startsWith(supportedModel),
-    )
-  ) {
-    return { thinkingLevel: ThinkingLevel.MINIMAL };
-  }
-  if (
-    GEMINI_DISABLED_THINKING_MODELS.some((supportedModel) =>
-      model.startsWith(supportedModel),
-    )
-  ) {
-    return { thinkingBudget: 0 };
-  }
-
-  return undefined;
-};
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const normalizeGroqSchemaValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map(normalizeGroqSchemaValue);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
+  if (Array.isArray(value)) return value.map(normalizeGroqSchemaValue);
+  if (!isRecord(value)) return value;
 
   return Object.fromEntries(
     Object.entries(value)
@@ -73,28 +36,6 @@ const normalizeGroqSchema = (
   const normalized = normalizeGroqSchemaValue(schema);
   return isRecord(normalized) ? normalized : {};
 };
-
-export interface StructuredAiRequest {
-  schemaName: string;
-  schema: Record<string, unknown>;
-  systemInstruction: string;
-  userContent: string;
-  maxOutputTokens: number;
-}
-
-export interface StructuredAiResponse {
-  content: string;
-  usage: {
-    inputTokens: number | null;
-    outputTokens: number | null;
-  };
-}
-
-export interface AiProvider {
-  generateStructured(
-    request: StructuredAiRequest,
-  ): Promise<string | StructuredAiResponse>;
-}
 
 const errorName = (error: unknown): string | undefined =>
   typeof error === 'object' &&
@@ -128,7 +69,6 @@ const isNetworkError = (error: unknown): boolean => {
       return true;
     }
   }
-
   const code = errorCode(error);
   return (
     code === 'ECONNRESET' ||
@@ -139,34 +79,11 @@ const isNetworkError = (error: unknown): boolean => {
 };
 
 const classifyStatus = (status: number): ProviderFailureReason => {
-  if (status === 408) {
-    return 'timeout';
-  }
-  if (status === 413 || status === 429) {
-    return 'rate-limit';
-  }
-  if (status >= 500 && status <= 599) {
-    return 'server';
-  }
-  if (status === 400 || status === 422) {
-    return 'request';
-  }
-  if (status >= 400 && status <= 499) {
-    return 'configuration';
-  }
-  return 'request';
-};
-
-const classifyGeminiError = (error: unknown): ProviderFailureReason => {
-  if (isTimeoutError(error)) {
-    return 'timeout';
-  }
-  if (error instanceof ApiError) {
-    return classifyStatus(error.status);
-  }
-  if (isNetworkError(error)) {
-    return 'network';
-  }
+  if (status === 408) return 'timeout';
+  if (status === 413 || status === 429) return 'rate-limit';
+  if (status >= 500 && status <= 599) return 'server';
+  if (status === 400 || status === 422) return 'request';
+  if (status >= 400 && status <= 499) return 'configuration';
   return 'request';
 };
 
@@ -188,74 +105,13 @@ const classifyGroqError = (error: unknown): ProviderFailureReason => {
         : typeof nestedError?.code === 'string'
           ? nestedError.code
           : undefined;
-    if (providerCode === 'json_validate_failed') {
-      return 'unusable-output';
-    }
+    if (providerCode === 'json_validate_failed') return 'unusable-output';
 
     const status: unknown = error.status;
-    if (typeof status === 'number') {
-      return classifyStatus(status);
-    }
+    if (typeof status === 'number') return classifyStatus(status);
   }
   return 'request';
 };
-
-export class GeminiAiProvider implements AiProvider {
-  private readonly client: GoogleGenAI;
-
-  constructor(private readonly config: AiConfig) {
-    this.client = new GoogleGenAI({
-      apiKey: config.geminiApiKey,
-      httpOptions: {
-        timeout: config.requestTimeoutMs,
-        retryOptions: {
-          attempts: 2,
-          initialDelay: 0.25,
-          maxDelay: 0.5,
-          expBase: 2,
-          jitter: 0.1,
-          httpStatusCodes: [408, 429, 500, 502, 503, 504],
-        },
-      },
-    });
-  }
-
-  async generateStructured(
-    request: StructuredAiRequest,
-  ): Promise<StructuredAiResponse> {
-    try {
-      const response = await this.client.models.generateContent({
-        model: this.config.geminiModel,
-        contents: request.userContent,
-        config: {
-          systemInstruction: request.systemInstruction,
-          candidateCount: 1,
-          maxOutputTokens: request.maxOutputTokens,
-          responseMimeType: 'application/json',
-          responseJsonSchema: request.schema,
-          thinkingConfig: geminiThinkingConfig(this.config.geminiModel),
-        },
-      });
-
-      if (!response.text) {
-        throw new ProviderCallError('unusable-output');
-      }
-
-      return {
-        content: response.text,
-        usage: {
-          inputTokens: response.usageMetadata?.promptTokenCount ?? null,
-          outputTokens: response.usageMetadata?.candidatesTokenCount ?? null,
-        },
-      };
-    } catch (error: unknown) {
-      if (error instanceof ProviderCallError) {
-        throw error;
-      }
-      throw new ProviderCallError(classifyGeminiError(error));
-    }
-  }
-}
 
 export class GroqAiProvider implements AiProvider {
   private readonly client: Groq;
@@ -273,7 +129,6 @@ export class GroqAiProvider implements AiProvider {
     request: StructuredAiRequest,
   ): Promise<StructuredAiResponse> {
     let lastError = new ProviderCallError('unusable-output');
-
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         return await this.generateStructuredOnce(request);
@@ -287,7 +142,6 @@ export class GroqAiProvider implements AiProvider {
         }
       }
     }
-
     throw lastError;
   }
 
@@ -335,12 +189,10 @@ export class GroqAiProvider implements AiProvider {
         citation_options: 'disabled',
         store: false,
       });
-
       const content = response.choices[0]?.message.content;
       if (typeof content !== 'string' || content.length === 0) {
         throw new ProviderCallError('unusable-output');
       }
-
       return {
         content,
         usage: {
@@ -349,9 +201,7 @@ export class GroqAiProvider implements AiProvider {
         },
       };
     } catch (error: unknown) {
-      if (error instanceof ProviderCallError) {
-        throw error;
-      }
+      if (error instanceof ProviderCallError) throw error;
       throw new ProviderCallError(classifyGroqError(error));
     }
   }

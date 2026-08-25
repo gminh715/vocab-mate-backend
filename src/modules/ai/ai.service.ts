@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { logInfo, logWarn } from '../../common/logging/structured-logger';
 import type { AiConfig } from '../../config/ai.config';
 import { AI_CONFIG } from '../../config/config.module';
 import type {
@@ -25,7 +26,7 @@ import {
   GROQ_AI_PROVIDER,
   type StructuredAiRequest,
   type StructuredAiResponse,
-} from './ai.provider';
+} from './providers/ai-provider.contract';
 import {
   reviewAnswerDiagnosisSchema,
   reviewQuestionBatchGenerationSchema,
@@ -39,13 +40,15 @@ import {
   parseReviewQuestionBatchGenerationResult,
   parseReviewQuestionGenerationResult,
   parseReviewSessionPlanResult,
-  parseTermEnrichmentResult,
   validateDiagnoseReviewAnswerInput,
   validatePlanReviewSessionInput,
   validateReviewQuestionBatchGenerationInput,
   validateReviewQuestionGenerationInput,
+} from './validation/review.validation';
+import {
+  parseTermEnrichmentResult,
   validateTermEnrichmentInput,
-} from './ai.validation';
+} from './validation/term-enrichment.validation';
 
 const TERM_ENRICHMENT_INSTRUCTION = [
   'Enrich one English term only for its supplied sentence context.',
@@ -107,12 +110,11 @@ const REVIEW_ANSWER_DIAGNOSIS_INSTRUCTION = [
 interface ProviderExecutionResult<T> {
   result: T;
   provider: 'GEMINI' | 'GROQ';
+  fallbackOccurred: boolean;
 }
 
 @Injectable()
 export class AiService {
-  private readonly logger = new Logger(AiService.name);
-
   constructor(
     @Inject(AI_CONFIG) private readonly config: AiConfig,
     @Inject(GEMINI_AI_PROVIDER)
@@ -278,6 +280,7 @@ export class AiService {
       return {
         result,
         provider: 'GEMINI',
+        fallbackOccurred: false,
       };
     } catch (error: unknown) {
       const providerError = this.providerError(error);
@@ -286,14 +289,19 @@ export class AiService {
         'GEMINI',
         geminiResponse,
         Date.now() - geminiStartedAt,
-        `failure:${providerError.reason}`,
+        'failure',
+        isFallbackEligible(providerError.reason),
+        providerError.reason,
       );
       if (!isFallbackEligible(providerError.reason)) {
         throw this.publicError(providerError);
       }
-      this.logger.warn(
-        `Gemini structured generation failed (${providerError.reason}); trying Groq fallback`,
-      );
+      logWarn('ai.fallback', {
+        operationType: request.schemaName,
+        fromProvider: 'GEMINI',
+        toProvider: 'GROQ',
+        reason: providerError.reason,
+      });
     }
 
     const groqStartedAt = Date.now();
@@ -308,10 +316,12 @@ export class AiService {
         groqResponse,
         Date.now() - groqStartedAt,
         'success',
+        true,
       );
       return {
         result,
         provider: 'GROQ',
+        fallbackOccurred: true,
       };
     } catch (error: unknown) {
       const providerError = this.providerError(error);
@@ -320,10 +330,9 @@ export class AiService {
         'GROQ',
         groqResponse,
         Date.now() - groqStartedAt,
-        `failure:${providerError.reason}`,
-      );
-      this.logger.warn(
-        `Groq structured generation failed (${providerError.reason})`,
+        'failure',
+        true,
+        providerError.reason,
       );
       throw this.publicError(providerError);
     }
@@ -345,7 +354,9 @@ export class AiService {
     provider: 'GEMINI' | 'GROQ',
     response: StructuredAiResponse | null,
     latencyMs: number,
-    status: string,
+    outcome: 'success' | 'failure',
+    fallbackOccurred = false,
+    failureReason?: string,
   ): void {
     const estimatedInputTokens = this.estimateTokens(
       `${request.systemInstruction} ${request.userContent} ${JSON.stringify(request.schema)}`,
@@ -362,9 +373,19 @@ export class AiService {
       response.usage.outputTokens !== null
         ? 'provider'
         : 'estimated';
-    this.logger.log(
-      `AI_METRIC schema=${request.schemaName} provider=${provider} status=${status} latencyMs=${Math.max(0, latencyMs)} inputTokens=${inputTokens} outputTokens=${outputTokens} tokenSource=${tokenSource}`,
-    );
+    logInfo('ai.provider_call', {
+      operationType: request.schemaName,
+      provider,
+      model:
+        provider === 'GEMINI' ? this.config.geminiModel : this.config.groqModel,
+      outcome,
+      latencyMs: Math.max(0, latencyMs),
+      fallbackOccurred,
+      ...(failureReason ? { failureReason } : {}),
+      inputTokens,
+      outputTokens,
+      tokenSource,
+    });
   }
 
   private estimateTokens(value: string): number {

@@ -15,7 +15,7 @@ import {
   parseReviewSessionPlanResult,
   validateDiagnoseReviewAnswerInput,
   validatePlanReviewSessionInput,
-} from '../../ai/ai.validation';
+} from '../../ai/validation/review.validation';
 import {
   QuestionType,
   ReviewAgentAction,

@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { logWarn } from '../../../common/logging/structured-logger';
 import type { AiConfig } from '../../../config/ai.config';
 import { AI_CONFIG } from '../../../config/config.module';
 import {
@@ -44,7 +45,6 @@ const MAX_CONCURRENT_WARM_BATCHES = 2;
 
 @Injectable()
 export class AiAssistedQuestionGeneratorService {
-  private readonly logger = new Logger(AiAssistedQuestionGeneratorService.name);
   private readonly inFlight = new Map<string, Promise<{ id: string }>>();
   private readonly batchInFlight = new Map<
     string,
@@ -66,12 +66,11 @@ export class AiAssistedQuestionGeneratorService {
     onProgress: (progress: ReviewQuestionWarmProgress) => void = () =>
       undefined,
   ): Promise<PreparedAiReviewQuestion[]> {
-    const candidates =
-      await this.questionsRepository.getGenerationCandidates(
-        userId,
-        dto,
-        now,
-      );
+    const candidates = await this.questionsRepository.getGenerationCandidates(
+      userId,
+      dto,
+      now,
+    );
     const prepared = candidates.map(({ cachedQuestion }) => cachedQuestion);
     const missing = candidates.flatMap((candidate, index) =>
       prepared[index] ? [] : [{ candidate, index }],
@@ -138,9 +137,11 @@ export class AiAssistedQuestionGeneratorService {
         } catch (error: unknown) {
           if (!(error instanceof AiError)) throw error;
           const failureReason = error.providerFailureReason ?? 'unknown';
-          this.logger.warn(
-            `AI review question batch unavailable; retrying uncached candidates individually (${error.code}: ${failureReason})`,
-          );
+          logWarn('review.ai_question_batch_fallback', {
+            reasonCode: error.code,
+            providerFailureReason: failureReason,
+            candidateCount: unresolved.length,
+          });
           const fallbacks = await Promise.all(
             unresolved.map(({ candidate }) =>
               this.questionsRepository.findPreferredCached(
@@ -172,9 +173,10 @@ export class AiAssistedQuestionGeneratorService {
               );
             } catch (retryError: unknown) {
               if (!(retryError instanceof AiError)) throw retryError;
-              this.logger.warn(
-                `AI review question retry unavailable; refusing to create a partial session (${retryError.code})`,
-              );
+              logWarn('review.ai_question_retry_failed', {
+                reasonCode: retryError.code,
+                candidateCount: unresolved.length,
+              });
               throw new NoUsableReviewQuestionError();
             }
           }
@@ -237,11 +239,11 @@ export class AiAssistedQuestionGeneratorService {
       ) {
         throw error;
       }
-      this.logger.warn(
-        error instanceof AiError
-          ? `AI retest question unavailable; keeping deterministic transition (${error.code})`
-          : 'AI retest question budget exhausted; keeping deterministic transition',
-      );
+      logWarn('review.ai_retest_question_fallback', {
+        reasonCode:
+          error instanceof AiError ? error.code : 'AI_CALL_BUDGET_EXHAUSTED',
+        questionType,
+      });
       return this.questionsRepository.findPreferredCached(
         vocabulary.id,
         vocabulary.articleSentenceTermId,
