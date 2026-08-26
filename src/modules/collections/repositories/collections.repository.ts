@@ -163,14 +163,37 @@ export class CollectionsRepository {
   }
 
   async deleteOwned(userId: string, collectionId: string): Promise<boolean> {
-    const result = await this.prisma.vocabularyCollection.deleteMany({
-      where: {
-        id: collectionId,
-        userId,
-      },
-    });
+    return this.prisma.$transaction(async (transaction) => {
+      const collection = await transaction.vocabularyCollection.findFirst({
+        where: {
+          id: collectionId,
+          userId,
+        },
+        select: {
+          id: true,
+        },
+      });
+      if (!collection) return false;
 
-    return result.count === 1;
+      await transaction.userVocabulary.deleteMany({
+        where: {
+          userId,
+          collectionItems: {
+            some: { collectionId },
+            every: { collectionId },
+          },
+        },
+      });
+
+      const result = await transaction.vocabularyCollection.deleteMany({
+        where: {
+          id: collectionId,
+          userId,
+        },
+      });
+
+      return result.count === 1;
+    });
   }
 
   async listItems(

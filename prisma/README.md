@@ -22,54 +22,48 @@ Language and must be preserved in customized migrations:
 
 Do not use `prisma db push` as a replacement for those migration details.
 
-## Migration baseline
+## Single migration baseline
 
-`migrations/20260731000000_baseline/migration.sql` represents the complete
-multi-file Prisma schema before the news-ingestion and AI feature. It was
-generated with the installed Prisma CLI and then reviewed and customized to
-preserve the PostgreSQL features listed above:
+`migrations/20260826000000_baseline/migration.sql` is the repository's only
+migration. It represents the complete current multi-file Prisma schema,
+including news ingestion, Daily Review, refresh sessions, and collection-owned
+saved vocabulary. It was generated with the installed Prisma CLI and then
+reviewed and customized to preserve the PostgreSQL features listed above:
 
 ```bash
-npx prisma migrate diff --from-empty --to-schema prisma --script --output prisma/migrations/20260731000000_baseline/migration.sql
+npx prisma migrate diff --from-empty --to-schema prisma --script --output prisma/migrations/20260826000000_baseline/migration.sql
 ```
 
 Do not regenerate the committed file without restoring its extensions, named
 check constraints, expression index and `updated_at` triggers.
 
-`20260803000000_replace_article_analysis_with_wink_nlp` adds the `NLP` term
-origin and makes lookup-generated lexical metadata nullable. It does not replace
-the `article_sentence_terms` table, sentence foreign key, audit relationships,
-or marker IDs. Apply it before running the local WinkNLP analysis flow.
-
-The `20260803149000` through `20260803151000` migrations expand and then clean
-up the invisible spaced-review schema. `20260803152000_ai_assisted_review_questions`
-adds option-level generation provenance and the partial unique key used to
-deduplicate active AI question caches by term context, CEFR and question type.
-`20260803153000_review_answer_attempt_uniqueness` prevents duplicate attempt
-numbers for the same review-session item.
-`20260808000000_agentic_review_decision_foundation` adds nullable planning and
-answer-signal fields, a default-zero AI call counter, and the auditable agent
-decision table. Existing sessions and answers require no backfill.
-`20260808120000_agentic_review_call_budget_hardening` adds a default-zero
-diagnosis-call counter so the total and diagnosis-specific budgets can both be
-reserved atomically. Existing sessions require no backfill.
-`20260825000000_daily_review_only` removes quiz-, article-, and
-collection-scoped review sessions together with the Admin/Public Quiz feature.
-It deletes history backed by retired sources or non-AI questions, drops the
-Quiz model and API persistence, and renames the retained AI question cache to
-Daily Review terminology. Compatible Daily Review history is preserved.
-
 ### Existing database
 
-First back up the database and verify that its schema already matches this
-baseline, including the extensions, named check constraints, expression index
-and triggers. If it differs, reconcile the drift explicitly before recording
-the baseline. Do not apply the baseline SQL to a populated database.
+This squashed baseline is intended for a new or reset database. Do not apply its
+SQL to a populated database because it creates the complete schema from empty.
 
-After verification, mark the baseline as applied:
+If an existing database was created from the former migration chain, back it up
+and reconcile its `_prisma_migrations` history with this baseline during a
+controlled maintenance operation. Verify that its schema matches this baseline,
+including the extensions, named check constraints, expression index and
+triggers, before recording the new baseline as applied. Do not run
+`prisma migrate deploy` against that database while its old migration history is
+still recorded.
+
+If the baseline was already attempted and failed with PostgreSQL `42710`
+(`type ... already exists`), do not rerun it against the populated schema. First
+finish reconciling the schema and require the following command to report
+`No difference detected`:
 
 ```bash
-npx prisma migrate resolve --applied 20260731000000_baseline
+npx prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
+```
+
+For a populated database with matching schema and reconciled migration history,
+record the baseline without executing its SQL:
+
+```bash
+npx prisma migrate resolve --applied 20260826000000_baseline
 npx prisma migrate status
 ```
 
@@ -98,17 +92,14 @@ has `citext` and `pgcrypto`, run:
 npm run prisma:verify-review-migrations
 ```
 
-The verifier creates an isolated generated schema, replays every committed
-migration, checks the final Daily Review tables, single active-session index,
-AI cache key, answer-attempt key, and removal of retired source columns/types.
-Its rollback check drops only that disposable schema and verifies that it no
-longer exists.
+The verifier creates an isolated generated schema, applies the single baseline,
+and checks the final Daily Review tables, indexes, named checks, expression
+index and `updated_at` triggers. Its rollback check drops only that disposable
+schema and verifies that it no longer exists.
 
 Prisma migrations do not provide automatic production down migrations. Before
-deploying `20260803149000` through `20260803153000`, take and test a database
-backup. If deployment must be reversed after writes begin, restore that backup
-to a replacement database and switch traffic, or ship a separately reviewed
-forward corrective migration. Do not run the disposable verifier as a
-production rollback and do not manually drop review columns from a live
-database; the cleanup migration intentionally removes legacy relations after
-backfill.
+deploying or reconciling this squashed baseline, take and test a database backup.
+If deployment must be reversed after writes begin, restore that backup to a
+replacement database and switch traffic, or ship a separately reviewed forward
+corrective migration. Do not run the disposable verifier as a production
+rollback.

@@ -253,7 +253,7 @@ export class CollectionsController {
     operationId: 'deleteCollectionById',
     summary: 'Delete an owner-scoped collection',
     description:
-      'Database cascade removes only collection-item memberships; saved vocabulary and review history remain.',
+      'Deletes the collection and saved vocabulary that belongs only to it. Vocabulary shared with another collection and Daily Review history remain.',
   })
   @ApiNoContentResponse({ description: 'Collection deleted successfully.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

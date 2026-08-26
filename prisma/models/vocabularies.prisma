@@ -30,7 +30,7 @@ model UserVocabulary {
 
   @@unique([userId, articleSentenceTermId], map: "uq_user_vocabularies_user_sentence_term")
   @@index([userId, learningStatus, savedAt(sort: Desc)], map: "idx_user_vocabularies_user_status_saved")
-  @@index([userId, lapseCount(sort: Desc), nextReviewAt], map: "idx_user_vocabularies_due_review", where: raw("learning_status IN ('NEW', 'LEARNING', 'REVIEWING')"))
+  @@index([userId, lapseCount(sort: Desc), nextReviewAt], map: "idx_user_vocabularies_due_review", where: raw("learning_status = ANY (ARRAY['NEW'::learning_status, 'LEARNING'::learning_status, 'REVIEWING'::learning_status])"))
   @@index([articleSentenceTermId], map: "idx_user_vocabularies_sentence_term")
   @@map("user_vocabularies")
 }

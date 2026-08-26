@@ -49,6 +49,11 @@ try {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
+  assert(
+    migrationDirectories.length === 1 &&
+      migrationDirectories[0] === '20260826000000_baseline',
+    'Expected exactly the single squashed baseline migration',
+  );
 
   for (const migrationDirectory of migrationDirectories) {
     const sql = await readFile(
@@ -290,9 +295,43 @@ try {
   );
   assert(obsoleteEnum.count === 0, 'Obsolete review_item_type enum remains');
 
-  console.log(
-    `Applied ${migrationDirectories.length} migrations and verified the review schema`,
+  const namedChecks = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM pg_constraint
+       JOIN pg_namespace ON pg_namespace.oid = pg_constraint.connamespace
+      WHERE pg_namespace.nspname = $1
+        AND pg_constraint.contype = 'c'
+        AND pg_constraint.conname LIKE 'ck\\_%' ESCAPE '\\'`,
+    [schemaName],
   );
+  assert(namedChecks.count === 64, 'Named CHECK constraints are incomplete');
+
+  const updatedAtTriggers = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.triggers
+      WHERE trigger_schema = $1
+        AND trigger_name LIKE 'trg\\_%\\_set\\_updated\\_at' ESCAPE '\\'`,
+    [schemaName],
+  );
+  assert(
+    updatedAtTriggers.count === 13,
+    'Automatic updated_at triggers are incomplete',
+  );
+
+  const normalizedTermIndex = await queryValue(
+    `SELECT COUNT(*)::int AS count
+       FROM pg_indexes
+      WHERE schemaname = $1
+        AND indexname = 'uq_article_sentence_terms_value'
+        AND indexdef LIKE '%lower(btrim(value))%'`,
+    [schemaName],
+  );
+  assert(
+    normalizedTermIndex.count === 1,
+    'Normalized article term expression index is missing',
+  );
+
+  console.log('Applied 1 migration and verified the review schema');
 } finally {
   if (schemaCreated) {
     await client.query(`DROP SCHEMA ${quotedSchema} CASCADE`);

@@ -31,12 +31,16 @@ describe('CollectionsRepository', () => {
   const itemCreateMany: QueryMock = jest.fn();
   const itemDeleteMany: QueryMock = jest.fn();
   const vocabularyFindMany: QueryMock = jest.fn();
+  const vocabularyDeleteMany: QueryMock = jest.fn();
   const transaction = jest.fn(
     (input: Promise<unknown>[] | ((client: object) => Promise<unknown>)) =>
       typeof input === 'function'
         ? input({
-            vocabularyCollection: { findFirst },
-            userVocabulary: { findMany: vocabularyFindMany },
+            vocabularyCollection: { findFirst, deleteMany },
+            userVocabulary: {
+              findMany: vocabularyFindMany,
+              deleteMany: vocabularyDeleteMany,
+            },
             vocabularyCollectionItem: { createMany: itemCreateMany },
           })
         : Promise.all(input),
@@ -55,12 +59,16 @@ describe('CollectionsRepository', () => {
     itemCreateMany.mockResolvedValue({ count: 0 });
     itemDeleteMany.mockResolvedValue({ count: 0 });
     vocabularyFindMany.mockResolvedValue([]);
+    vocabularyDeleteMany.mockResolvedValue({ count: 0 });
     transaction.mockImplementation(
       (input: Promise<unknown>[] | ((client: object) => Promise<unknown>)) =>
         typeof input === 'function'
           ? input({
-              vocabularyCollection: { findFirst },
-              userVocabulary: { findMany: vocabularyFindMany },
+              vocabularyCollection: { findFirst, deleteMany },
+              userVocabulary: {
+                findMany: vocabularyFindMany,
+                deleteMany: vocabularyDeleteMany,
+              },
               vocabularyCollectionItem: { createMany: itemCreateMany },
             })
           : Promise.all(input),
@@ -200,16 +208,40 @@ describe('CollectionsRepository', () => {
     ).rejects.toBe(duplicate);
   });
 
-  it('uses one owner-scoped delete and leaves cascade behavior to foreign keys', async () => {
+  it('atomically deletes an owned collection and saved vocabulary exclusive to it', async () => {
+    findFirst.mockResolvedValue({ id: 'collection-id' });
+    vocabularyDeleteMany.mockResolvedValue({ count: 2 });
     deleteMany.mockResolvedValue({ count: 1 });
 
     await expect(
       repository.deleteOwned('owner-id', 'collection-id'),
     ).resolves.toBe(true);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: 'collection-id', userId: 'owner-id' },
+      select: { id: true },
+    });
+    expect(vocabularyDeleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'owner-id',
+        collectionItems: {
+          some: { collectionId: 'collection-id' },
+          every: { collectionId: 'collection-id' },
+        },
+      },
+    });
     expect(deleteMany).toHaveBeenCalledWith({
       where: { id: 'collection-id', userId: 'owner-id' },
     });
-    expect(transaction).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not delete vocabulary or a collection when ownership check fails', async () => {
+    await expect(
+      repository.deleteOwned('owner-id', 'other-collection-id'),
+    ).resolves.toBe(false);
+
+    expect(vocabularyDeleteMany).not.toHaveBeenCalled();
+    expect(deleteMany).not.toHaveBeenCalled();
   });
 
   it('lists only owner-matched snapshot rows with database pagination, filters, and stable sorting', async () => {

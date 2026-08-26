@@ -272,8 +272,20 @@ class InMemoryCollectionsRepository {
       (row) => row.userId === userId && row.id === collectionId,
     );
     if (index < 0) return Promise.resolve(false);
+
+    const vocabularyIds = [
+      ...(this.memberships.get(collectionId)?.keys() ?? []),
+    ];
     this.rows.splice(index, 1);
     this.memberships.delete(collectionId);
+    for (const vocabularyId of vocabularyIds) {
+      const belongsToAnotherCollection = [...this.memberships.values()].some(
+        (memberships) => memberships.has(vocabularyId),
+      );
+      if (!belongsToAnotherCollection) {
+        this.userVocabularies.delete(vocabularyId);
+      }
+    }
     return Promise.resolve(true);
   }
 
@@ -771,7 +783,11 @@ describe('Collection APIs (e2e)', () => {
     ).toBe(true);
   });
 
-  it('deletes with an empty 204 response while preserving saved vocabulary', async () => {
+  it('deletes the collection and exclusive vocabulary while preserving shared vocabulary', async () => {
+    repository.memberships
+      .get(COLLECTION_ID)
+      ?.set(SECOND_USER_VOCABULARY_ID, new Date('2026-07-23T06:00:00Z'));
+
     const response = await request(app.getHttpServer())
       .delete(`/api/v1/collections/${COLLECTION_ID}`)
       .set('Authorization', 'Bearer user-a')
@@ -780,5 +796,27 @@ describe('Collection APIs (e2e)', () => {
     expect(response.text).toBe('');
     expect(repository.memberships.has(COLLECTION_ID)).toBe(false);
     expect(repository.userVocabularies.has(USER_VOCABULARY_ID)).toBe(true);
+    expect(repository.userVocabularies.has(SECOND_USER_VOCABULARY_ID)).toBe(
+      false,
+    );
+  });
+
+  it('allows an empty collection to be deleted without deleting vocabulary', async () => {
+    const vocabularyCount = repository.userVocabularies.size;
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/collections')
+      .set('Authorization', 'Bearer user-a')
+      .send({ name: 'Empty collection' })
+      .expect(201);
+    const collectionId =
+      responseBody<SuccessBody<{ collection: { id: string } }>>(created).data
+        .collection.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/collections/${collectionId}`)
+      .set('Authorization', 'Bearer user-a')
+      .expect(204);
+
+    expect(repository.userVocabularies.size).toBe(vocabularyCount);
   });
 });
