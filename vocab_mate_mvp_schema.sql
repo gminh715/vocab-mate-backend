@@ -1,12 +1,13 @@
--- Current Vocab Mate database structure generated from the Prisma schema.
--- Committed migrations remain authoritative for PostgreSQL CHECK constraints,
--- expression indexes, updated_at triggers, and production data transitions.
-
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "citext";
+-- Current Vocab Mate PostgreSQL schema snapshot.
+-- Synchronized with the split Prisma models and all migrations through
+-- 20260827000000_remove_rule_review_decisions.
 
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
+
+-- Required by UUID defaults and case-insensitive text columns.
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "citext";
 
 -- CreateEnum
 CREATE TYPE "user_role" AS ENUM ('ADMIN', 'USER');
@@ -66,7 +67,7 @@ CREATE TYPE "review_agent_action" AS ENUM ('CONTINUE', 'REQUEUE_WITH_NEW_TYPE', 
 CREATE TYPE "review_decision_kind" AS ENUM ('SESSION_PLAN', 'ANSWER_INTERVENTION', 'SESSION_SUMMARY');
 
 -- CreateEnum
-CREATE TYPE "review_decision_source" AS ENUM ('AI', 'RULE');
+CREATE TYPE "review_decision_source" AS ENUM ('AI');
 
 -- CreateTable
 CREATE TABLE "articles" (
@@ -630,3 +631,227 @@ ALTER TABLE "user_vocabularies" ADD CONSTRAINT "fk_user_vocabularies_user" FOREI
 
 -- AddForeignKey
 ALTER TABLE "user_vocabularies" ADD CONSTRAINT "fk_user_vocabularies_article_sentence_term" FOREIGN KEY ("article_sentence_term_id") REFERENCES "article_sentence_terms"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+
+-- Prisma Schema Language cannot represent this normalized expression index.
+CREATE UNIQUE INDEX "uq_article_sentence_terms_value" ON "article_sentence_terms"(
+    "sentence_id",
+    LOWER(BTRIM("value")),
+    "part_of_speech",
+    "unit_type"
+);
+
+-- Named CHECK constraints intentionally maintained outside Prisma Schema
+-- Language.
+ALTER TABLE "users" ADD CONSTRAINT "ck_users_email_not_blank" CHECK (BTRIM("email"::TEXT) <> '');
+ALTER TABLE "users" ADD CONSTRAINT "ck_users_password_hash_not_blank" CHECK (BTRIM("password_hash") <> '');
+
+ALTER TABLE "user_profiles" ADD CONSTRAINT "ck_user_profiles_display_name_not_blank" CHECK (BTRIM("display_name") <> '');
+ALTER TABLE "user_profiles" ADD CONSTRAINT "ck_user_profiles_preferred_language_not_blank" CHECK (BTRIM("preferred_language") <> '');
+ALTER TABLE "user_profiles" ADD CONSTRAINT "ck_user_profiles_daily_study_minutes" CHECK (
+    "daily_study_minutes" IS NULL OR "daily_study_minutes" IN (5, 10, 15)
+);
+
+ALTER TABLE "categories" ADD CONSTRAINT "ck_categories_name_not_blank" CHECK (BTRIM("name") <> '');
+ALTER TABLE "categories" ADD CONSTRAINT "ck_categories_slug_not_blank" CHECK (BTRIM("slug"::TEXT) <> '');
+ALTER TABLE "categories" ADD CONSTRAINT "ck_categories_display_order_non_negative" CHECK ("display_order" >= 0);
+
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_title_not_blank" CHECK (BTRIM("title") <> '');
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_slug_not_blank" CHECK (BTRIM("slug"::TEXT) <> '');
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_summary_not_blank" CHECK (BTRIM("summary") <> '');
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_content_not_blank" CHECK (BTRIM("content_html") <> '');
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_content_version_positive" CHECK ("content_version" > 0);
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_status_timestamps" CHECK (
+    (
+        "status" = 'DRAFT'
+        AND "published_at" IS NULL
+        AND "archived_at" IS NULL
+    )
+    OR (
+        "status" = 'PUBLISHED'
+        AND "published_at" IS NOT NULL
+        AND "archived_at" IS NULL
+    )
+    OR (
+        "status" = 'ARCHIVED'
+        AND "archived_at" IS NOT NULL
+    )
+);
+ALTER TABLE "articles" ADD CONSTRAINT "ck_articles_content_hash_sha256" CHECK (
+    "content_hash" IS NULL OR BTRIM("content_hash") ~ '^[0-9A-Fa-f]{64}$'
+);
+
+ALTER TABLE "article_sentences" ADD CONSTRAINT "ck_article_sentences_content_version_positive" CHECK ("content_version" > 0);
+ALTER TABLE "article_sentences" ADD CONSTRAINT "ck_article_sentences_order_positive" CHECK ("sentence_order" > 0);
+ALTER TABLE "article_sentences" ADD CONSTRAINT "ck_article_sentences_text_not_blank" CHECK (BTRIM("sentence_text") <> '');
+ALTER TABLE "article_sentences" ADD CONSTRAINT "ck_article_sentences_translation_not_blank" CHECK (
+    "translation_vi" IS NULL OR BTRIM("translation_vi") <> ''
+);
+
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_value_not_blank" CHECK (BTRIM("value") <> '');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_word_display_not_blank" CHECK (BTRIM("word_display") <> '');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_lemma_not_blank" CHECK (BTRIM("lemma") <> '');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_normalized_lemma_not_blank" CHECK (BTRIM("normalized_lemma"::TEXT) <> '');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_part_of_speech_not_blank" CHECK (BTRIM("part_of_speech") <> '');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_meaning_not_blank" CHECK (BTRIM("contextual_meaning_vi") <> '');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_examples_array" CHECK (JSONB_TYPEOF("examples") = 'array');
+ALTER TABLE "article_sentence_terms" ADD CONSTRAINT "ck_article_sentence_terms_review_activation" CHECK (
+    "review_status" = 'APPROVED'
+    OR ("is_active" = FALSE AND "is_lookup_enabled" = FALSE)
+);
+
+ALTER TABLE "user_article_progress" ADD CONSTRAINT "ck_user_article_progress_percent" CHECK (
+    "progress_percent" IS NULL
+    OR ("progress_percent" >= 0 AND "progress_percent" <= 100)
+);
+ALTER TABLE "user_article_progress" ADD CONSTRAINT "ck_user_article_progress_status" CHECK (
+    ("status" = 'READING' AND "completed_at" IS NULL)
+    OR ("status" = 'COMPLETED' AND "completed_at" IS NOT NULL)
+);
+
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_word_display_not_blank" CHECK (BTRIM("saved_word_display") <> '');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_lemma_not_blank" CHECK (BTRIM("saved_lemma") <> '');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_part_of_speech_not_blank" CHECK (BTRIM("saved_part_of_speech") <> '');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_context_not_blank" CHECK (BTRIM("saved_context_sentence") <> '');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_context_translation_not_blank" CHECK (BTRIM("saved_context_translation_vi") <> '');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_meaning_not_blank" CHECK (BTRIM("saved_meaning_vi") <> '');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_examples_array" CHECK (JSONB_TYPEOF("saved_examples") = 'array');
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_review_interval" CHECK (
+    "review_interval_days" IS NULL OR "review_interval_days" >= 0
+);
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_consecutive_correct_reviews_non_negative" CHECK ("consecutive_correct_reviews" >= 0);
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_lapse_count_non_negative" CHECK ("lapse_count" >= 0);
+ALTER TABLE "user_vocabularies" ADD CONSTRAINT "ck_user_vocabularies_last_review_score" CHECK (
+    "last_review_score" IS NULL OR "last_review_score" BETWEEN 0 AND 5
+);
+
+ALTER TABLE "vocabulary_collections" ADD CONSTRAINT "ck_vocabulary_collections_name_not_blank" CHECK (BTRIM("name") <> '');
+
+ALTER TABLE "review_questions" ADD CONSTRAINT "ck_review_questions_prompt_not_blank" CHECK (BTRIM("prompt") <> '');
+ALTER TABLE "review_questions" ADD CONSTRAINT "ck_review_questions_points_positive" CHECK ("points" > 0);
+ALTER TABLE "review_questions" ADD CONSTRAINT "ck_review_questions_display_order_positive" CHECK ("display_order" > 0);
+ALTER TABLE "review_questions" ADD CONSTRAINT "ck_review_questions_fill_blank_fields" CHECK (
+    "question_type" <> 'FILL_BLANK'
+    OR (
+        "blank_sentence" IS NOT NULL
+        AND BTRIM("blank_sentence") <> ''
+        AND "correct_answer_text" IS NOT NULL
+        AND BTRIM("correct_answer_text") <> ''
+    )
+);
+
+ALTER TABLE "review_question_options" ADD CONSTRAINT "ck_review_question_options_text_not_blank" CHECK (BTRIM("option_text") <> '');
+ALTER TABLE "review_question_options" ADD CONSTRAINT "ck_review_question_options_display_order_positive" CHECK ("display_order" > 0);
+
+ALTER TABLE "review_sessions" ADD CONSTRAINT "ck_review_sessions_status_time" CHECK (
+    ("status" = 'IN_PROGRESS' AND "completed_at" IS NULL)
+    OR ("status" = 'COMPLETED' AND "completed_at" IS NOT NULL)
+    OR "status" = 'ABANDONED'
+);
+ALTER TABLE "review_sessions" ADD CONSTRAINT "ck_review_sessions_target_duration" CHECK (
+    "target_duration_minutes" IS NULL OR "target_duration_minutes" IN (5, 10, 15)
+);
+ALTER TABLE "review_sessions" ADD CONSTRAINT "ck_review_sessions_planned_item_count" CHECK (
+    "planned_item_count" IS NULL OR "planned_item_count" BETWEEN 1 AND 100
+);
+ALTER TABLE "review_sessions" ADD CONSTRAINT "ck_review_sessions_ai_call_count_non_negative" CHECK ("ai_call_count" >= 0);
+ALTER TABLE "review_sessions" ADD CONSTRAINT "ck_review_sessions_ai_diagnosis_call_count_non_negative" CHECK ("ai_diagnosis_call_count" >= 0);
+
+ALTER TABLE "review_session_items" ADD CONSTRAINT "ck_review_session_items_sequence_positive" CHECK ("sequence_number" > 0);
+ALTER TABLE "review_session_items" ADD CONSTRAINT "ck_review_session_items_retry_count_non_negative" CHECK ("retry_count" >= 0);
+ALTER TABLE "review_session_items" ADD CONSTRAINT "ck_review_session_items_final_inferred_score" CHECK (
+    "final_inferred_score" IS NULL OR "final_inferred_score" BETWEEN 0 AND 5
+);
+ALTER TABLE "review_session_items" ADD CONSTRAINT "ck_review_session_items_status_time" CHECK (
+    ("status" = 'PENDING' AND "completed_at" IS NULL)
+    OR ("status" IN ('COMPLETED', 'SKIPPED') AND "completed_at" IS NOT NULL)
+);
+
+ALTER TABLE "review_answers" ADD CONSTRAINT "ck_review_answers_response_time" CHECK (
+    "response_time_ms" IS NULL OR "response_time_ms" >= 0
+);
+ALTER TABLE "review_answers" ADD CONSTRAINT "ck_review_answers_attempt_number_positive" CHECK ("attempt_number" > 0);
+ALTER TABLE "review_answers" ADD CONSTRAINT "ck_review_answers_item_shape" CHECK (
+    "is_correct" IS NOT NULL
+    AND (
+        "selected_option_id" IS NOT NULL
+        OR ("user_answer_text" IS NOT NULL AND BTRIM("user_answer_text") <> '')
+    )
+);
+ALTER TABLE "review_answers" ADD CONSTRAINT "ck_review_answers_hints_used_non_negative" CHECK ("hints_used" >= 0);
+ALTER TABLE "review_answers" ADD CONSTRAINT "ck_review_answers_inferred_review_score" CHECK (
+    "inferred_review_score" IS NULL OR "inferred_review_score" BETWEEN 0 AND 5
+);
+
+ALTER TABLE "review_agent_decisions" ADD CONSTRAINT "ck_review_agent_decisions_confidence" CHECK (
+    "confidence" IS NULL OR "confidence" BETWEEN 0 AND 1
+);
+ALTER TABLE "review_agent_decisions" ADD CONSTRAINT "ck_review_agent_decisions_latency_non_negative" CHECK (
+    "latency_ms" IS NULL OR "latency_ms" >= 0
+);
+
+ALTER TABLE "refresh_sessions" ADD CONSTRAINT "ck_refresh_sessions_expiry_after_creation" CHECK ("expires_at" > "created_at");
+
+-- Preserve automatic updated_at behavior that is outside Prisma Schema
+-- Language. Tables without an updated_at column intentionally receive no
+-- trigger.
+CREATE OR REPLACE FUNCTION "set_updated_at"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW."updated_at" = NOW();
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "trg_users_set_updated_at"
+BEFORE UPDATE ON "users"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_user_profiles_set_updated_at"
+BEFORE UPDATE ON "user_profiles"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_categories_set_updated_at"
+BEFORE UPDATE ON "categories"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_articles_set_updated_at"
+BEFORE UPDATE ON "articles"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_article_sentences_set_updated_at"
+BEFORE UPDATE ON "article_sentences"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_article_sentence_terms_set_updated_at"
+BEFORE UPDATE ON "article_sentence_terms"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_user_article_progress_set_updated_at"
+BEFORE UPDATE ON "user_article_progress"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_user_vocabularies_set_updated_at"
+BEFORE UPDATE ON "user_vocabularies"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_vocabulary_collections_set_updated_at"
+BEFORE UPDATE ON "vocabulary_collections"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_review_questions_set_updated_at"
+BEFORE UPDATE ON "review_questions"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_review_question_options_set_updated_at"
+BEFORE UPDATE ON "review_question_options"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_review_sessions_set_updated_at"
+BEFORE UPDATE ON "review_sessions"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+
+CREATE TRIGGER "trg_review_session_items_set_updated_at"
+BEFORE UPDATE ON "review_session_items"
+FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();

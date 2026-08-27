@@ -18,10 +18,7 @@ import {
 import { ReviewAnalyticsRepository } from '../repositories/review-analytics.repository';
 
 const REVIEW_TARGET_DURATIONS = [5, 10, 15] as const;
-const REVIEW_DECISION_SOURCES = [
-  ReviewDecisionSource.AI,
-  ReviewDecisionSource.RULE,
-] as const;
+const REVIEW_DECISION_SOURCES = [ReviewDecisionSource.AI] as const;
 
 @Injectable()
 export class ReviewAnalyticsService {

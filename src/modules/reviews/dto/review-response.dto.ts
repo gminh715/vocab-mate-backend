@@ -310,17 +310,6 @@ export class ReviewSkillBreakdownDto {
   accuracy!: number;
 }
 
-export class ReviewCoachSummaryDto {
-  @ApiProperty({ type: [String], enum: ReviewSkillDimension })
-  strengths!: ReviewSkillDimension[];
-  @ApiProperty({ type: [String], enum: ReviewSkillDimension })
-  focusNext!: ReviewSkillDimension[];
-  @ApiProperty()
-  message!: string;
-  @ApiProperty({ enum: ReviewDecisionSource })
-  source!: ReviewDecisionSource;
-}
-
 export class ReviewWordToRevisitDto {
   @ApiProperty({ format: 'uuid', nullable: true })
   userVocabularyId!: string | null;
@@ -348,8 +337,6 @@ export class CompletedReviewResultDataDto {
   answers!: ReviewResultAnswerDto[];
   @ApiProperty({ type: [ReviewSkillBreakdownDto] })
   skillBreakdown!: ReviewSkillBreakdownDto[];
-  @ApiProperty({ type: ReviewCoachSummaryDto })
-  coachSummary!: ReviewCoachSummaryDto;
   @ApiProperty({ type: [ReviewWordToRevisitDto] })
   wordsToRevisit!: ReviewWordToRevisitDto[];
 }

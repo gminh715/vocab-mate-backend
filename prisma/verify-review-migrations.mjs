@@ -50,9 +50,11 @@ try {
     .map((entry) => entry.name)
     .sort();
   assert(
-    migrationDirectories.length === 1 &&
-      migrationDirectories[0] === '20260826000000_baseline',
-    'Expected exactly the single squashed baseline migration',
+    migrationDirectories.length === 2 &&
+      migrationDirectories[0] === '20260826000000_baseline' &&
+      migrationDirectories[1] ===
+        '20260827000000_remove_rule_review_decisions',
+    'Expected the baseline and AI-only review-decision migrations',
   );
 
   for (const migrationDirectory of migrationDirectories) {
@@ -285,6 +287,22 @@ try {
   );
   assert(agentEnumTypes.count === 6, 'Agentic review enums are incomplete');
 
+  const decisionSourceValues = await client.query(
+    `SELECT enumlabel
+       FROM pg_enum
+       JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
+       JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+      WHERE pg_namespace.nspname = $1
+        AND pg_type.typname = 'review_decision_source'
+      ORDER BY enumsortorder`,
+    [schemaName],
+  );
+  assert(
+    decisionSourceValues.rowCount === 1 &&
+      decisionSourceValues.rows[0]?.enumlabel === 'AI',
+    'Review decisions must only support AI provenance',
+  );
+
   const obsoleteEnum = await queryValue(
     `SELECT COUNT(*)::int AS count
        FROM pg_type
@@ -331,7 +349,9 @@ try {
     'Normalized article term expression index is missing',
   );
 
-  console.log('Applied 1 migration and verified the review schema');
+  console.log(
+    `Applied ${migrationDirectories.length} migrations and verified the review schema`,
+  );
 } finally {
   if (schemaCreated) {
     await client.query(`DROP SCHEMA ${quotedSchema} CASCADE`);

@@ -189,46 +189,48 @@ export class ReviewsService {
           reviewSessionId: sessionId,
           ...diagnosisSnapshot.request,
         });
-        const requestedRetestType = this.readRetestQuestionType(decision);
-        let preparedRetestQuestion: PreparedAiReviewQuestion | null = null;
-        let applicableDecision = decision;
-        if (
-          requestedRetestType &&
-          requestedRetestType !== diagnosisSnapshot.fallbackRetestQuestionType
-        ) {
-          preparedRetestQuestion =
-            await this.aiQuestionGenerator.prepareRetestQuestion(
-              userId,
-              sessionId,
-              diagnosisSnapshot.vocabulary,
-              requestedRetestType,
-            );
-          if (!preparedRetestQuestion) {
-            applicableDecision = this.useFallbackRetest(
-              decision,
-              diagnosisSnapshot,
-            );
-          }
-        }
-
-        try {
-          const enhancedState = await this.reviewAgent.applyAnswerDecision(
-            userId,
-            {
-              decision: applicableDecision,
-              originalQuestionType: diagnosisSnapshot.originalQuestionType,
-              expectedAttemptNumber: diagnosisSnapshot.attemptNumber,
-              preparedRetestQuestion,
-            },
-          );
-          result = { ...committedResult, ...enhancedState };
-        } catch (error: unknown) {
+        if (decision) {
+          const requestedRetestType = this.readRetestQuestionType(decision);
+          let preparedRetestQuestion: PreparedAiReviewQuestion | null = null;
+          let applicableDecision = decision;
           if (
-            !(error instanceof ReviewAgentDecisionConflictError) &&
-            !(error instanceof InvalidReviewAgentDecisionRelationshipError) &&
-            !(error instanceof ReviewConcurrencyConflictError)
+            requestedRetestType &&
+            requestedRetestType !== diagnosisSnapshot.fallbackRetestQuestionType
           ) {
-            throw error;
+            preparedRetestQuestion =
+              await this.aiQuestionGenerator.prepareRetestQuestion(
+                userId,
+                sessionId,
+                diagnosisSnapshot.vocabulary,
+                requestedRetestType,
+              );
+            if (!preparedRetestQuestion) {
+              applicableDecision = this.useAvailableRetest(
+                decision,
+                diagnosisSnapshot,
+              );
+            }
+          }
+
+          try {
+            const enhancedState = await this.reviewAgent.applyAnswerDecision(
+              userId,
+              {
+                decision: applicableDecision,
+                originalQuestionType: diagnosisSnapshot.originalQuestionType,
+                expectedAttemptNumber: diagnosisSnapshot.attemptNumber,
+                preparedRetestQuestion,
+              },
+            );
+            result = { ...committedResult, ...enhancedState };
+          } catch (error: unknown) {
+            if (
+              !(error instanceof ReviewAgentDecisionConflictError) &&
+              !(error instanceof InvalidReviewAgentDecisionRelationshipError) &&
+              !(error instanceof ReviewConcurrencyConflictError)
+            ) {
+              throw error;
+            }
           }
         }
       }
@@ -270,7 +272,7 @@ export class ReviewsService {
     );
   }
 
-  private useFallbackRetest(
+  private useAvailableRetest(
     decision: PersistReviewAgentDecisionInput,
     snapshot: PostAnswerDiagnosisSnapshot,
   ): PersistReviewAgentDecisionInput {

@@ -5,9 +5,7 @@ import type {
   DiagnoseReviewAnswerInput,
   PlanReviewSessionInput,
   ReviewAnswerDiagnosisResult,
-  ReviewQuestionType,
   ReviewSessionPlanResult,
-  ReviewSkillDimension as AiReviewSkillDimension,
 } from '../../ai/ai.contracts';
 import { AiService } from '../../ai/services/ai.service';
 import {
@@ -21,8 +19,6 @@ import {
   ReviewAgentAction,
   ReviewDecisionKind,
   ReviewDecisionSource,
-  ReviewErrorType,
-  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import {
   type ApplyAnswerAgentDecisionInput,
@@ -31,9 +27,6 @@ import {
   type ReviewAgentJsonValue,
   ReviewAgentRepository,
 } from '../repositories/review-agent.repository';
-
-const RULE_PROMPT_VERSION = 'review-agent-rule-v1';
-const DEFAULT_RETEST_AFTER_ITEMS = 3;
 
 export interface SessionPlanDecisionRequest {
   userId: string;
@@ -70,12 +63,16 @@ export class ReviewAgentService {
 
   async persistSessionPlan(request: SessionPlanDecisionRequest) {
     const decision = await this.planSession(request);
-    return this.agentRepository.persist(request.userId, decision);
+    return decision
+      ? this.agentRepository.persist(request.userId, decision)
+      : null;
   }
 
   async persistAnswerIntervention(request: AnswerDiagnosisDecisionRequest) {
     const decision = await this.diagnoseAnswer(request);
-    return this.agentRepository.persist(request.userId, decision);
+    return decision
+      ? this.agentRepository.persist(request.userId, decision)
+      : null;
   }
 
   applyAnswerDecision(userId: string, input: ApplyAnswerAgentDecisionInput) {
@@ -84,16 +81,15 @@ export class ReviewAgentService {
 
   async planSession(
     request: SessionPlanDecisionRequest,
-  ): Promise<PersistReviewAgentDecisionInput> {
+  ): Promise<PersistReviewAgentDecisionInput | null> {
     const input = this.sanitizePlanInput(request.input);
     validatePlanReviewSessionInput(input);
-    const fallback = (reasonCode: string, audit?: ProviderAudit) =>
-      this.planFallback(request.reviewSessionId, input, reasonCode, audit);
 
-    if (!this.config.reviewAgentEnabled) return fallback('AGENT_DISABLED');
-    if (input.candidates.length < 2) return fallback('CALL_NOT_USEFUL');
+    if (!this.config.reviewAgentEnabled || input.candidates.length < 2) {
+      return null;
+    }
     if (!(await this.reserveCall(request.userId, request.reviewSessionId))) {
-      return fallback('BUDGET_EXHAUSTED');
+      return null;
     }
 
     const startedAt = Date.now();
@@ -110,58 +106,28 @@ export class ReviewAgentService {
           input,
         );
       } catch {
-        return fallback('INVALID_AI_DECISION', audit);
+        return null;
       }
       audit.confidence = result.confidence;
       if (result.confidence < this.config.reviewMinConfidence) {
-        return fallback('LOW_CONFIDENCE', audit);
+        return null;
       }
       return this.planAiDecision(request.reviewSessionId, input, result, audit);
     } catch {
-      return fallback('AI_UNAVAILABLE', {
-        provider: null,
-        model: null,
-        promptVersion: this.config.reviewPromptVersion,
-        latencyMs: Math.max(0, Date.now() - startedAt),
-      });
+      return null;
     }
-  }
-
-  planSessionDeterministically(
-    request: SessionPlanDecisionRequest,
-  ): PersistReviewAgentDecisionInput {
-    const input = this.sanitizePlanInput(request.input);
-    validatePlanReviewSessionInput(input);
-    return this.planFallback(
-      request.reviewSessionId,
-      input,
-      'DETERMINISTIC_PLAN',
-    );
   }
 
   async diagnoseAnswer(
     request: AnswerDiagnosisDecisionRequest,
-  ): Promise<PersistReviewAgentDecisionInput> {
+  ): Promise<PersistReviewAgentDecisionInput | null> {
     const input = this.sanitizeDiagnosisInput(request.input);
     validateDiagnoseReviewAnswerInput(input);
-    const fallback = (
-      reasonCode: string,
-      audit?: ProviderAudit,
-      errorType: ReviewErrorType = ReviewErrorType.UNKNOWN,
-    ) => this.diagnosisFallback(request, input, reasonCode, errorType, audit);
 
-    if (!this.config.reviewAgentEnabled) return fallback('AGENT_DISABLED');
-    if (request.isCorrect) return fallback('CORRECT_ANSWER');
-    if (request.wasSkipped) return fallback('SKIPPED_ITEM');
-    if (this.isObviousSpellingError(input)) {
-      return fallback(
-        'OBVIOUS_SPELLING_ERROR',
-        undefined,
-        ReviewErrorType.SPELLING_ERROR,
-      );
-    }
+    if (!this.config.reviewAgentEnabled) return null;
+    if (request.isCorrect || request.wasSkipped) return null;
     if (!this.isDiagnosisCallUseful(request, input)) {
-      return fallback('CALL_NOT_USEFUL');
+      return null;
     }
     if (
       !(await this.agentRepository.reserveDiagnosisCall(
@@ -171,7 +137,7 @@ export class ReviewAgentService {
         this.config.reviewMaxDiagnosisCalls,
       ))
     ) {
-      return fallback('BUDGET_EXHAUSTED');
+      return null;
     }
 
     const startedAt = Date.now();
@@ -188,20 +154,15 @@ export class ReviewAgentService {
           input,
         );
       } catch {
-        return fallback('INVALID_AI_DECISION', audit);
+        return null;
       }
       audit.confidence = result.confidence;
       if (result.confidence < this.config.reviewMinConfidence) {
-        return fallback('LOW_CONFIDENCE', audit);
+        return null;
       }
       return this.diagnosisAiDecision(request, input, result, audit);
     } catch {
-      return fallback('AI_UNAVAILABLE', {
-        provider: null,
-        model: null,
-        promptVersion: this.config.reviewPromptVersion,
-        latencyMs: Math.max(0, Date.now() - startedAt),
-      });
+      return null;
     }
   }
 
@@ -239,33 +200,6 @@ export class ReviewAgentService {
     };
   }
 
-  private planFallback(
-    reviewSessionId: string,
-    input: PlanReviewSessionInput,
-    reasonCode: string,
-    audit?: ProviderAudit,
-  ): PersistReviewAgentDecisionInput {
-    const result = this.deterministicPlan(input);
-    return {
-      reviewSessionId,
-      reviewSessionItemId: null,
-      reviewAnswerId: null,
-      kind: ReviewDecisionKind.SESSION_PLAN,
-      source: ReviewDecisionSource.RULE,
-      action: null,
-      skillDimension: null,
-      errorType: null,
-      confidence: audit?.confidence ?? null,
-      reasonCode,
-      stateSnapshot: this.planSnapshot(input),
-      decisionPayload: this.planPayload(result),
-      provider: audit?.provider ?? null,
-      model: audit?.model ?? null,
-      promptVersion: audit?.promptVersion ?? RULE_PROMPT_VERSION,
-      latencyMs: audit?.latencyMs ?? null,
-    };
-  }
-
   private diagnosisAiDecision(
     request: AnswerDiagnosisDecisionRequest,
     input: DiagnoseReviewAnswerInput,
@@ -290,89 +224,6 @@ export class ReviewAgentService {
       promptVersion: audit.promptVersion,
       latencyMs: audit.latencyMs,
     };
-  }
-
-  private diagnosisFallback(
-    request: AnswerDiagnosisDecisionRequest,
-    input: DiagnoseReviewAnswerInput,
-    reasonCode: string,
-    errorType: ReviewErrorType,
-    audit?: ProviderAudit,
-  ): PersistReviewAgentDecisionInput {
-    const result = this.deterministicDiagnosis(request, input, errorType);
-    return {
-      reviewSessionId: request.reviewSessionId,
-      reviewSessionItemId: request.reviewSessionItemId,
-      reviewAnswerId: request.reviewAnswerId,
-      kind: ReviewDecisionKind.ANSWER_INTERVENTION,
-      source: ReviewDecisionSource.RULE,
-      action: result.action,
-      skillDimension: result.skillDimension,
-      errorType: result.errorType,
-      confidence: audit?.confidence ?? null,
-      reasonCode,
-      stateSnapshot: this.diagnosisSnapshot(input),
-      decisionPayload: this.diagnosisPayload(result),
-      provider: audit?.provider ?? null,
-      model: audit?.model ?? null,
-      promptVersion: audit?.promptVersion ?? RULE_PROMPT_VERSION,
-      latencyMs: audit?.latencyMs ?? null,
-    };
-  }
-
-  private deterministicPlan(
-    input: PlanReviewSessionInput,
-  ): ReviewSessionPlanResult {
-    const preferredSkill =
-      input.reviewGoal === 'RECALL'
-        ? 'RECALL'
-        : input.reviewGoal === 'SPELLING'
-          ? 'SPELLING'
-          : input.reviewGoal === 'CONTEXT'
-            ? 'CONTEXT'
-            : input.allowedFocusDimensions[0];
-    const focusDimensions = input.allowedFocusDimensions.includes(
-      preferredSkill,
-    )
-      ? [preferredSkill]
-      : [input.allowedFocusDimensions[0]];
-    const orderedCandidateAliases = [...input.candidates]
-      .sort((left, right) => {
-        const leftGoalErrors = this.goalErrorCount(left, preferredSkill);
-        const rightGoalErrors = this.goalErrorCount(right, preferredSkill);
-        const leftErrors = left.recentAttempts.filter(
-          ({ isCorrect }) => !isCorrect,
-        ).length;
-        const rightErrors = right.recentAttempts.filter(
-          ({ isCorrect }) => !isCorrect,
-        ).length;
-        return (
-          rightGoalErrors - leftGoalErrors ||
-          rightErrors - leftErrors ||
-          right.lapseCount - left.lapseCount ||
-          right.daysOverdue - left.daysOverdue ||
-          left.alias.localeCompare(right.alias)
-        );
-      })
-      .slice(0, input.maxItemCount)
-      .map(({ alias }) => alias);
-    return {
-      reviewGoal: input.reviewGoal,
-      focusDimensions,
-      orderedCandidateAliases,
-      summary: `Review ${orderedCandidateAliases.length} vocabulary item${orderedCandidateAliases.length === 1 ? '' : 's'} with a ${input.reviewGoal.toLowerCase()} focus.`,
-      confidence: 0,
-    };
-  }
-
-  private goalErrorCount(
-    candidate: PlanReviewSessionInput['candidates'][number],
-    preferredSkill: AiReviewSkillDimension,
-  ): number {
-    return candidate.recentAttempts.filter(
-      ({ isCorrect, skillDimension }) =>
-        !isCorrect && skillDimension === preferredSkill,
-    ).length;
   }
 
   private applyPlanPolicy(
@@ -430,65 +281,6 @@ export class ReviewAgentService {
     return value <= 3 ? 3 : 4;
   }
 
-  private deterministicDiagnosis(
-    request: AnswerDiagnosisDecisionRequest,
-    input: DiagnoseReviewAnswerInput,
-    errorType: ReviewErrorType,
-  ): ReviewAnswerDiagnosisResult {
-    const skillDimension = this.skillForQuestion(
-      input.questionType,
-      input.allowedSkillDimensions,
-    );
-    if (request.isCorrect || request.wasSkipped) {
-      return {
-        action: ReviewAgentAction.CONTINUE,
-        skillDimension,
-        errorType,
-        confidence: 0,
-        reasonCode: 'DETERMINISTIC_CONTINUE',
-        microLesson: null,
-        retest: null,
-      };
-    }
-
-    const retestType = input.allowedRetestQuestionTypes.find(
-      (questionType) => questionType !== input.questionType,
-    );
-    const canRequeue = input.allowedActions.includes(
-      ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
-    );
-    if (canRequeue && retestType) {
-      const afterItems = input.allowedRetestAfterItems.includes(
-        DEFAULT_RETEST_AFTER_ITEMS,
-      )
-        ? DEFAULT_RETEST_AFTER_ITEMS
-        : input.allowedRetestAfterItems[0];
-      return {
-        action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
-        skillDimension,
-        errorType,
-        confidence: 0,
-        reasonCode: 'DETERMINISTIC_REQUEUE',
-        microLesson: null,
-        retest: { questionType: retestType, afterItems },
-      };
-    }
-
-    return {
-      action: input.allowedActions.includes(
-        ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS,
-      )
-        ? ReviewAgentAction.FLAG_FOR_FUTURE_FOCUS
-        : ReviewAgentAction.CONTINUE,
-      skillDimension,
-      errorType,
-      confidence: 0,
-      reasonCode: 'DETERMINISTIC_FOCUS',
-      microLesson: null,
-      retest: null,
-    };
-  }
-
   private isDiagnosisCallUseful(
     request: AnswerDiagnosisDecisionRequest,
     input: DiagnoseReviewAnswerInput,
@@ -499,59 +291,6 @@ export class ReviewAgentService {
       input.questionType === QuestionType.SELECT_CORRECT_CONTEXT ||
       input.recentAttempts.some(({ isCorrect }) => !isCorrect)
     );
-  }
-
-  private isObviousSpellingError(input: DiagnoseReviewAnswerInput): boolean {
-    if (input.questionType !== QuestionType.FILL_BLANK) return false;
-    const learner = input.learnerAnswer.trim().toLocaleLowerCase('en');
-    const correct = input.correctAnswer.trim().toLocaleLowerCase('en');
-    return (
-      learner.length >= 4 &&
-      correct.length >= 4 &&
-      this.editDistanceAtMostOne(learner, correct)
-    );
-  }
-
-  private editDistanceAtMostOne(left: string, right: string): boolean {
-    if (left === right || Math.abs(left.length - right.length) > 1) {
-      return left === right;
-    }
-    let leftIndex = 0;
-    let rightIndex = 0;
-    let edits = 0;
-    while (leftIndex < left.length && rightIndex < right.length) {
-      if (left[leftIndex] === right[rightIndex]) {
-        leftIndex += 1;
-        rightIndex += 1;
-        continue;
-      }
-      edits += 1;
-      if (edits > 1) return false;
-      if (left.length > right.length) leftIndex += 1;
-      else if (right.length > left.length) rightIndex += 1;
-      else {
-        leftIndex += 1;
-        rightIndex += 1;
-      }
-    }
-    return (
-      edits + Number(leftIndex < left.length || rightIndex < right.length) <= 1
-    );
-  }
-
-  private skillForQuestion(
-    questionType: ReviewQuestionType,
-    allowed: AiReviewSkillDimension[],
-  ): AiReviewSkillDimension {
-    const mapped =
-      questionType === QuestionType.SELECT_MEANING
-        ? ReviewSkillDimension.RECOGNITION
-        : questionType === QuestionType.SELECT_WORD
-          ? ReviewSkillDimension.RECALL
-          : questionType === QuestionType.SELECT_CORRECT_CONTEXT
-            ? ReviewSkillDimension.CONTEXT
-            : ReviewSkillDimension.SPELLING;
-    return allowed.includes(mapped) ? mapped : allowed[0];
   }
 
   private sanitizePlanInput(

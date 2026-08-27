@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
   type CefrLevel,
@@ -9,6 +9,8 @@ import {
 } from '../../../../generated/prisma/enums';
 import { REVIEW_QUESTION_PROMPT_VERSION } from '../../ai/ai.contracts';
 import { PrismaService } from '../../../database/prisma.service';
+import type { ReturnTypeOfAppConfig } from '../../../config/app.config';
+import { APP_CONFIG } from '../../../config/config.module';
 import type { StartReviewSessionDto } from '../dto/review-request.dto';
 import {
   RECENT_ACCURACY_WINDOW,
@@ -16,6 +18,7 @@ import {
   selectSessionQuestionTypes,
   type RecentQuestionAttempt,
 } from '../services/question-selection';
+import { reviewDayEnd, reviewEligibilityWhere } from './review-eligibility';
 
 export interface AiQuestionGenerationCandidate {
   vocabulary: VocabularyQuestionSnapshot;
@@ -68,12 +71,6 @@ export interface PreparedAiReviewQuestion {
   questionType: QuestionType;
 }
 
-const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
-  LearningStatus.NEW,
-  LearningStatus.LEARNING,
-  LearningStatus.REVIEWING,
-];
-
 const reviewVocabularySelect = {
   id: true,
   articleSentenceTermId: true,
@@ -110,7 +107,10 @@ type ReviewVocabulary = Prisma.UserVocabularyGetPayload<{
 /** Persistence boundary for generated and cached review questions. */
 @Injectable()
 export class ReviewQuestionsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(APP_CONFIG) private readonly appConfig: ReturnTypeOfAppConfig,
+  ) {}
 
   /** Atomically reserves a session AI-call slot before generating a cache miss. */
   async reserveGenerationCall(
@@ -331,11 +331,12 @@ export class ReviewQuestionsRepository {
     dto: StartReviewSessionDto,
     now: Date,
   ): Promise<ReviewVocabulary[]> {
-    const commonWhere: Prisma.UserVocabularyWhereInput = {
+    const commonWhere = reviewEligibilityWhere(
       userId,
-      learningStatus: { in: REVIEW_ELIGIBLE_LEARNING_STATUSES },
-      OR: [{ nextReviewAt: { lte: now } }, { nextReviewAt: null }],
-    };
+      now,
+      this.appConfig.analyticsTimezone,
+    );
+    const dueBefore = reviewDayEnd(now, this.appConfig.analyticsTimezone);
     const selected: ReviewVocabulary[] = [];
     const take = async (
       where: Prisma.UserVocabularyWhereInput,
@@ -352,7 +353,7 @@ export class ReviewQuestionsRepository {
         })),
       );
     };
-    await take({ nextReviewAt: { lte: now } }, [
+    await take({ nextReviewAt: { lt: dueBefore } }, [
       { lapseCount: 'desc' },
       { nextReviewAt: 'asc' },
       { savedAt: 'asc' },

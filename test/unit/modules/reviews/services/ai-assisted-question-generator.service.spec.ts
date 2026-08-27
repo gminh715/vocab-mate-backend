@@ -542,7 +542,7 @@ describe('AiAssistedQuestionGeneratorService', () => {
     expect(ai.generateReviewQuestion).not.toHaveBeenCalled();
   });
 
-  it('returns no rule-based retest when both providers and the AI cache are unavailable', async () => {
+  it('returns no retest when both providers and the AI cache are unavailable', async () => {
     const candidate = makeCandidate(1);
     ai.generateReviewQuestion.mockRejectedValue(
       new AiError(

@@ -164,7 +164,6 @@ enum ReviewDecisionKind {
 
 enum ReviewDecisionSource {
   AI
-  RULE
 
   @@map("review_decision_source")
 }

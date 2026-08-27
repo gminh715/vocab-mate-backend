@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
   type CefrLevel,
@@ -7,7 +7,7 @@ import {
   QuestionType,
   ReviewAgentAction,
   ReviewDecisionKind,
-  ReviewDecisionSource,
+  type ReviewDecisionSource,
   type ReviewGoal,
   type ReviewErrorType,
   ReviewSessionItemStatus,
@@ -20,6 +20,8 @@ import {
   type ReviewRetestAfterItems,
 } from '../../ai/ai.contracts';
 import { PrismaService } from '../../../database/prisma.service';
+import type { ReturnTypeOfAppConfig } from '../../../config/app.config';
+import { APP_CONFIG } from '../../../config/config.module';
 import type {
   GetReviewHistoryQueryDto,
   SkipReviewSessionItemDto,
@@ -41,6 +43,11 @@ import {
   ReviewConcurrencyConflictError,
   ReviewResourceNotFoundError,
 } from './review-errors';
+import {
+  reviewDayEnd,
+  reviewEligibilitySql,
+  reviewEligibilityWhere,
+} from './review-eligibility';
 
 export {
   ReviewConcurrencyConflictError,
@@ -56,43 +63,6 @@ const MAX_RETRY_COUNT = 1;
 const DEFAULT_RETEST_AFTER_ITEMS: ReviewRetestAfterItems = 3;
 const DIAGNOSIS_SKILL_WINDOW_DAYS = 14;
 const MAX_LEARNER_SNAPSHOT_VOCABULARIES = 100;
-const REVIEW_ELIGIBLE_LEARNING_STATUSES = [
-  LearningStatus.NEW,
-  LearningStatus.LEARNING,
-  LearningStatus.REVIEWING,
-];
-const REVIEW_SKILL_LABELS: Record<ReviewSkillDimension, string> = {
-  [ReviewSkillDimension.RECOGNITION]: 'recognition',
-  [ReviewSkillDimension.RECALL]: 'recall',
-  [ReviewSkillDimension.SPELLING]: 'spelling',
-  [ReviewSkillDimension.CONTEXT]: 'context',
-  [ReviewSkillDimension.PRODUCTION]: 'production',
-};
-
-const reviewEligibilityWhere = (
-  userId: string,
-  now: Date,
-): Prisma.UserVocabularyWhereInput => ({
-  userId,
-  learningStatus: { in: REVIEW_ELIGIBLE_LEARNING_STATUSES },
-  OR: [{ nextReviewAt: { lte: now } }, { nextReviewAt: null }],
-});
-
-const reviewEligibilitySql = (userId: string, now: Date) => Prisma.sql`
-  uv.user_id = ${userId}::uuid
-  AND uv.learning_status IN (
-    ${Prisma.join(
-      REVIEW_ELIGIBLE_LEARNING_STATUSES.map(
-        (status) => Prisma.sql`${status}::learning_status`,
-      ),
-    )}
-  )
-  AND (
-    uv.next_review_at <= ${now}
-    OR uv.next_review_at IS NULL
-  )
-`;
-
 const sessionSelect = {
   id: true,
   targetDurationMinutes: true,
@@ -433,7 +403,10 @@ interface RawReviewTimingStats {
  * transaction scopes during the incremental repository split.
  */
 export class ReviewSessionsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(APP_CONFIG) private readonly appConfig: ReturnTypeOfAppConfig,
+  ) {}
 
   async getRecentReviewTimingStats(
     userId: string,
@@ -1291,7 +1264,6 @@ export class ReviewSessionsRepository {
       result: this.calculateResult(resultQuestions, session.completedAt),
       answers,
       skillBreakdown,
-      coachSummary: this.buildCoachSummary(skillBreakdown),
       wordsToRevisit,
     };
   }
@@ -1331,50 +1303,12 @@ export class ReviewSessionsRepository {
       );
   }
 
-  private buildCoachSummary(
-    breakdown: Array<{
-      skillDimension: ReviewSkillDimension;
-      attempts: number;
-      correct: number;
-      accuracy: number;
-    }>,
-  ) {
-    const strengths = [...breakdown]
-      .filter(({ accuracy }) => accuracy >= 0.75)
-      .sort(
-        (left, right) =>
-          right.accuracy - left.accuracy || right.attempts - left.attempts,
-      )
-      .slice(0, 2)
-      .map(({ skillDimension }) => skillDimension);
-    const focusNext = [...breakdown]
-      .filter(({ accuracy }) => accuracy < 0.75)
-      .sort(
-        (left, right) =>
-          left.accuracy - right.accuracy || right.attempts - left.attempts,
-      )
-      .slice(0, 2)
-      .map(({ skillDimension }) => skillDimension);
-    const strengthLabels = strengths.map((skill) => REVIEW_SKILL_LABELS[skill]);
-    const focusLabels = focusNext.map((skill) => REVIEW_SKILL_LABELS[skill]);
-    const message =
-      breakdown.length === 0
-        ? 'Complete another review to build a clearer skill picture.'
-        : focusLabels.length > 0 && strengthLabels.length > 0
-          ? `You were strongest in ${strengthLabels.join(' and ')}. Focus next on ${focusLabels.join(' and ')}.`
-          : focusLabels.length > 0
-            ? `Focus next on ${focusLabels.join(' and ')} in a short follow-up review.`
-            : `You showed reliable ${strengthLabels.join(' and ')}. Keep reinforcing it in context.`;
-    return {
-      strengths,
-      focusNext,
-      message,
-      source: ReviewDecisionSource.RULE,
-    };
-  }
-
   async getDueRecommendations(userId: string, now: Date) {
-    const duePredicate = reviewEligibilitySql(userId, now);
+    const duePredicate = reviewEligibilitySql(
+      userId,
+      now,
+      this.appConfig.analyticsTimezone,
+    );
     const countRows = await this.prisma.$queryRaw<Array<{ count: number }>>(
       Prisma.sql`
         SELECT COUNT(DISTINCT uv.id)::int AS count
@@ -1394,7 +1328,12 @@ export class ReviewSessionsRepository {
     dto: StartReviewSessionDto,
     now: Date,
   ): Promise<ReviewVocabulary[]> {
-    const commonWhere = reviewEligibilityWhere(userId, now);
+    const commonWhere = reviewEligibilityWhere(
+      userId,
+      now,
+      this.appConfig.analyticsTimezone,
+    );
+    const dueBefore = reviewDayEnd(now, this.appConfig.analyticsTimezone);
     const selected: ReviewVocabulary[] = [];
     const take = async (
       where: Prisma.UserVocabularyWhereInput,
@@ -1412,7 +1351,7 @@ export class ReviewSessionsRepository {
       );
     };
 
-    await take({ nextReviewAt: { lte: now } }, [
+    await take({ nextReviewAt: { lt: dueBefore } }, [
       { lapseCount: 'desc' },
       { nextReviewAt: 'asc' },
       { savedAt: 'asc' },

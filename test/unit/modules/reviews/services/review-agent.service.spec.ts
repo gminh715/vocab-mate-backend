@@ -8,10 +8,7 @@ import type {
   ReviewAnswerDiagnosisResult,
 } from '../../../../../src/modules/ai/ai.contracts';
 import { AiService } from '../../../../../src/modules/ai/services/ai.service';
-import {
-  ReviewDecisionSource,
-  ReviewErrorType,
-} from '../../../../../generated/prisma/enums';
+import { ReviewDecisionSource } from '../../../../../generated/prisma/enums';
 import { ReviewAgentRepository } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
 import { ReviewAgentService } from '../../../../../src/modules/reviews/services/review-agent.service';
 
@@ -166,7 +163,7 @@ describe('ReviewAgentService', () => {
   });
 
   it('persists a completed session-plan decision after its decision phase', async () => {
-    const decision = { reviewSessionId: 'session', source: 'RULE' };
+    const decision = { reviewSessionId: 'session', source: 'AI' };
     jest.spyOn(service, 'planSession').mockResolvedValue(decision as never);
     repository.persist.mockResolvedValue({ created: true });
 
@@ -180,7 +177,7 @@ describe('ReviewAgentService', () => {
     expect(repository.persist).toHaveBeenCalledWith('user', decision);
   });
 
-  it('uses a RULE decision without a call when diagnosis is not useful', async () => {
+  it('does not create a decision when diagnosis is not useful', async () => {
     const decision = await service.diagnoseAnswer({
       userId: 'user',
       reviewSessionId: 'session',
@@ -192,15 +189,12 @@ describe('ReviewAgentService', () => {
       input: { ...diagnosisInput, recentAttempts: [] },
     });
 
-    expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'CALL_NOT_USEFUL',
-    });
+    expect(decision).toBeNull();
     expect(repository.reserveDiagnosisCall).not.toHaveBeenCalled();
     expect(ai.diagnoseReviewAnswer).not.toHaveBeenCalled();
   });
 
-  it('returns a deterministic RULE decision when the atomic budget is exhausted', async () => {
+  it('does not create a decision when the atomic budget is exhausted', async () => {
     repository.reserveDiagnosisCall.mockResolvedValue(false);
 
     const decision = await service.diagnoseAnswer({
@@ -220,15 +214,11 @@ describe('ReviewAgentService', () => {
       6,
       4,
     );
-    expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'BUDGET_EXHAUSTED',
-      provider: null,
-    });
+    expect(decision).toBeNull();
     expect(ai.diagnoseReviewAnswer).not.toHaveBeenCalled();
   });
 
-  it('falls back after a low-confidence decision and retains safe provider audit data', async () => {
+  it('rejects a low-confidence AI decision', async () => {
     ai.diagnoseReviewAnswer.mockResolvedValue({
       result: { ...diagnosisResult, confidence: 0.64 },
       metadata: {
@@ -249,16 +239,10 @@ describe('ReviewAgentService', () => {
       input: diagnosisInput,
     });
 
-    expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'LOW_CONFIDENCE',
-      confidence: 0.64,
-      provider: 'GEMINI',
-      model: 'gemini-test-model',
-    });
+    expect(decision).toBeNull();
   });
 
-  it('falls back when an AI decision is invalid even if the AI boundary is mocked', async () => {
+  it('rejects an invalid AI decision even if the AI boundary is mocked', async () => {
     ai.diagnoseReviewAnswer.mockResolvedValue({
       result: { ...diagnosisResult, action: 'DELETE_SESSION' },
       metadata: {
@@ -279,12 +263,7 @@ describe('ReviewAgentService', () => {
         lapseCount: 1,
         input: diagnosisInput,
       }),
-    ).resolves.toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'INVALID_AI_DECISION',
-      action: 'REQUEUE_WITH_NEW_TYPE',
-      provider: 'GEMINI',
-    });
+    ).resolves.toBeNull();
   });
 
   it('keeps Groq provenance when AiService succeeds through provider fallback', async () => {
@@ -345,7 +324,7 @@ describe('ReviewAgentService', () => {
     });
   });
 
-  it('uses a non-question deterministic fallback when both providers fail', async () => {
+  it('does not create a decision when both providers fail', async () => {
     ai.diagnoseReviewAnswer.mockRejectedValue(
       new Error('provider response must not escape'),
     );
@@ -361,21 +340,23 @@ describe('ReviewAgentService', () => {
       input: diagnosisInput,
     });
 
-    expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'AI_UNAVAILABLE',
-      provider: null,
-      decisionPayload: {
-        action: 'REQUEUE_WITH_NEW_TYPE',
-        microLesson: null,
-      },
-    });
-    expect(JSON.stringify(decision)).not.toContain('provider response');
-    expect(decision.decisionPayload).not.toHaveProperty('prompt');
-    expect(decision.decisionPayload).not.toHaveProperty('options');
+    expect(decision).toBeNull();
   });
 
-  it('classifies an obvious typo deterministically without spending a slot', async () => {
+  it('uses AI to classify an obvious typo', async () => {
+    ai.diagnoseReviewAnswer.mockResolvedValue({
+      result: {
+        ...diagnosisResult,
+        errorType: 'SPELLING_ERROR',
+        reasonCode: 'AI_SPELLING_ERROR',
+        retest: { questionType: 'SELECT_WORD', afterItems: 3 },
+      },
+      metadata: {
+        provider: 'GEMINI',
+        model: 'gemini-test-model',
+        promptVersion: 'review-answer-diagnosis-v1',
+      },
+    });
     const decision = await service.diagnoseAnswer({
       userId: 'user',
       reviewSessionId: 'session',
@@ -393,14 +374,14 @@ describe('ReviewAgentService', () => {
     });
 
     expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      errorType: ReviewErrorType.SPELLING_ERROR,
-      reasonCode: 'OBVIOUS_SPELLING_ERROR',
+      source: ReviewDecisionSource.AI,
+      errorType: 'SPELLING_ERROR',
+      reasonCode: 'AI_SPELLING_ERROR',
     });
-    expect(repository.reserveDiagnosisCall).not.toHaveBeenCalled();
+    expect(repository.reserveDiagnosisCall).toHaveBeenCalled();
   });
 
-  it('returns a deterministic session plan without calling AI when the shared slot budget is exhausted', async () => {
+  it('does not create a session plan when the shared slot budget is exhausted', async () => {
     repository.reserveCall.mockResolvedValue(false);
 
     await expect(
@@ -409,42 +390,12 @@ describe('ReviewAgentService', () => {
         reviewSessionId: 'session',
         input: planInput,
       }),
-    ).resolves.toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'BUDGET_EXHAUSTED',
-      decisionPayload: {
-        orderedCandidateAliases: ['v1', 'v2'],
-      },
-    });
+    ).resolves.toBeNull();
     expect(repository.reserveCall).toHaveBeenCalledWith('user', 'session', 6);
     expect(ai.planReviewSession).not.toHaveBeenCalled();
   });
 
-  it('builds the critical-path plan locally and prioritizes weaker overdue candidates', () => {
-    const decision = service.planSessionDeterministically({
-      userId: 'user',
-      reviewSessionId: 'session',
-      input: {
-        ...planInput,
-        candidates: [...planInput.candidates].reverse(),
-      },
-    });
-
-    expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'DETERMINISTIC_PLAN',
-      provider: null,
-      model: null,
-      latencyMs: null,
-      decisionPayload: {
-        orderedCandidateAliases: ['v1', 'v2'],
-      },
-    });
-    expect(repository.reserveCall).not.toHaveBeenCalled();
-    expect(ai.planReviewSession).not.toHaveBeenCalled();
-  });
-
-  it('uses a safe deterministic session plan when both structured providers are unavailable', async () => {
+  it('does not create a session plan when both structured providers are unavailable', async () => {
     ai.planReviewSession.mockRejectedValue(
       new Error('provider response must not escape'),
     );
@@ -455,14 +406,7 @@ describe('ReviewAgentService', () => {
       input: planInput,
     });
 
-    expect(decision).toMatchObject({
-      source: ReviewDecisionSource.RULE,
-      reasonCode: 'AI_UNAVAILABLE',
-      provider: null,
-      model: null,
-      promptVersion: config.reviewPromptVersion,
-    });
-    expect(JSON.stringify(decision)).not.toContain('provider response');
+    expect(decision).toBeNull();
   });
 
   it('sends and persists only the sanitized bounded snapshot', async () => {
@@ -491,6 +435,7 @@ describe('ReviewAgentService', () => {
       reviewSessionId: 'private-session-id',
       input: unsafeInput,
     });
+    if (!decision) throw new Error('Expected an accepted AI decision');
 
     const providerInput = ai.planReviewSession.mock.calls[0][0];
     for (const value of [providerInput, decision.stateSnapshot]) {

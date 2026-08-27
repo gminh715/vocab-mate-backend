@@ -16,6 +16,7 @@ import {
   ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../src/database/prisma.service';
+import { APP_CONFIG } from '../../../../src/config/config.module';
 import { REVIEW_QUESTION_PROMPT_VERSION } from '../../../../src/modules/ai/ai.contracts';
 import { QuestionSelectionService } from '../../../../src/modules/reviews/services/question-selection.service';
 import {
@@ -28,6 +29,10 @@ import {
   ReviewAgentRepository,
 } from '../../../../src/modules/reviews/repositories/review-agent.repository';
 import { ReviewQuestionsRepository } from '../../../../src/modules/reviews/repositories/review-questions.repository';
+import {
+  reviewDayEnd,
+  reviewDayStart,
+} from '../../../../src/modules/reviews/repositories/review-eligibility';
 
 describe('ReviewSessionsRepository', () => {
   const query = jest.fn();
@@ -180,11 +185,30 @@ describe('ReviewSessionsRepository', () => {
             $queryRaw: query,
           },
         },
+        {
+          provide: APP_CONFIG,
+          useValue: { analyticsTimezone: 'UTC' },
+        },
       ],
     }).compile();
     repository = module.get(ReviewSessionsRepository);
     agentRepository = module.get(ReviewAgentRepository);
     questionsRepository = module.get(ReviewQuestionsRepository);
+  });
+
+  it('uses the configured timezone to resolve the review-day boundaries', () => {
+    const now = new Date('2026-08-03T01:30:00+07:00');
+
+    expect(reviewDayStart(now, 'Asia/Ho_Chi_Minh')).toEqual(
+      new Date('2026-08-03T00:00:00+07:00'),
+    );
+    expect(reviewDayEnd(now, 'Asia/Ho_Chi_Minh')).toEqual(
+      new Date('2026-08-04T00:00:00+07:00'),
+    );
+    expect(reviewDayStart(now, 'UTC')).toEqual(
+      new Date('2026-08-02T00:00:00Z'),
+    );
+    expect(reviewDayEnd(now, 'UTC')).toEqual(new Date('2026-08-03T00:00:00Z'));
   });
 
   it('loads bounded recent response-time evidence for daily planning', async () => {
@@ -293,11 +317,6 @@ describe('ReviewSessionsRepository', () => {
           accuracy: 0.5,
         },
       ],
-      coachSummary: {
-        strengths: [],
-        focusNext: [ReviewSkillDimension.RECALL],
-        source: ReviewDecisionSource.RULE,
-      },
       wordsToRevisit: [
         {
           userVocabularyId: 'vocabulary',
@@ -544,7 +563,7 @@ describe('ReviewSessionsRepository', () => {
     await repository.startSession(
       'user',
       { limit: 3 },
-      new Date('2026-08-03T00:00:00Z'),
+      new Date('2026-08-03T08:00:00Z'),
       ['overdue', 'unscheduled', 'new'].map((suffix) => ({
         userVocabularyId: suffix,
         reviewQuestionId: `cached-${suffix}`,
@@ -565,10 +584,11 @@ describe('ReviewSessionsRepository', () => {
           ],
         },
         OR: [
-          { nextReviewAt: { lte: new Date('2026-08-03T00:00:00Z') } },
+          { nextReviewAt: { lt: new Date('2026-08-04T00:00:00Z') } },
           { nextReviewAt: null },
         ],
-        nextReviewAt: { lte: new Date('2026-08-03T00:00:00Z') },
+        savedAt: { lt: new Date('2026-08-03T00:00:00Z') },
+        nextReviewAt: { lt: new Date('2026-08-04T00:00:00Z') },
       }),
     );
     expect(vocabularyFindMany.mock.calls[0][0].orderBy).toEqual([
@@ -621,7 +641,7 @@ describe('ReviewSessionsRepository', () => {
         await questionsRepository.getAiQuestionGenerationCandidates(
           'owner',
           { limit: 1 },
-          new Date('2026-08-03T00:00:00Z'),
+          new Date('2026-08-03T08:00:00Z'),
         );
 
       expect(candidates).toHaveLength(1);
@@ -635,9 +655,10 @@ describe('ReviewSessionsRepository', () => {
           where: expect.objectContaining({
             userId: 'owner',
             OR: [
-              { nextReviewAt: { lte: new Date('2026-08-03T00:00:00Z') } },
+              { nextReviewAt: { lt: new Date('2026-08-04T00:00:00Z') } },
               { nextReviewAt: null },
             ],
+            savedAt: { lt: new Date('2026-08-03T00:00:00Z') },
             nextReviewAt: null,
             learningStatus: {
               in: [LearningStatus.LEARNING, LearningStatus.REVIEWING],
@@ -703,9 +724,9 @@ describe('ReviewSessionsRepository', () => {
     );
   });
 
-  it('uses the same owner-scoped past-or-null eligibility for today due count', async () => {
+  it('counts vocabulary due anytime in the review day with the shared eligibility', async () => {
     query.mockResolvedValueOnce([{ count: 4 }]);
-    const now = new Date('2026-08-03T00:00:00Z');
+    const now = new Date('2026-08-03T08:00:00Z');
 
     await expect(
       repository.getDueRecommendations('owner', now),
@@ -714,8 +735,9 @@ describe('ReviewSessionsRepository', () => {
     expect(query).toHaveBeenCalledTimes(1);
     const countQuery = query.mock.calls[0][0] as Prisma.Sql;
     expect(countQuery.sql).toContain('uv.user_id = ?::uuid');
-    expect(countQuery.sql).toContain('uv.next_review_at <= ?');
+    expect(countQuery.sql).toContain('uv.next_review_at < ?');
     expect(countQuery.sql).toContain('OR uv.next_review_at IS NULL');
+    expect(countQuery.sql).toContain('uv.saved_at < ?');
     expect(countQuery.sql).not.toContain('uv.learning_status =');
     expect(countQuery.values).toEqual(
       expect.arrayContaining([
@@ -723,7 +745,8 @@ describe('ReviewSessionsRepository', () => {
         LearningStatus.NEW,
         LearningStatus.LEARNING,
         LearningStatus.REVIEWING,
-        now,
+        new Date('2026-08-03T00:00:00Z'),
+        new Date('2026-08-04T00:00:00Z'),
       ]),
     );
   });
@@ -1111,17 +1134,17 @@ describe('ReviewSessionsRepository', () => {
       reviewSessionItemId: 'item',
       reviewAnswerId: 'answer',
       kind: ReviewDecisionKind.ANSWER_INTERVENTION,
-      source: ReviewDecisionSource.RULE,
+      source: ReviewDecisionSource.AI,
       action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
       skillDimension: ReviewSkillDimension.RECALL,
       errorType: ReviewErrorType.UNKNOWN,
-      confidence: null,
-      reasonCode: 'AI_UNAVAILABLE',
+      confidence: 0.8,
+      reasonCode: 'AI_RETEST',
       stateSnapshot: { wordOrPhrase: 'engaging' },
       decisionPayload: { action: 'REQUEUE_WITH_NEW_TYPE' },
-      provider: null,
-      model: null,
-      promptVersion: 'review-agent-rule-v1',
+      provider: 'GEMINI',
+      model: 'gemini-test-model',
+      promptVersion: 'review-answer-diagnosis-v1',
       latencyMs: null,
     };
 
@@ -1399,20 +1422,20 @@ describe('ReviewSessionsRepository', () => {
           reviewSessionItemId: 'item',
           reviewAnswerId: 'answer',
           kind: ReviewDecisionKind.ANSWER_INTERVENTION,
-          source: ReviewDecisionSource.RULE,
+          source: ReviewDecisionSource.AI,
           action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
           skillDimension: ReviewSkillDimension.RECALL,
           errorType: ReviewErrorType.LOW_RECALL,
-          confidence: null,
-          reasonCode: 'DETERMINISTIC_REQUEUE',
+          confidence: 0.8,
+          reasonCode: 'AI_REQUEUE',
           stateSnapshot: {},
           decisionPayload: {
             action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
             retest: { questionType: QuestionType.SELECT_WORD, afterItems: 3 },
           },
-          provider: null,
-          model: null,
-          promptVersion: 'review-agent-rule-v1',
+          provider: 'GEMINI',
+          model: 'gemini-test-model',
+          promptVersion: 'review-answer-diagnosis-v1',
           latencyMs: null,
         },
         originalQuestionType: QuestionType.SELECT_MEANING,

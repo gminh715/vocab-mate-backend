@@ -157,7 +157,7 @@ class InMemoryAnalyticsService {
         completed: targetDurationMinutes === 10 && hasData ? 1 : 0,
         completionRate: targetDurationMinutes === 10 && hasData ? 0.5 : 0,
       })),
-      byDecisionSource: ['AI', 'RULE'].map((source) => ({
+      byDecisionSource: ['AI'].map((source) => ({
         source,
         interventions: source === 'AI' && hasData ? 1 : 0,
         retestAttempts: source === 'AI' && hasData ? 1 : 0,

@@ -22,10 +22,7 @@ import { ReviewsService } from '../../../../../src/modules/reviews/services/revi
 import { ReviewAgentDecisionConflictError } from '../../../../../src/modules/reviews/repositories/review-agent.repository';
 import { ReviewAnswerTransactionService } from '../../../../../src/modules/reviews/services/review-answer-transaction.service';
 import { AiAssistedQuestionGeneratorService } from '../../../../../src/modules/reviews/services/ai-assisted-question-generator.service';
-import {
-  ReviewAgentService,
-  type SessionPlanDecisionRequest,
-} from '../../../../../src/modules/reviews/services/review-agent.service';
+import { ReviewAgentService } from '../../../../../src/modules/reviews/services/review-agent.service';
 import { ReviewPreparationProgressService } from '../../../../../src/modules/reviews/services/review-preparation-progress.service';
 
 const diagnosisSnapshot = {
@@ -121,7 +118,6 @@ describe('ReviewsService', () => {
   };
   let reviewAgent: {
     planSession: jest.Mock;
-    planSessionDeterministically: jest.Mock;
     diagnoseAnswer: jest.Mock;
     persistSessionPlan: jest.Mock;
     persistAnswerIntervention: jest.Mock;
@@ -158,7 +154,6 @@ describe('ReviewsService', () => {
     };
     reviewAgent = {
       planSession: jest.fn(),
-      planSessionDeterministically: jest.fn(),
       diagnoseAnswer: jest.fn(),
       persistSessionPlan: jest.fn(),
       persistAnswerIntervention: jest.fn(),
@@ -474,43 +469,6 @@ describe('ReviewsService', () => {
         ],
       });
     });
-    reviewAgent.planSessionDeterministically.mockImplementation(
-      (request: SessionPlanDecisionRequest) => {
-        callOrder.push('deterministic-plan-built');
-        expect(JSON.stringify(request.input)).not.toContain('item-');
-        expect(JSON.stringify(request.input)).not.toContain('vocabulary-');
-        expect(JSON.stringify(request.input)).not.toContain('user');
-        expect(request.input).toMatchObject({
-          reviewGoal: ReviewGoal.CONTEXT,
-          targetDurationMinutes: 15,
-        });
-        expect(request.input.allowedFocusDimensions.slice(0, 2)).toEqual([
-          ReviewSkillDimension.CONTEXT,
-          ReviewSkillDimension.RECALL,
-        ]);
-        return {
-          reviewSessionId: 'session',
-          reviewSessionItemId: null,
-          reviewAnswerId: null,
-          kind: ReviewDecisionKind.SESSION_PLAN,
-          source: ReviewDecisionSource.RULE,
-          action: null,
-          skillDimension: null,
-          errorType: null,
-          confidence: null,
-          reasonCode: 'DETERMINISTIC_PLAN',
-          stateSnapshot: {},
-          decisionPayload: {
-            orderedCandidateAliases: ['v2', 'v1'],
-            summary: 'Prioritize the overdue item.',
-          },
-          provider: null,
-          model: null,
-          promptVersion: 'review-agent-rule-v1',
-          latencyMs: null,
-        };
-      },
-    );
     repository.applySessionPlan.mockImplementation(() => {
       callOrder.push('plan-persisted');
       return Promise.resolve(plannedState);
@@ -529,7 +487,6 @@ describe('ReviewsService', () => {
     expect(callOrder).toEqual(['session-committed']);
     expect(repository.getSessionPlanningSnapshot).not.toHaveBeenCalled();
     expect(repository.applySessionPlan).not.toHaveBeenCalled();
-    expect(reviewAgent.planSessionDeterministically).not.toHaveBeenCalled();
     expect(reviewAgent.planSession).not.toHaveBeenCalled();
   });
 
@@ -979,7 +936,7 @@ describe('ReviewsService', () => {
     });
   });
 
-  it('continues with persisted RULE feedback when diagnosis providers are unavailable', async () => {
+  it('continues without agent feedback when diagnosis providers are unavailable', async () => {
     repository.submitAnswer.mockResolvedValue({
       answerId: 'answer',
       isCorrect: false,
@@ -995,58 +952,21 @@ describe('ReviewsService', () => {
       nextItem: { id: 'deterministic-next' },
       diagnosisSnapshot,
     });
-    const ruleDecision = {
-      ...aiDecision,
-      source: ReviewDecisionSource.RULE,
-      action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
-      errorType: ReviewErrorType.UNKNOWN,
-      confidence: null,
-      reasonCode: 'AI_UNAVAILABLE',
-      provider: null,
-      model: null,
-      decisionPayload: {
-        action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
-        microLesson: null,
-        retest: {
-          questionType: QuestionType.SELECT_WORD,
-          afterItems: 3,
-        },
-      },
-    };
-    reviewAgent.diagnoseAnswer.mockResolvedValue(ruleDecision);
-    reviewAgent.applyAnswerDecision.mockResolvedValue({
-      session: { id: 'session', status: ReviewSessionStatus.IN_PROGRESS },
-      answeredCount: 0,
-      totalQuestions: 5,
-      nextItem: { id: 'deterministic-next' },
-      agentFeedback: {
-        source: ReviewDecisionSource.RULE,
-        action: ReviewAgentAction.REQUEUE_WITH_NEW_TYPE,
-        skillDimension: ReviewSkillDimension.CONTEXT,
-        errorType: ReviewErrorType.UNKNOWN,
-        retestAfterItems: 3,
-      },
-    });
+    reviewAgent.diagnoseAnswer.mockResolvedValue(null);
 
-    await expect(
-      service.submitAnswer('user', 'session', {
-        reviewSessionItemId: 'item',
-        reviewQuestionId: 'question',
-        selectedOptionId: 'wrong-option',
-      }),
-    ).resolves.toMatchObject({
+    const result = await service.submitAnswer('user', 'session', {
+      reviewSessionItemId: 'item',
+      reviewQuestionId: 'question',
+      selectedOptionId: 'wrong-option',
+    });
+    expect(result).toMatchObject({
       isCorrect: false,
       sessionCompleted: false,
-      agentFeedback: {
-        source: ReviewDecisionSource.RULE,
-        retestAfterItems: 3,
-      },
+      nextQuestion: { id: 'deterministic-next' },
     });
+    expect(result).not.toHaveProperty('agentFeedback');
     expect(aiQuestionGenerator.prepareRetestQuestion).not.toHaveBeenCalled();
-    expect(reviewAgent.applyAnswerDecision).toHaveBeenCalledWith(
-      'user',
-      expect.objectContaining({ decision: ruleDecision }),
-    );
+    expect(reviewAgent.applyAnswerDecision).not.toHaveBeenCalled();
   });
 
   it('returns skip progress and completion summary without creating an answer', async () => {
