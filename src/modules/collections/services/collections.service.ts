@@ -135,9 +135,6 @@ export class CollectionsService {
         limit: query.limit,
         sort: query.sort,
         ...(q ? { q } : {}),
-        ...(query.learningStatus
-          ? { learningStatus: query.learningStatus }
-          : {}),
       },
     );
 

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
-import type { LearningStatus } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../database/prisma.service';
 import { CollectionItemSort } from '../dto/collection-request.dto';
 
@@ -29,7 +28,6 @@ export interface CollectionItemsQuery {
   page: number;
   limit: number;
   q?: string;
-  learningStatus?: LearningStatus;
   sort: CollectionItemSort;
 }
 
@@ -57,7 +55,6 @@ const collectionSelect = {
 const collectionVocabularySnapshotSelect = {
   id: true,
   articleSentenceTermId: true,
-  learningStatus: true,
   savedWordDisplay: true,
   savedLemma: true,
   savedPartOfSpeech: true,
@@ -65,7 +62,6 @@ const collectionVocabularySnapshotSelect = {
   savedCefrLevel: true,
   savedMeaningVi: true,
   savedAt: true,
-  nextReviewAt: true,
 } as const;
 
 @Injectable()
@@ -225,9 +221,6 @@ export class CollectionsRepository {
           },
         ],
       });
-    }
-    if (query.learningStatus) {
-      vocabularyFilters.push({ learningStatus: query.learningStatus });
     }
 
     const where: Prisma.VocabularyCollectionItemWhereInput = {

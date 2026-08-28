@@ -26,6 +26,7 @@ export class ArticlePublicationService {
   ) {}
 
   async publish(actingAdminId: string, articleId: string) {
+    void actingAdminId;
     const snapshot = await this.requireSnapshot(articleId);
     if (snapshot.article.status === ArticleStatus.PUBLISHED) {
       throw new ConflictException('Article is already published');
@@ -53,7 +54,6 @@ export class ArticlePublicationService {
         status: ArticleStatus.PUBLISHED,
         publishedAt,
         archivedAt: null,
-        updatedByUserId: actingAdminId,
       });
       if (!article.publishedAt) {
         throw new ArticleStatusTransitionConflictError();
@@ -69,6 +69,7 @@ export class ArticlePublicationService {
   }
 
   async archive(actingAdminId: string, articleId: string) {
+    void actingAdminId;
     const snapshot = await this.requireSnapshot(articleId);
     if (snapshot.article.status === ArticleStatus.ARCHIVED) {
       throw new ConflictException('Article is already archived');
@@ -88,7 +89,6 @@ export class ArticlePublicationService {
         expectedContentHtml: snapshot.article.contentHtml,
         status: ArticleStatus.ARCHIVED,
         archivedAt: new Date(),
-        updatedByUserId: actingAdminId,
       });
       if (!article.archivedAt) {
         throw new ArticleStatusTransitionConflictError();
@@ -104,6 +104,7 @@ export class ArticlePublicationService {
   }
 
   async restoreDraft(actingAdminId: string, articleId: string) {
+    void actingAdminId;
     const snapshot = await this.requireSnapshot(articleId);
     if (snapshot.article.status !== ArticleStatus.ARCHIVED) {
       throw new ConflictException('Only an archived article can be restored');
@@ -118,7 +119,6 @@ export class ArticlePublicationService {
         status: ArticleStatus.DRAFT,
         publishedAt: null,
         archivedAt: null,
-        updatedByUserId: actingAdminId,
       });
       return { id: article.id, status: article.status };
     } catch (error: unknown) {

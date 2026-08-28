@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../generated/prisma/enums';
 import type { ReturnTypeOfAppConfig } from '../../../config/app.config';
 import { APP_CONFIG } from '../../../config/config.module';
 import {
@@ -15,13 +15,6 @@ import {
 } from '../dto/analytics-query.dto';
 import { LearnerAnalyticsRepository } from '../repositories/learner-analytics.repository';
 
-const LEARNING_STATUSES = [
-  LearningStatus.NEW,
-  LearningStatus.LEARNING,
-  LearningStatus.REVIEWING,
-  LearningStatus.MASTERED,
-  LearningStatus.IGNORED,
-] as const;
 const CEFR_LEVELS = [
   CefrLevel.A1,
   CefrLevel.A2,
@@ -45,30 +38,15 @@ export class LearnerAnalyticsService {
     const range = resolveAnalyticsDateRange(query, requestTime);
     const [
       savedVocabulary,
-      dueToday,
-      mastered,
       articlesCompleted,
-      sessions,
-      answerCounts,
     ] = await this.repository.getOverview(
       userId,
       range.from,
       range.to,
-      requestTime,
     );
-    const totalAnswers = answerCounts.reduce(
-      (total, row) => total + row._count._all,
-      0,
-    );
-    const correctAnswers =
-      answerCounts.find((row) => row.isCorrect === true)?._count._all ?? 0;
     return {
       savedVocabulary,
-      dueToday,
-      mastered,
       articlesCompleted,
-      reviewAccuracy: roundRatio(correctAnswers, totalAnswers),
-      sessions,
     };
   }
 
@@ -79,8 +57,8 @@ export class LearnerAnalyticsService {
   ) {
     const range = resolveAnalyticsDateRange(query, requestTime);
     const groupBy = resolveAnalyticsGroupBy(range, query.groupBy);
-    const [[statusRows, due, cefrRows], trendRows] = await Promise.all([
-      this.repository.getVocabularySnapshot(userId, requestTime),
+    const [[totalCount, cefrRows], trendRows] = await Promise.all([
+      this.repository.getVocabularySnapshot(userId),
       this.repository.queryVocabularyTrend(
         userId,
         range.from,
@@ -88,22 +66,13 @@ export class LearnerAnalyticsService {
         groupBy,
       ),
     ]);
-    const statusCounts = new Map(
-      statusRows.map((row) => [row.learningStatus, row._count._all]),
-    );
     const cefrCounts = new Map(
       cefrRows.map((row) => [row.savedCefrLevel, row._count._all]),
     );
     return {
       totals: {
-        total: statusRows.reduce((sum, row) => sum + row._count._all, 0),
-        due,
-        mastered: statusCounts.get(LearningStatus.MASTERED) ?? 0,
+        total: totalCount,
       },
-      byStatus: LEARNING_STATUSES.map((status) => ({
-        status,
-        count: statusCounts.get(status) ?? 0,
-      })),
       byCefr: CEFR_LEVELS.map((cefrLevel) => ({
         cefrLevel,
         count: cefrCounts.get(cefrLevel) ?? 0,

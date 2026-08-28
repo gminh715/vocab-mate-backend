@@ -51,13 +51,16 @@ describe('AdminService', () => {
         email: 'user@example.com',
         role: 'USER',
         status: 'ACTIVE',
+        displayName: 'User',
+        avatarUrl: null,
+        currentCefrLevel: 'A1',
+        learningGoal: null,
+        preferredLanguage: 'vi',
         lastLoginAt: null,
         createdAt: new Date('2026-07-22T10:00:00Z'),
       },
-      profile: null,
       learningSummary: {
         savedVocabularyCount: 12,
-        masteredVocabularyCount: 4,
         completedArticleCount: 3,
       },
     };

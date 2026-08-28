@@ -3,7 +3,6 @@ import { Prisma } from '../../../../generated/prisma/client';
 import {
   AiGenerationStatus,
   ArticleStatus,
-  LexicalUnitType,
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
@@ -48,7 +47,6 @@ const isSameAnalysisInventory = (
           term.id === expectedTerm.id &&
           term.sentenceId === expectedTerm.sentenceId &&
           term.value === expectedTerm.value &&
-          term.unitType === expectedTerm.unitType &&
           term.updatedAt.getTime() === expectedTerm.updatedAt.getTime()
         );
       })
@@ -92,7 +90,6 @@ export class ArticleAnalysisRepository {
               id: true,
               sentenceId: true,
               value: true,
-              unitType: true,
               updatedAt: true,
             },
           },
@@ -127,7 +124,6 @@ export class ArticleAnalysisRepository {
     articleId: string,
     contentVersion: number,
     aiAnalysisError: string,
-    actingAdminId: string,
   ): Promise<boolean> {
     const failed = await this.prisma.article.updateMany({
       where: {
@@ -139,7 +135,6 @@ export class ArticleAnalysisRepository {
       data: {
         aiAnalysisStatus: AiGenerationStatus.FAILED,
         aiAnalysisError,
-        updatedByUserId: actingAdminId,
       },
     });
     return failed.count === 1;
@@ -161,7 +156,6 @@ export class ArticleAnalysisRepository {
           data: {
             contentHtml: input.annotatedContentHtml,
             cefrLevel: input.articleCefrLevel,
-            updatedByUserId: input.actingAdminId,
             aiAnalysisStatus: AiGenerationStatus.READY,
             aiAnalysisError: null,
           },
@@ -185,7 +179,6 @@ export class ArticleAnalysisRepository {
                 id: true,
                 sentenceId: true,
                 value: true,
-                unitType: true,
                 updatedAt: true,
               },
             },
@@ -200,14 +193,10 @@ export class ArticleAnalysisRepository {
           await tx.articleSentenceTerm.createMany({
             data: input.terms.map((term) => ({
               ...term,
-              wordDisplay: null,
-              normalizedLemma: null,
-              unitType: LexicalUnitType.WORD,
               partOfSpeech: null,
               origin: TermOrigin.NLP,
               reviewStatus: TermReviewStatus.APPROVED,
               explanationStatus: AiGenerationStatus.PENDING,
-              selectionReason: null,
               contextualMeaningVi: null,
               definitionEn: null,
               contextualExplanation: null,
@@ -216,11 +205,8 @@ export class ArticleAnalysisRepository {
               antonyms: [],
               collocations: [],
               relatedTerms: [],
-              vocabularyTopic: null,
               examples: [],
-              skill: null,
               explanationError: null,
-              explanationGeneratedAt: null,
               isActive: true,
               isLookupEnabled: true,
             })),

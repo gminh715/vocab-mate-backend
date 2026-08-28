@@ -14,7 +14,6 @@ import {
 import {
   AiGenerationStatus,
   CefrLevel,
-  LexicalUnitType,
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
@@ -22,7 +21,6 @@ import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_METADATA_LENGTH = 20_000;
-const MAX_SKILL_LENGTH = 300;
 const isSupplied = (_object: object, value: unknown): boolean =>
   value !== undefined;
 const trimString = ({ value }: { value: unknown }): unknown =>
@@ -80,30 +78,6 @@ export class UpdateArticleSentenceDto {
   @MaxLength(MAX_METADATA_LENGTH)
   translationVi?: string;
 
-  @ApiPropertyOptional({ example: 'Giải thích cấu trúc câu.' })
-  @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_METADATA_LENGTH)
-  explanationVi?: string;
-
-  @ApiPropertyOptional({ example: 'The pronoun refers to the previous noun.' })
-  @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_METADATA_LENGTH)
-  referenceExplanation?: string;
-
-  @ApiPropertyOptional({ example: 'reading-comprehension' })
-  @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_SKILL_LENGTH)
-  skill?: string;
-
   @ApiPropertyOptional({ example: true })
   @ValidateIf(isSupplied)
   @IsBoolean()
@@ -129,15 +103,6 @@ export class ArticleSentenceDto {
   @ApiProperty({ nullable: true })
   translationVi!: string | null;
 
-  @ApiProperty({ nullable: true })
-  explanationVi!: string | null;
-
-  @ApiProperty({ nullable: true })
-  referenceExplanation!: string | null;
-
-  @ApiProperty({ nullable: true })
-  skill!: string | null;
-
   @ApiProperty()
   isActive!: boolean;
 
@@ -158,17 +123,8 @@ export class ArticleSentenceTermDto {
   @ApiProperty()
   value!: string;
 
-  @ApiProperty({ nullable: true })
-  wordDisplay!: string | null;
-
   @ApiProperty()
   lemma!: string;
-
-  @ApiProperty({ nullable: true })
-  normalizedLemma!: string | null;
-
-  @ApiProperty({ enum: LexicalUnitType })
-  unitType!: LexicalUnitType;
 
   @ApiProperty({ nullable: true })
   partOfSpeech!: string | null;
@@ -200,14 +156,8 @@ export class ArticleSentenceTermDto {
   @ApiProperty({ type: [String] })
   relatedTerms!: string[];
 
-  @ApiProperty({ nullable: true })
-  vocabularyTopic!: string | null;
-
   @ApiProperty({ type: 'array', items: { type: 'object' } })
   examples!: unknown[];
-
-  @ApiProperty({ nullable: true })
-  skill!: string | null;
 
   @ApiProperty({ enum: TermOrigin, example: TermOrigin.MANUAL })
   origin!: TermOrigin;
@@ -218,9 +168,6 @@ export class ArticleSentenceTermDto {
   })
   reviewStatus!: TermReviewStatus;
 
-  @ApiProperty({ nullable: true })
-  selectionReason!: string | null;
-
   @ApiProperty({
     enum: AiGenerationStatus,
     example: AiGenerationStatus.READY,
@@ -229,9 +176,6 @@ export class ArticleSentenceTermDto {
 
   @ApiProperty({ nullable: true })
   explanationError!: string | null;
-
-  @ApiProperty({ format: 'date-time', nullable: true })
-  explanationGeneratedAt!: Date | null;
 
   @ApiProperty()
   isLookupEnabled!: boolean;

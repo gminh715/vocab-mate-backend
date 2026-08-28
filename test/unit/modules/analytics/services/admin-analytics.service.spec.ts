@@ -37,7 +37,6 @@ describe('AdminAnalyticsService', () => {
       articles: 0,
       publishedArticles: 0,
       savedVocabulary: 0,
-      completedSessions: 0,
     });
     await expect(service.getAdminContentAnalytics({})).resolves.toEqual({
       topArticles: [],
@@ -66,7 +65,6 @@ describe('AdminAnalyticsService', () => {
         inactive: 0,
         readingOnly: 0,
         vocabularyOnly: 0,
-        reviewOnly: 0,
         multiActivity: 0,
       },
     });

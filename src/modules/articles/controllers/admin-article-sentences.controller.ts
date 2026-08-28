@@ -108,7 +108,7 @@ export class AdminArticleSentencesController {
     operationId: 'patchAdminArticleSentenceById',
     summary: 'Update current-version sentence metadata',
     description:
-      'Updates only translation/explanation, skill, or active state. Sentence identity, text, order, article, and content version are immutable.',
+      'Updates only translation or active state. Sentence identity, text, order, article, and content version are immutable.',
   })
   @ApiOkResponse({ type: ArticleSentenceMutationSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

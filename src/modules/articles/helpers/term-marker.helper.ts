@@ -14,8 +14,6 @@ const TERM_MARKER_ATTRIBUTE = 'data-term-id';
 const MARKER_TAG = 'span';
 const WORD_CHARACTER = /[\p{L}\p{M}\p{N}_]/u;
 
-export type TermMarkerUnitType = 'WORD' | 'PHRASE';
-
 export class SentenceMarkerNotFoundError extends Error {}
 export class TermMarkerNotFoundError extends Error {}
 export class TermValueNotFoundError extends Error {}
@@ -39,12 +37,8 @@ interface LabelledNodes {
 }
 
 export class TermMarkerHelper {
-  static matchesText(
-    sentenceText: string,
-    value: string,
-    unitType: TermMarkerUnitType,
-  ): boolean {
-    return this.findMatches(sentenceText, value, unitType).length > 0;
+  static matchesText(sentenceText: string, value: string): boolean {
+    return this.findMatches(sentenceText, value).length > 0;
   }
 
   static insert(
@@ -52,16 +46,8 @@ export class TermMarkerHelper {
     sentenceId: string,
     termId: string,
     value: string,
-    unitType: TermMarkerUnitType,
   ): string {
-    return this.insertMatches(
-      contentHtml,
-      sentenceId,
-      termId,
-      value,
-      unitType,
-      false,
-    );
+    return this.insertMatches(contentHtml, sentenceId, termId, value, false);
   }
 
   static insertFirst(
@@ -69,16 +55,8 @@ export class TermMarkerHelper {
     sentenceId: string,
     termId: string,
     value: string,
-    unitType: TermMarkerUnitType,
   ): string {
-    return this.insertMatches(
-      contentHtml,
-      sentenceId,
-      termId,
-      value,
-      unitType,
-      true,
-    );
+    return this.insertMatches(contentHtml, sentenceId, termId, value, true);
   }
 
   private static insertMatches(
@@ -86,14 +64,13 @@ export class TermMarkerHelper {
     sentenceId: string,
     termId: string,
     value: string,
-    unitType: TermMarkerUnitType,
     firstOnly: boolean,
   ): string {
     const document = parseDocument(contentHtml, { decodeEntities: true });
     const sentence = this.requireSentence(document, sentenceId);
     this.assertValidMarkerTree(document, sentence, termId, false);
     const textMap = this.buildTextMap(sentence);
-    const matches = this.findMatches(textMap.text, value, unitType);
+    const matches = this.findMatches(textMap.text, value);
     if (matches.length === 0) throw new TermValueNotFoundError();
     const selectedMatches = firstOnly ? matches.slice(0, 1) : matches;
     this.assertNoOverlap(sentence, textMap, selectedMatches);
@@ -106,10 +83,9 @@ export class TermMarkerHelper {
     sentenceId: string,
     termId: string,
     value: string,
-    unitType: TermMarkerUnitType,
   ): string {
     const withoutOldMarker = this.unwrap(contentHtml, sentenceId, termId);
-    return this.insert(withoutOldMarker, sentenceId, termId, value, unitType);
+    return this.insert(withoutOldMarker, sentenceId, termId, value);
   }
 
   static replaceFirst(
@@ -117,16 +93,9 @@ export class TermMarkerHelper {
     sentenceId: string,
     termId: string,
     value: string,
-    unitType: TermMarkerUnitType,
   ): string {
     const withoutOldMarker = this.unwrap(contentHtml, sentenceId, termId);
-    return this.insertFirst(
-      withoutOldMarker,
-      sentenceId,
-      termId,
-      value,
-      unitType,
-    );
+    return this.insertFirst(withoutOldMarker, sentenceId, termId, value);
   }
 
   static unwrap(
@@ -291,11 +260,7 @@ export class TermMarkerHelper {
     return { text, offsets, elementOffsets };
   }
 
-  private static findMatches(
-    text: string,
-    value: string,
-    unitType: TermMarkerUnitType,
-  ): MatchRange[] {
+  private static findMatches(text: string, value: string): MatchRange[] {
     if (value.length === 0) return [];
     const normalizedText = text.toLocaleLowerCase('en-US');
     const normalizedValue = value.toLocaleLowerCase('en-US');
@@ -307,9 +272,8 @@ export class TermMarkerHelper {
       if (start < 0) break;
       const end = start + normalizedValue.length;
       const hasWordBoundary =
-        unitType === 'PHRASE' ||
-        (!this.isWordCharacter(text[start - 1]) &&
-          !this.isWordCharacter(text[end]));
+        !this.isWordCharacter(text[start - 1]) &&
+        !this.isWordCharacter(text[end]);
       if (hasWordBoundary) {
         matches.push({ index: matches.length, start, end });
       }

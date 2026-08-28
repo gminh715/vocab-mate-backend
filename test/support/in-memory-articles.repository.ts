@@ -46,10 +46,7 @@ interface ArticleFixture {
   sourceUrl: string | null;
   authorName: string | null;
   thumbnailUrl: string | null;
-  importSource?: string | null;
   externalId?: string | null;
-  canonicalUrl?: string | null;
-  contentHash?: string | null;
   sourcePublishedAt?: Date | null;
   aiAnalysisStatus?: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED' | null;
   aiAnalysisError?: string | null;
@@ -63,13 +60,9 @@ interface ArticleFixture {
   category: { id: string; name: string; slug: string; isActive?: boolean };
 }
 
-interface SentenceFixture extends ArticleSentenceRecord {
-  updatedByUserId: string;
-}
+type SentenceFixture = ArticleSentenceRecord;
 
-interface TermFixture extends ArticleSentenceTermRecord {
-  updatedByUserId: string;
-}
+type TermFixture = ArticleSentenceTermRecord;
 
 export class InMemoryArticlesRepository {
   private articles: ArticleFixture[] = [
@@ -496,13 +489,9 @@ export class InMemoryArticlesRepository {
         articleId: input.articleId,
         contentVersion: input.contentVersion,
         translationVi: null,
-        explanationVi: null,
-        referenceExplanation: null,
-        skill: null,
         isActive: true,
         createdAt: now,
         updatedAt: now,
-        updatedByUserId: input.actingAdminId,
       })),
     );
     this.terms = this.terms.filter(
@@ -627,8 +616,7 @@ export class InMemoryArticlesRepository {
           term.sentenceId === input.sentenceId &&
           term.value.trim().toLocaleLowerCase('en-US') ===
             input.value.trim().toLocaleLowerCase('en-US') &&
-          term.partOfSpeech === input.partOfSpeech &&
-          term.unitType === input.unitType,
+          term.partOfSpeech === input.partOfSpeech,
       )
     ) {
       return Promise.reject(
@@ -644,10 +632,7 @@ export class InMemoryArticlesRepository {
       id: input.id,
       sentenceId: input.sentenceId,
       value: input.value,
-      wordDisplay: input.wordDisplay,
       lemma: input.lemma,
-      normalizedLemma: input.normalizedLemma,
-      unitType: input.unitType,
       partOfSpeech: input.partOfSpeech,
       ipa: input.ipa ?? null,
       cefrLevel: input.cefrLevel,
@@ -658,22 +643,17 @@ export class InMemoryArticlesRepository {
       antonyms: [...input.antonyms],
       collocations: [...input.collocations],
       relatedTerms: [...input.relatedTerms],
-      vocabularyTopic: input.vocabularyTopic ?? null,
       examples: structuredClone(
         input.examples,
       ) as ArticleSentenceTermRecord['examples'],
-      skill: input.skill ?? null,
       origin: 'MANUAL',
       reviewStatus: 'APPROVED',
-      selectionReason: null,
       explanationStatus: 'READY',
       explanationError: null,
-      explanationGeneratedAt: null,
       isLookupEnabled: input.isLookupEnabled,
       isActive: input.isActive,
       createdAt: now,
       updatedAt: now,
-      updatedByUserId: input.updatedByUserId,
     };
     this.terms.push(term);
     if (this.failTermWriteAfterMutation) {
@@ -692,7 +672,6 @@ export class InMemoryArticlesRepository {
       limit: number;
       sentenceId?: string;
       cefrLevel?: ArticleSentenceTermRecord['cefrLevel'];
-      unitType?: ArticleSentenceTermRecord['unitType'];
       isActive?: boolean;
       q?: string;
     },
@@ -716,7 +695,6 @@ export class InMemoryArticlesRepository {
         (term) => !query.sentenceId || term.sentenceId === query.sentenceId,
       )
       .filter((term) => !query.cefrLevel || term.cefrLevel === query.cefrLevel)
-      .filter((term) => !query.unitType || term.unitType === query.unitType)
       .filter(
         (term) =>
           query.isActive === undefined || term.isActive === query.isActive,
@@ -724,13 +702,9 @@ export class InMemoryArticlesRepository {
       .filter(
         (term) =>
           !q ||
-          [
-            term.value,
-            term.wordDisplay,
-            term.lemma,
-            term.normalizedLemma,
-            term.partOfSpeech,
-          ].some((value) => value.toLocaleLowerCase('en-US').includes(q)),
+          [term.value, term.lemma, term.partOfSpeech].some((value) =>
+            value?.toLocaleLowerCase('en-US').includes(q),
+          ),
       )
       .sort((left, right) => {
         const sentenceDifference =
@@ -911,7 +885,6 @@ export class InMemoryArticlesRepository {
       status: article.status,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      reviewAnswerCount: 0,
       ...this.deleteSafety.get(articleId),
     });
   }
@@ -942,26 +915,16 @@ export class InMemoryArticlesRepository {
 
   private readonly toSentence = (
     sentence: SentenceFixture,
-  ): ArticleSentenceRecord => {
-    const { updatedByUserId, ...record } = sentence;
-    void updatedByUserId;
-    return { ...record };
-  };
+  ): ArticleSentenceRecord => ({ ...sentence });
 
-  private readonly toTerm = (term: TermFixture): ArticleSentenceTermRecord => {
-    const { updatedByUserId, ...record } = term;
-    void updatedByUserId;
-    return structuredClone(record);
-  };
+  private readonly toTerm = (term: TermFixture): ArticleSentenceTermRecord =>
+    structuredClone(term);
 
   private toAdminList(article: ArticleFixture): AdminArticleListRecord {
     return {
       ...this.toCard(article),
       categoryId: article.category.id,
-      importSource: article.importSource ?? null,
       externalId: article.externalId ?? null,
-      canonicalUrl: article.canonicalUrl ?? null,
-      contentHash: article.contentHash ?? null,
       sourcePublishedAt: article.sourcePublishedAt ?? null,
       aiAnalysisStatus: article.aiAnalysisStatus ?? null,
       aiAnalysisError: article.aiAnalysisError ?? null,
@@ -986,10 +949,7 @@ export class InMemoryArticlesRepository {
       sourceUrl: article.sourceUrl,
       authorName: article.authorName,
       thumbnailUrl: article.thumbnailUrl,
-      importSource: article.importSource ?? null,
       externalId: article.externalId ?? null,
-      canonicalUrl: article.canonicalUrl ?? null,
-      contentHash: article.contentHash ?? null,
       sourcePublishedAt: article.sourcePublishedAt ?? null,
       aiAnalysisStatus: article.aiAnalysisStatus ?? null,
       aiAnalysisError: article.aiAnalysisError ?? null,
@@ -1085,9 +1045,8 @@ export class InMemoryArticlesRepository {
     term: TermFixture,
     input: UpdateArticleTermInput,
   ): void {
-    const { examples, updatedByUserId, ...metadata } = input;
+    const { examples, ...metadata } = input;
     Object.assign(term, metadata, {
-      updatedByUserId,
       updatedAt: new Date(),
     });
     if (examples !== undefined) {

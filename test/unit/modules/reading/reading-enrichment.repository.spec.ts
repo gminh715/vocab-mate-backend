@@ -40,8 +40,6 @@ type TransactionMock = jest.MockedFunction<
 >;
 
 const enrichment = {
-  wordDisplay: 'harmful',
-  normalizedLemma: 'harmful',
   partOfSpeech: 'adjective',
   cefrLevel: 'B1' as const,
   contextualMeaningVi: 'có hại',
@@ -52,7 +50,6 @@ const enrichment = {
   antonyms: ['beneficial'],
   collocations: ['harmful effect'],
   relatedTerms: ['harm'],
-  vocabularyTopic: 'environment',
   examples: [
     {
       sentence: 'Smoke is harmful to health.',
@@ -75,10 +72,7 @@ describe('ContextualTermsRepository enrichment', () => {
     const termFindFirst = jest.fn().mockResolvedValue({
       id: 'term-id',
       value: 'harmful',
-      wordDisplay: 'harmful',
       lemma: 'harmful',
-      normalizedLemma: 'harmful',
-      unitType: 'WORD',
       partOfSpeech: 'adjective',
       cefrLevel: 'B1',
       sentence: {
@@ -196,8 +190,6 @@ describe('ContextualTermsRepository enrichment', () => {
           articleSentenceTerm: {
             findFirst: jest.fn().mockResolvedValue({
               contextualMeaningVi: 'nghĩa thủ công',
-              wordDisplay: null,
-              normalizedLemma: null,
               partOfSpeech: null,
               cefrLevel: null,
               definitionEn: null,
@@ -207,7 +199,6 @@ describe('ContextualTermsRepository enrichment', () => {
               antonyms: [],
               collocations: [],
               relatedTerms: [],
-              vocabularyTopic: null,
               examples: [
                 {
                   sentence: 'Manual example.',
@@ -252,8 +243,6 @@ describe('ContextualTermsRepository enrichment', () => {
     expect(data).not.toHaveProperty('origin');
     expect(data).not.toHaveProperty('reviewStatus');
     expect(data).toMatchObject({
-      wordDisplay: enrichment.wordDisplay,
-      normalizedLemma: enrichment.normalizedLemma,
       partOfSpeech: enrichment.partOfSpeech,
       cefrLevel: enrichment.cefrLevel,
       definitionEn: enrichment.definitionEn,
@@ -261,10 +250,8 @@ describe('ContextualTermsRepository enrichment', () => {
       antonyms: enrichment.antonyms,
       collocations: enrichment.collocations,
       relatedTerms: enrichment.relatedTerms,
-      vocabularyTopic: enrichment.vocabularyTopic,
       explanationStatus: AiGenerationStatus.READY,
       explanationError: null,
-      explanationGeneratedAt: generatedAt,
     });
     expect(transaction.mock.calls[0][1]).toEqual({
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

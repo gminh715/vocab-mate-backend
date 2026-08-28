@@ -55,6 +55,7 @@ export class ArticleAnalysisService {
     actingAdminId: string,
     articleId: string,
   ): Promise<ArticleAnalysisCompletionRecord> {
+    void actingAdminId;
     const snapshot =
       await this.articleAnalysisRepository.findAnalysisSnapshot(articleId);
     if (!snapshot) throw new NotFoundException('Article not found');
@@ -76,11 +77,7 @@ export class ArticleAnalysisService {
     try {
       const cefrAnalysis = this.analyzeCefr(snapshot.sentences);
       articleCefrLevel = cefrAnalysis.articleCefrLevel;
-      terms = this.extractTerms(
-        snapshot.sentences,
-        actingAdminId,
-        cefrAnalysis.termLevels,
-      );
+      terms = this.extractTerms(snapshot.sentences, cefrAnalysis.termLevels);
       annotatedContentHtml = HtmlSanitizerHelper.sanitize(
         terms.reduce(
           (contentHtml, term) =>
@@ -89,14 +86,12 @@ export class ArticleAnalysisService {
               term.sentenceId,
               term.id,
               term.value,
-              'WORD',
             ),
           snapshot.article.contentHtml,
         ),
       );
     } catch (error: unknown) {
       await this.failClaimedAnalysis(
-        actingAdminId,
         snapshot,
         'Vocabulary analysis could not be completed',
       );
@@ -109,7 +104,6 @@ export class ArticleAnalysisService {
         contentVersion: snapshot.article.contentVersion,
         sourceContentHtml: snapshot.article.contentHtml,
         annotatedContentHtml,
-        actingAdminId,
         expectedSentences: snapshot.sentences,
         articleCefrLevel,
         terms,
@@ -122,7 +116,6 @@ export class ArticleAnalysisService {
           this.sanitizeError(
             'Article changed during vocabulary analysis; retry',
           ),
-          actingAdminId,
         );
         throw new ConflictException(
           'Article changed during vocabulary analysis; stale result was not applied',
@@ -133,7 +126,6 @@ export class ArticleAnalysisService {
         articleId,
         snapshot.article.contentVersion,
         this.sanitizeError('Vocabulary analysis could not be saved'),
-        actingAdminId,
       );
       throw error;
     }
@@ -164,7 +156,6 @@ export class ArticleAnalysisService {
 
   private extractTerms(
     sentences: ArticleAnalysisSentenceRecord[],
-    actingAdminId: string,
     termCefrLevels: ReadonlyMap<string, CefrLevel>,
   ): AnalyzedTermInput[] {
     const terms: AnalyzedTermInput[] = [];
@@ -208,7 +199,7 @@ export class ArticleAnalysisService {
           !ENGLISH_VOCABULARY_TOKEN.test(surface) ||
           !ENGLISH_VOCABULARY_TOKEN.test(normalizedSurface) ||
           !ENGLISH_VOCABULARY_TOKEN.test(lemma) ||
-          !TermMarkerHelper.matchesText(sentence.sentenceText, surface, 'WORD')
+          !TermMarkerHelper.matchesText(sentence.sentenceText, surface)
         ) {
           return;
         }
@@ -224,8 +215,6 @@ export class ArticleAnalysisService {
           lemma,
           cefrLevel:
             termCefrLevels.get(this.cefrTermKey(surface, partOfSpeech)) ?? null,
-          createdByUserId: actingAdminId,
-          updatedByUserId: actingAdminId,
         });
       });
     }
@@ -303,7 +292,6 @@ export class ArticleAnalysisService {
   }
 
   private async failClaimedAnalysis(
-    actingAdminId: string,
     snapshot: ArticleAnalysisSnapshot,
     message: string,
   ): Promise<void> {
@@ -311,7 +299,6 @@ export class ArticleAnalysisService {
       snapshot.article.id,
       snapshot.article.contentVersion,
       this.sanitizeError(message),
-      actingAdminId,
     );
     if (!failed) {
       throw new ConflictException(

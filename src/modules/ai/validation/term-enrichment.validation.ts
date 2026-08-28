@@ -1,6 +1,5 @@
 import {
   CEFR_LEVELS,
-  LEXICAL_UNIT_TYPES,
   type TermEnrichmentInput,
   type TermEnrichmentResult,
   type TermExample,
@@ -15,7 +14,6 @@ export const TERM_ENRICHMENT_OUTPUT_LIMITS = {
   ipa: 100,
   listItems: 8,
   listItemText: 200,
-  vocabularyTopic: 200,
   examples: 2,
   exampleSentence: 500,
   exampleTranslation: 1000,
@@ -135,7 +133,6 @@ export const validateTermEnrichmentInput = (
       'termId',
       'value',
       'lemma',
-      'unitType',
       'parentSentenceText',
       'surroundingSentenceContext',
     ],
@@ -146,7 +143,6 @@ export const validateTermEnrichmentInput = (
   stringValue(value.termId, 'termId', 128, 'input');
   const surfaceValue = stringValue(value.value, 'value', 200, 'input');
   stringValue(value.lemma, 'lemma', 200, 'input');
-  enumValue(value.unitType, 'unitType', LEXICAL_UNIT_TYPES, 'input');
   const sentence = stringValue(
     value.parentSentenceText,
     'parentSentenceText',
@@ -187,14 +183,11 @@ const parseExample = (value: unknown, index: number): TermExample => {
 
 export const parseTermEnrichmentResult = (
   raw: unknown,
-  input: TermEnrichmentInput,
 ): TermEnrichmentResult => {
   const result = recordValue(
     raw,
     'result',
     [
-      'wordDisplay',
-      'normalizedLemma',
       'partOfSpeech',
       'cefrLevel',
       'contextualMeaningVi',
@@ -205,7 +198,6 @@ export const parseTermEnrichmentResult = (
       'antonyms',
       'collocations',
       'relatedTerms',
-      'vocabularyTopic',
       'examples',
       'sentenceTranslationVi',
     ],
@@ -222,15 +214,6 @@ export const parseTermEnrichmentResult = (
   );
   if (uniqueExamples.size !== examples.length) fail('output', 'examples');
 
-  const normalizedLemma = stringValue(
-    result.normalizedLemma,
-    'normalizedLemma',
-    TERM_ENRICHMENT_OUTPUT_LIMITS.termText,
-    'output',
-  ).toLocaleLowerCase('en-US');
-  if (normalizedLemma !== input.lemma.trim().toLocaleLowerCase('en-US')) {
-    fail('output', 'normalizedLemma');
-  }
   const contextualMeaningVi = stringValue(
     result.contextualMeaningVi,
     'contextualMeaningVi',
@@ -245,13 +228,6 @@ export const parseTermEnrichmentResult = (
   }
 
   return {
-    wordDisplay: stringValue(
-      result.wordDisplay,
-      'wordDisplay',
-      TERM_ENRICHMENT_OUTPUT_LIMITS.termText,
-      'output',
-    ),
-    normalizedLemma,
     partOfSpeech: stringValue(
       result.partOfSpeech,
       'partOfSpeech',
@@ -282,12 +258,6 @@ export const parseTermEnrichmentResult = (
     antonyms: stringArrayValue(result.antonyms, 'antonyms'),
     collocations: stringArrayValue(result.collocations, 'collocations'),
     relatedTerms: stringArrayValue(result.relatedTerms, 'relatedTerms'),
-    vocabularyTopic: nullableStringValue(
-      result.vocabularyTopic,
-      'vocabularyTopic',
-      TERM_ENRICHMENT_OUTPUT_LIMITS.vocabularyTopic,
-      'output',
-    ),
     examples,
     sentenceTranslationVi: stringValue(
       result.sentenceTranslationVi,

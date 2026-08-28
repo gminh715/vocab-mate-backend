@@ -2,23 +2,17 @@ import { ApiProperty } from '@nestjs/swagger';
 import { UserRole, UserStatus } from '../../../../generated/prisma/enums';
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 import { PublicUserDto } from '../../auth/dto/auth-response.dto';
-import { MyProfileDto } from './my-profile-response.dto';
+import { MyAccountDto } from './my-profile-response.dto';
 
 /** Swagger response schemas for administrative user operations. */
-export class AdminUserListProfileDto {
+export class AdminUserListItemDto extends PublicUserDto {
   @ApiProperty({ example: 'Nguyen Van A' })
   displayName!: string;
-}
-
-export class AdminUserListItemDto extends PublicUserDto {
   @ApiProperty({ format: 'date-time', nullable: true })
   lastLoginAt!: Date | null;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
-
-  @ApiProperty({ type: AdminUserListProfileDto, nullable: true })
-  profile!: AdminUserListProfileDto | null;
 }
 
 export class AdminUserListDataDto {
@@ -37,7 +31,7 @@ export class AdminUserListSuccessResponseDto {
   data!: AdminUserListDataDto;
 }
 
-export class AdminUserAccountDto extends PublicUserDto {
+export class AdminUserAccountDto extends MyAccountDto {
   @ApiProperty({ format: 'date-time', nullable: true })
   lastLoginAt!: Date | null;
 
@@ -49,9 +43,6 @@ export class LearningSummaryDto {
   @ApiProperty({ example: 24 })
   savedVocabularyCount!: number;
 
-  @ApiProperty({ example: 8 })
-  masteredVocabularyCount!: number;
-
   @ApiProperty({ example: 5 })
   completedArticleCount!: number;
 }
@@ -59,9 +50,6 @@ export class LearningSummaryDto {
 export class AdminUserDetailDataDto {
   @ApiProperty({ type: AdminUserAccountDto })
   user!: AdminUserAccountDto;
-
-  @ApiProperty({ type: MyProfileDto, nullable: true })
-  profile!: MyProfileDto | null;
 
   @ApiProperty({ type: LearningSummaryDto })
   learningSummary!: LearningSummaryDto;

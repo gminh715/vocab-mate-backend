@@ -2,8 +2,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import {
   ArticleStatus,
-  ReadingStatus,
-  ReviewSessionStatus,
   type CefrLevel,
   type UserStatus,
 } from '../../../../generated/prisma/enums';
@@ -44,7 +42,7 @@ interface AdminArticleCompletionRow {
 interface AdminTermSaveRow {
   articleSentenceTermId: string;
   value: string;
-  normalizedLemma: string;
+  lemma: string;
   cefrLevel: CefrLevel;
   articleId: string;
   articleTitle: string;
@@ -59,7 +57,6 @@ interface DistributionRow {
   inactive: AnalyticsNumericValue;
   readingOnly: AnalyticsNumericValue;
   vocabularyOnly: AnalyticsNumericValue;
-  reviewOnly: AnalyticsNumericValue;
   multiActivity: AnalyticsNumericValue;
 }
 
@@ -79,12 +76,6 @@ export class AdminAnalyticsRepository {
       this.prisma.userVocabulary.count({
         where: { savedAt: { gte: from, lt: to } },
       }),
-      this.prisma.reviewSession.count({
-        where: {
-          status: ReviewSessionStatus.COMPLETED,
-          completedAt: { gte: from, lt: to },
-        },
-      }),
     ]);
   }
 
@@ -96,7 +87,6 @@ export class AdminAnalyticsRepository {
       WITH active_user_ids AS (
         SELECT user_id FROM user_article_progress WHERE last_read_at >= ${from} AND last_read_at < ${to}
         UNION SELECT user_id FROM user_vocabularies WHERE saved_at >= ${from} AND saved_at < ${to}
-        UNION SELECT user_id FROM review_sessions WHERE started_at >= ${from} AND started_at < ${to}
       )
       SELECT COUNT(*)::bigint AS count FROM active_user_ids activity
       JOIN users u ON u.id = activity.user_id ${statusPredicate}
@@ -110,7 +100,7 @@ export class AdminAnalyticsRepository {
     return this.prisma.$queryRaw<AdminTopArticleRow[]>(Prisma.sql`
       WITH reading AS (
         SELECT article_id, COUNT(*)::bigint AS opened_count,
-          COUNT(*) FILTER (WHERE status = ${ReadingStatus.COMPLETED}::reading_status AND completed_at IS NOT NULL)::bigint AS completed_count
+          COUNT(*) FILTER (WHERE completed_at IS NOT NULL)::bigint AS completed_count
         FROM user_article_progress WHERE first_opened_at >= ${from} AND first_opened_at < ${to} GROUP BY article_id
       ), saves AS (
         SELECT s.article_id, COUNT(*)::bigint AS save_count FROM user_vocabularies uv
@@ -137,11 +127,11 @@ export class AdminAnalyticsRepository {
       : Prisma.empty;
     return this.prisma.$queryRaw<AdminArticleCompletionRow[]>(Prisma.sql`
       SELECT a.id AS "articleId", a.title, COUNT(*)::bigint AS opened,
-        COUNT(*) FILTER (WHERE uap.status = ${ReadingStatus.COMPLETED}::reading_status AND uap.completed_at IS NOT NULL)::bigint AS completed
+        COUNT(*) FILTER (WHERE uap.completed_at IS NOT NULL)::bigint AS completed
       FROM user_article_progress uap JOIN articles a ON a.id = uap.article_id
       WHERE uap.first_opened_at >= ${from} AND uap.first_opened_at < ${to} ${categoryPredicate}
       GROUP BY a.id, a.title
-      ORDER BY COUNT(*) FILTER (WHERE uap.status = ${ReadingStatus.COMPLETED}::reading_status AND uap.completed_at IS NOT NULL)::numeric / COUNT(*) DESC, COUNT(*) DESC, a.id ASC
+      ORDER BY COUNT(*) FILTER (WHERE uap.completed_at IS NOT NULL)::numeric / COUNT(*) DESC, COUNT(*) DESC, a.id ASC
       LIMIT ${ANALYTICS_TOP_CONTENT_LIMIT}
     `);
   }
@@ -151,13 +141,13 @@ export class AdminAnalyticsRepository {
       ? Prisma.sql`AND a.category_id = ${categoryId}::uuid`
       : Prisma.empty;
     return this.prisma.$queryRaw<AdminTermSaveRow[]>(Prisma.sql`
-      SELECT ast.id AS "articleSentenceTermId", ast.value, ast.normalized_lemma::text AS "normalizedLemma",
+      SELECT ast.id AS "articleSentenceTermId", ast.value, ast.lemma,
         ast.cefr_level AS "cefrLevel", a.id AS "articleId", a.title AS "articleTitle", COUNT(*)::bigint AS "saveCount"
       FROM user_vocabularies uv JOIN article_sentence_terms ast ON ast.id = uv.article_sentence_term_id
       JOIN article_sentences s ON s.id = ast.sentence_id JOIN articles a ON a.id = s.article_id
       WHERE uv.saved_at >= ${from} AND uv.saved_at < ${to} ${categoryPredicate}
-      GROUP BY ast.id, ast.value, ast.normalized_lemma, ast.cefr_level, a.id, a.title
-      ORDER BY "saveCount" DESC, ast.normalized_lemma ASC, ast.id ASC LIMIT ${ANALYTICS_TOP_CONTENT_LIMIT}
+      GROUP BY ast.id, ast.value, ast.lemma, ast.cefr_level, a.id, a.title
+      ORDER BY "saveCount" DESC, ast.lemma ASC, ast.id ASC LIMIT ${ANALYTICS_TOP_CONTENT_LIMIT}
     `);
   }
 
@@ -186,7 +176,6 @@ export class AdminAnalyticsRepository {
       WITH activity_events AS (
         SELECT user_id, last_read_at AS activity_at FROM user_article_progress WHERE last_read_at >= ${from} AND last_read_at < ${to}
         UNION ALL SELECT user_id, saved_at FROM user_vocabularies WHERE saved_at >= ${from} AND saved_at < ${to}
-        UNION ALL SELECT user_id, started_at FROM review_sessions WHERE started_at >= ${from} AND started_at < ${to}
       ), flags AS (
         SELECT ae.user_id, BOOL_OR(ae.activity_at < ${midpoint}) AS first_active, BOOL_OR(ae.activity_at >= ${midpoint}) AS second_active
         FROM activity_events ae GROUP BY ae.user_id
@@ -206,14 +195,12 @@ export class AdminAnalyticsRepository {
         SELECT u.id,
           EXISTS (SELECT 1 FROM user_article_progress p WHERE p.user_id = u.id AND p.last_read_at >= ${from} AND p.last_read_at < ${to}) AS reading,
           EXISTS (SELECT 1 FROM user_vocabularies v WHERE v.user_id = u.id AND v.saved_at >= ${from} AND v.saved_at < ${to}) AS vocabulary,
-          EXISTS (SELECT 1 FROM review_sessions r WHERE r.user_id = u.id AND r.started_at >= ${from} AND r.started_at < ${to}) AS review
         FROM users u ${statusPredicate}
       )
-      SELECT COUNT(*) FILTER (WHERE NOT reading AND NOT vocabulary AND NOT review)::bigint AS inactive,
-        COUNT(*) FILTER (WHERE reading AND NOT vocabulary AND NOT review)::bigint AS "readingOnly",
-        COUNT(*) FILTER (WHERE NOT reading AND vocabulary AND NOT review)::bigint AS "vocabularyOnly",
-        COUNT(*) FILTER (WHERE NOT reading AND NOT vocabulary AND review)::bigint AS "reviewOnly",
-        COUNT(*) FILTER (WHERE reading::int + vocabulary::int + review::int >= 2)::bigint AS "multiActivity"
+      SELECT COUNT(*) FILTER (WHERE NOT reading AND NOT vocabulary)::bigint AS inactive,
+        COUNT(*) FILTER (WHERE reading AND NOT vocabulary)::bigint AS "readingOnly",
+        COUNT(*) FILTER (WHERE NOT reading AND vocabulary)::bigint AS "vocabularyOnly",
+        COUNT(*) FILTER (WHERE reading AND vocabulary)::bigint AS "multiActivity"
       FROM activity_flags
     `);
   }

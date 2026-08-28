@@ -68,7 +68,6 @@ export class ContextualTermsService {
         termId: claim.term.id,
         value: claim.term.value,
         lemma: claim.term.lemma,
-        unitType: claim.term.unitType,
         parentSentenceText: claim.parentSentence.sentenceText,
         surroundingSentenceContext: this.buildSurroundingContext(claim),
       });
@@ -146,12 +145,11 @@ export class ContextualTermsService {
         'Contextual term is not ready to be saved',
       );
     }
-    this.requireSavableText(result.term.wordDisplay);
+    this.requireSavableText(result.term.value);
     this.requireSavableText(result.term.lemma);
     this.requireSavableText(result.term.partOfSpeech);
     this.requireSavableText(result.term.contextualMeaningVi);
-    this.requireSavableText(result.parentSentence.sentenceText);
-    this.requireSavableText(result.parentSentence.translationVi);
+    this.requireSavableText(result.term.definitionEn);
     if (!this.hasCanonicalExamples(result.term.examples)) {
       throw new UnprocessableEntityException(
         'Contextual term is not ready to be saved',
@@ -166,12 +164,10 @@ export class ContextualTermsService {
       ? {
           isSaved: true,
           userVocabularyId: result.save.id,
-          learningStatus: result.save.learningStatus,
         }
       : {
           isSaved: false,
           userVocabularyId: null,
-          learningStatus: null,
         };
   }
 
@@ -187,15 +183,10 @@ export class ContextualTermsService {
   private requireEnrichedLexicalMetadata(
     term: ContextualTermLookupRecord['term'],
   ): asserts term is ContextualTermLookupRecord['term'] & {
-    wordDisplay: string;
     partOfSpeech: string;
     cefrLevel: NonNullable<ContextualTermLookupRecord['term']['cefrLevel']>;
   } {
-    if (
-      !term.wordDisplay?.trim() ||
-      !term.partOfSpeech?.trim() ||
-      !term.cefrLevel
-    ) {
+    if (!term.value.trim() || !term.partOfSpeech?.trim() || !term.cefrLevel) {
       throw new ConflictException(
         'Contextual term enrichment did not produce required lexical metadata; retry the lookup',
       );

@@ -194,7 +194,7 @@ export class ArticlePublicationValidator {
           }
           if (
             term.explanationStatus === AiGenerationStatus.READY &&
-            !this.hasRequiredSnapshotMetadata(term, sentence.translationVi)
+            !this.hasRequiredSnapshotMetadata(term)
           ) {
             addIssue(
               'TERM_SNAPSHOT_INCOMPLETE',
@@ -366,13 +366,7 @@ export class ArticlePublicationValidator {
 
   private hasRequiredLexicalMetadata(term: ArticleSentenceTermRecord): boolean {
     return (
-      [
-        term.value,
-        term.wordDisplay,
-        term.lemma,
-        term.normalizedLemma,
-        term.partOfSpeech,
-      ].every(
+      [term.value, term.lemma, term.partOfSpeech].every(
         (value) => typeof value === 'string' && value.trim().length > 0,
       ) &&
       term.cefrLevel !== null &&
@@ -382,11 +376,10 @@ export class ArticlePublicationValidator {
 
   private hasRequiredSnapshotMetadata(
     term: ArticleSentenceTermRecord,
-    translationVi: string | null,
   ): boolean {
     return (
       this.isNonBlankText(term.contextualMeaningVi) &&
-      this.isNonBlankText(translationVi) &&
+      this.isNonBlankText(term.definitionEn) &&
       this.hasCanonicalExamples(term.examples)
     );
   }

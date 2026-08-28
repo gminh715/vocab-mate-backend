@@ -11,25 +11,20 @@ import type {
 import { UsersRepository } from '../../../../src/modules/users/repositories/users.repository';
 import { UsersService } from '../../../../src/modules/users/services/users.service';
 
-const account: MyAccountRecord & {
-  profile: NonNullable<MyAccountRecord['profile']>;
-} = {
+const account: MyAccountRecord = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   email: 'user@example.com',
   role: 'USER',
   status: 'ACTIVE',
-  profile: {
-    displayName: 'Nguyen Van A',
-    avatarUrl: null,
-    currentCefrLevel: 'B1',
-    learningGoal: 'B2',
-    dailyStudyMinutes: 10,
-    preferredLanguage: 'vi',
-  },
+  displayName: 'Nguyen Van A',
+  avatarUrl: null,
+  currentCefrLevel: 'B1',
+  learningGoal: 'B2',
+  preferredLanguage: 'vi',
 };
 
 interface UsersRepositoryMock {
-  createWithProfile: jest.Mock;
+  createRegisteredUser: jest.Mock;
   findMyAccount: jest.Mock;
   updateMyProfile: jest.Mock;
 }
@@ -40,7 +35,7 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     repository = {
-      createWithProfile: jest.fn(),
+      createRegisteredUser: jest.fn(),
       findMyAccount: jest.fn(),
       updateMyProfile: jest.fn(),
     };
@@ -54,67 +49,44 @@ describe('UsersService', () => {
     service = module.get(UsersService);
   });
 
-  it('returns the current safe account and profile', async () => {
+  it('returns the current safe account and learning settings', async () => {
     repository.findMyAccount.mockResolvedValue(account);
 
     await expect(service.getMe(account.id)).resolves.toEqual(account);
     expect(repository.findMyAccount).toHaveBeenCalledWith(account.id);
     expect(account).not.toHaveProperty('passwordHash');
-    expect(account.profile).not.toHaveProperty('passwordHash');
   });
 
-  it.each([
-    ['missing user', null],
-    ['missing profile', { ...account, profile: null }],
-  ])('returns NotFoundException for a %s', async (_case, result) => {
-    repository.findMyAccount.mockResolvedValue(result);
+  it('returns NotFoundException for a missing user', async () => {
+    repository.findMyAccount.mockResolvedValue(null);
 
     await expect(service.getMe(account.id)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
 
-  it('updates only the supplied profile fields for the authenticated user', async () => {
+  it('updates only the supplied learning-setting fields for the authenticated user', async () => {
     repository.findMyAccount.mockResolvedValue(account);
     const dto = {
       displayName: 'Updated Name',
       currentCefrLevel: 'B2' as const,
       learningGoal: 'C1' as const,
     };
-    const updated: UpdatedMyProfileRecord = {
-      user: {
-        id: account.id,
-        email: account.email,
-        role: account.role,
-        status: account.status,
-      },
-      profile: { ...account.profile, ...dto },
-    };
+    const updated: UpdatedMyProfileRecord = { ...account, ...dto };
     repository.updateMyProfile.mockResolvedValue(updated);
 
     await expect(service.updateMe(account.id, dto)).resolves.toEqual(updated);
     expect(repository.updateMyProfile).toHaveBeenCalledWith(account.id, dto);
   });
 
-  it('preserves an existing free-text learning goal during other profile updates', async () => {
+  it('preserves an existing free-text learning goal during other setting updates', async () => {
     const freeTextAccount = {
       ...account,
-      profile: {
-        ...account.profile,
-        learningGoal: 'Learn 10 useful words each day',
-      },
+      learningGoal: 'Learn 10 useful words each day',
     };
     const updated: UpdatedMyProfileRecord = {
-      user: {
-        id: account.id,
-        email: account.email,
-        role: account.role,
-        status: account.status,
-      },
-      profile: {
-        ...freeTextAccount.profile,
-        displayName: 'Updated Name',
-      },
+      ...freeTextAccount,
+      displayName: 'Updated Name',
     };
     repository.findMyAccount.mockResolvedValue(freeTextAccount);
     repository.updateMyProfile.mockResolvedValue(updated);
@@ -146,7 +118,7 @@ describe('UsersService', () => {
     expect(repository.updateMyProfile).not.toHaveBeenCalled();
   });
 
-  it('maps a missing profile update to NotFoundException', async () => {
+  it('maps a missing user update to NotFoundException', async () => {
     repository.findMyAccount.mockResolvedValue(account);
     repository.updateMyProfile.mockRejectedValue(
       Object.assign(new Error('not found'), { code: 'P2025' }),
@@ -158,7 +130,7 @@ describe('UsersService', () => {
   });
 
   it('maps Prisma unique-constraint errors to ConflictException', async () => {
-    repository.createWithProfile.mockRejectedValue(
+    repository.createRegisteredUser.mockRejectedValue(
       Object.assign(new Error('duplicate'), { code: 'P2002' }),
     );
 

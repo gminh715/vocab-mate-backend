@@ -5,7 +5,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { LearningStatus } from '../../../../generated/prisma/enums';
 import { CollectionItemSort } from '../../../../src/modules/collections/dto/collection-request.dto';
 import {
   CollectionNotAccessibleError,
@@ -177,7 +176,6 @@ describe('CollectionsService', () => {
           userVocabulary: {
             id: '22222222-2222-4222-8222-222222222222',
             savedWordDisplay: 'harmful',
-            learningStatus: LearningStatus.NEW,
           },
         },
       ],
@@ -189,7 +187,6 @@ describe('CollectionsService', () => {
         page: 1,
         limit: 20,
         q: '  harm  ',
-        learningStatus: LearningStatus.NEW,
         sort: CollectionItemSort.NEWEST,
       }),
     ).resolves.toEqual({
@@ -197,7 +194,6 @@ describe('CollectionsService', () => {
         {
           id: '22222222-2222-4222-8222-222222222222',
           savedWordDisplay: 'harmful',
-          learningStatus: LearningStatus.NEW,
           addedAt,
         },
       ],
@@ -210,7 +206,6 @@ describe('CollectionsService', () => {
         page: 1,
         limit: 20,
         q: 'harm',
-        learningStatus: LearningStatus.NEW,
         sort: CollectionItemSort.NEWEST,
       },
     );

@@ -29,11 +29,9 @@ import {
 import {
   AnalyticsOverviewSuccessResponseDto,
   ReadingAnalyticsSuccessResponseDto,
-  ReviewAnalyticsSuccessResponseDto,
   VocabularyAnalyticsSuccessResponseDto,
 } from '../dto/analytics-response.dto';
 import { LearnerAnalyticsService } from '../services/learner-analytics.service';
-import { ReviewAnalyticsService } from '../services/review-analytics.service';
 
 @ApiTags('Analytics')
 @Controller('analytics')
@@ -43,7 +41,6 @@ import { ReviewAnalyticsService } from '../services/review-analytics.service';
 export class AnalyticsController {
   constructor(
     private readonly learnerAnalyticsService: LearnerAnalyticsService,
-    private readonly reviewAnalyticsService: ReviewAnalyticsService,
   ) {}
 
   @Get('me/overview')
@@ -53,12 +50,12 @@ export class AnalyticsController {
     operationId: 'getMyAnalyticsOverview',
     summary: 'Get the authenticated learner analytics overview',
     description:
-      'Saved, due, and mastered vocabulary are current stock metrics. Completed articles, completed Daily Review sessions, and answer-level review accuracy use from <= timestamp < to. The default range is 30 days and the maximum is 366 days.',
+      'Saved vocabulary is a current stock metric. Completed articles use from <= timestamp < to. The default range is 30 days and the maximum is 366 days.',
   })
   @ApiOkResponse({
     type: AnalyticsOverviewSuccessResponseDto,
     description:
-      'Zero-data response contains numeric zero for all fields, including reviewAccuracy.',
+      'Zero-data response contains numeric zero for all fields.',
   })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
@@ -107,22 +104,4 @@ export class AnalyticsController {
     return this.learnerAnalyticsService.getReadingAnalytics(user.id, query);
   }
 
-  @Get('me/reviews')
-  @Version('1')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    operationId: 'getMyReviewAnalytics',
-    summary: 'Get the authenticated learner adaptive-review evaluation',
-    description:
-      'Uses owner-scoped persisted sessions, answers, and bounded review decisions in the requested half-open range. Retest and retention outcomes are deterministic aggregates; provider metadata and raw model output are never returned.',
-  })
-  @ApiOkResponse({ type: ReviewAnalyticsSuccessResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
-  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
-  getReviewAnalytics(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: AnalyticsDateRangeQueryDto,
-  ) {
-    return this.reviewAnalyticsService.getReviewAnalytics(user.id, query);
-  }
 }

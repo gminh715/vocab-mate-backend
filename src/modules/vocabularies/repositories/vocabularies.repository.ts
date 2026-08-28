@@ -1,40 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
-import {
-  type CefrLevel,
-  type LearningStatus as LearningStatusType,
-} from '../../../../generated/prisma/enums';
+import { type CefrLevel } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../database/prisma.service';
-import { dueVocabularyWhere } from '../due-vocabulary.where';
 import { VocabularySort } from '../dto/vocabulary-request.dto';
 
 export interface VocabularyListQuery {
   page: number;
   limit: number;
   q?: string;
-  learningStatus?: LearningStatusType;
   cefrLevel?: CefrLevel;
   collectionId?: string;
-  dueOnly?: boolean;
   sort: VocabularySort;
 }
 
 export interface CreateVocabularySnapshotInput {
   articleSentenceTermId: string;
-  learningStatus: LearningStatusType;
   savedWordDisplay: string;
   savedLemma: string;
   savedPartOfSpeech: string;
   savedIpa: string | null;
   savedCefrLevel: CefrLevel;
-  savedContextSentence: string;
-  savedContextTranslationVi: string;
   savedMeaningVi: string;
-  savedExplanation: string | null;
+  definitionEn: string;
   savedExamples: Prisma.InputJsonValue;
-  lastReviewedAt: null;
-  nextReviewAt: null;
-  reviewIntervalDays: null;
 }
 
 export class InvalidVocabularyCollectionsError extends Error {
@@ -73,15 +61,15 @@ const collectionItemsSelect = (userId: string) =>
 export const vocabularySnapshotListSelect = {
   id: true,
   articleSentenceTermId: true,
-  learningStatus: true,
   savedWordDisplay: true,
   savedLemma: true,
   savedPartOfSpeech: true,
   savedIpa: true,
   savedCefrLevel: true,
   savedMeaningVi: true,
+  definitionEn: true,
   savedAt: true,
-  nextReviewAt: true,
+  createdAt: true,
 } as const;
 
 const vocabularyListSelect = (userId: string) =>
@@ -102,12 +90,7 @@ const sourceArticleSelect = {
 const vocabularyDetailSelect = (userId: string) =>
   ({
     ...vocabularyListSelect(userId),
-    savedContextSentence: true,
-    savedContextTranslationVi: true,
-    savedExplanation: true,
     savedExamples: true,
-    lastReviewedAt: true,
-    reviewIntervalDays: true,
     articleSentenceTerm: {
       select: {
         sentence: {
@@ -125,7 +108,7 @@ const vocabularyDetailSelect = (userId: string) =>
 export class VocabulariesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(userId: string, query: VocabularyListQuery, now: Date) {
+  async list(userId: string, query: VocabularyListQuery) {
     const filters: Prisma.UserVocabularyWhereInput[] = [];
     if (query.q) {
       filters.push({
@@ -151,9 +134,6 @@ export class VocabulariesRepository {
         ],
       });
     }
-    if (query.learningStatus) {
-      filters.push({ learningStatus: query.learningStatus });
-    }
     if (query.cefrLevel) {
       filters.push({ savedCefrLevel: query.cefrLevel });
     }
@@ -171,10 +151,6 @@ export class VocabulariesRepository {
         },
       });
     }
-    if (query.dueOnly) {
-      filters.push(dueVocabularyWhere(now));
-    }
-
     const where: Prisma.UserVocabularyWhereInput = {
       userId,
       ...(filters.length > 0 ? { AND: filters } : {}),
@@ -240,17 +216,6 @@ export class VocabulariesRepository {
         },
         select: vocabularyDetailSelect(userId),
       });
-    });
-  }
-
-  updateLearningStatus(
-    userId: string,
-    id: string,
-    learningStatus: LearningStatusType,
-  ) {
-    return this.prisma.userVocabulary.updateMany({
-      where: { id, userId },
-      data: { learningStatus },
     });
   }
 

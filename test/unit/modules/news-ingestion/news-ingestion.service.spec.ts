@@ -240,15 +240,12 @@ describe('NewsIngestionService', () => {
     expect(adminId).toBe('admin-id');
     expect(createInput).toMatchObject({
       categoryId,
-      importSource: 'guardian',
       externalId: source.externalId,
-      canonicalUrl: source.url,
       sourceName: 'The Guardian',
       sourceUrl: source.url,
       thumbnailUrl: source.imageUrl,
       authorName: source.authorName,
     });
-    expect(createInput.contentHash).toMatch(/^[a-f0-9]{64}$/u);
     expect(createInput.slug).toMatch(
       /^a-useful-technology-report-[a-f0-9]{12}$/u,
     );
@@ -259,23 +256,13 @@ describe('NewsIngestionService', () => {
     );
   });
 
-  it.each([
-    ['external identity', 0],
-    ['canonical URL', 1],
-    ['content hash', 2],
-  ])('skips a duplicate by %s in precedence order', async (_name, index) => {
+  it('skips a duplicate by external identity', async () => {
     const source = article('technology/2026/jul/30/duplicate');
     client.searchForImport.mockResolvedValue({
       totalArticles: 1,
       articles: [source],
     });
-    articles.findImportedDuplicate.mockImplementation(() =>
-      Promise.resolve(
-        articles.findImportedDuplicate.mock.calls.length - 1 === index
-          ? { id: 'existing-id' }
-          : null,
-      ),
-    );
+    articles.findImportedDuplicate.mockResolvedValue({ id: 'existing-id' });
     content.resolve.mockReturnValue(extracted(source));
 
     const result = await service.sync('admin-id', {
@@ -288,18 +275,11 @@ describe('NewsIngestionService', () => {
     expect(result.counts.skippedDuplicate).toBe(1);
     expect(result.items[0]?.status).toBe('skippedDuplicate');
     expect(articles.createImportedDraft).not.toHaveBeenCalled();
-    if (index < 2) expect(content.resolve).not.toHaveBeenCalled();
+    expect(content.resolve).not.toHaveBeenCalled();
     const calls = articles.findImportedDuplicate.mock.calls;
     expect(calls[0]?.[0]).toEqual({
-      importSource: 'guardian',
       externalId: source.externalId,
     });
-    if (index >= 1) {
-      expect(calls[1]?.[0]).toEqual({ canonicalUrl: source.url });
-    }
-    if (index >= 2) {
-      expect(calls[2]?.[0].contentHash).toMatch(/^[a-f0-9]{64}$/u);
-    }
   });
 
   it('derives collision-resistant slugs from the Guardian external identity', async () => {

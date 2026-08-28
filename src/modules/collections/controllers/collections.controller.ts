@@ -172,7 +172,7 @@ export class CollectionsController {
     operationId: 'deleteCollectionItem',
     summary: 'Remove one owned vocabulary relation from an owned collection',
     description:
-      'Deletes only the matching membership. Saved vocabulary, review history, and other collection memberships remain.',
+      'Deletes only the matching membership. Saved vocabulary and other collection memberships remain.',
   })
   @ApiNoContentResponse({ description: 'Collection item removed.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -253,7 +253,7 @@ export class CollectionsController {
     operationId: 'deleteCollectionById',
     summary: 'Delete an owner-scoped collection',
     description:
-      'Deletes the collection and saved vocabulary that belongs only to it. Vocabulary shared with another collection and Daily Review history remain.',
+      'Deletes the collection and saved vocabulary that belongs only to it. Vocabulary shared with another collection remains.',
   })
   @ApiNoContentResponse({ description: 'Collection deleted successfully.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

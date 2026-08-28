@@ -43,5 +43,4 @@ export interface GuardianImportResult {
 export interface ExtractedArticleContent {
   contentHtml: string;
   plainText: string;
-  canonicalUrl: string;
 }

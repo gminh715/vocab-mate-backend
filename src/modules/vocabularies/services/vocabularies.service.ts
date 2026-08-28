@@ -5,15 +5,11 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import {
-  type CefrLevel,
-  LearningStatus,
-} from '../../../../generated/prisma/enums';
+import { type CefrLevel } from '../../../../generated/prisma/enums';
 import { ContextualTermsService } from '../../reading/services/contextual-terms.service';
 import type {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
-  UpdateLearningStatusDto,
 } from '../dto/vocabulary-request.dto';
 import {
   InvalidVocabularyCollectionsError,
@@ -41,14 +37,9 @@ export class VocabulariesService {
         limit: query.limit,
         sort: query.sort,
         ...(query.q ? { q: query.q } : {}),
-        ...(query.learningStatus
-          ? { learningStatus: query.learningStatus }
-          : {}),
         ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
         ...(query.collectionId ? { collectionId: query.collectionId } : {}),
-        ...(query.dueOnly === undefined ? {} : { dueOnly: query.dueOnly }),
       },
-      new Date(),
     );
 
     return {
@@ -79,20 +70,6 @@ export class VocabulariesService {
     };
   }
 
-  async updateStatus(
-    userId: string,
-    userVocabularyId: string,
-    dto: UpdateLearningStatusDto,
-  ) {
-    await this.findOne(userId, userVocabularyId);
-    await this.vocabulariesRepository.updateLearningStatus(
-      userId,
-      userVocabularyId,
-      dto.learningStatus,
-    );
-    return this.findOne(userId, userVocabularyId);
-  }
-
   async remove(userId: string, userVocabularyId: string) {
     const deleted = await this.vocabulariesRepository.deleteOwned(
       userId,
@@ -113,10 +90,6 @@ export class VocabulariesService {
     const source = await this.contextualTermsService.getContextualTermForSave(
       dto.articleSentenceTermId,
     );
-    const translation = this.requireSnapshotText(
-      'contextTranslationVi',
-      source.parentSentence.translationVi,
-    );
     const examples = source.term.examples;
     if (!Array.isArray(examples)) {
       this.throwMissingSnapshotField('examples');
@@ -130,10 +103,9 @@ export class VocabulariesService {
         userId,
         {
           articleSentenceTermId: dto.articleSentenceTermId,
-          learningStatus: LearningStatus.NEW,
           savedWordDisplay: this.requireSnapshotText(
-            'wordDisplay',
-            source.term.wordDisplay,
+            'value',
+            source.term.value,
           ),
           savedLemma: this.requireSnapshotText('lemma', source.term.lemma),
           savedPartOfSpeech: this.requireSnapshotText(
@@ -142,20 +114,15 @@ export class VocabulariesService {
           ),
           savedIpa: source.term.ipa,
           savedCefrLevel: this.requireSnapshotCefr(source.term.cefrLevel),
-          savedContextSentence: this.requireSnapshotText(
-            'contextSentence',
-            source.parentSentence.sentenceText,
-          ),
-          savedContextTranslationVi: translation,
           savedMeaningVi: this.requireSnapshotText(
             'meaningVi',
             source.term.contextualMeaningVi,
           ),
-          savedExplanation: source.term.contextualExplanation,
+          definitionEn: this.requireSnapshotText(
+            'definitionEn',
+            source.term.definitionEn,
+          ),
           savedExamples: examples,
-          lastReviewedAt: null,
-          nextReviewAt: null,
-          reviewIntervalDays: null,
         },
         collectionIds,
       );

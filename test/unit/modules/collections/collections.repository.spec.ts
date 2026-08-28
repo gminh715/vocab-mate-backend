@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { LearningStatus } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../src/database/prisma.service';
 import { CollectionItemSort } from '../../../../src/modules/collections/dto/collection-request.dto';
 import {
@@ -249,7 +248,6 @@ describe('CollectionsRepository', () => {
       page: 2,
       limit: 10,
       q: 'harm',
-      learningStatus: LearningStatus.LEARNING,
       sort: CollectionItemSort.OLDEST,
     });
 
@@ -284,7 +282,6 @@ describe('CollectionsRepository', () => {
                   },
                 ],
               },
-              { learningStatus: LearningStatus.LEARNING },
             ],
           },
         },

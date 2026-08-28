@@ -151,7 +151,6 @@ describe('ArticlePublicationService', () => {
         requireActiveCategory: true,
         status: ArticleStatus.PUBLISHED,
         archivedAt: null,
-        updatedByUserId: 'admin-id',
       }),
     );
   });

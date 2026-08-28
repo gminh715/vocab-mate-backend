@@ -18,7 +18,6 @@ import {
 import {
   AiGenerationStatus,
   CefrLevel,
-  LexicalUnitType,
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
@@ -84,30 +83,12 @@ export class CreateArticleTermDto {
   @MaxLength(MAX_TERM_LENGTH)
   value!: string;
 
-  @ApiProperty({ example: 'digital tools' })
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_TERM_LENGTH)
-  wordDisplay!: string;
-
   @ApiProperty({ example: 'digital tool' })
   @Transform(trimString)
   @IsString()
   @MinLength(1)
   @MaxLength(MAX_TERM_LENGTH)
   lemma!: string;
-
-  @ApiProperty({ example: 'digital tool' })
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_TERM_LENGTH)
-  normalizedLemma!: string;
-
-  @ApiProperty({ enum: LexicalUnitType, example: LexicalUnitType.PHRASE })
-  @IsEnum(LexicalUnitType)
-  unitType!: LexicalUnitType;
 
   @ApiProperty({ example: 'noun phrase' })
   @Transform(trimString)
@@ -191,14 +172,6 @@ export class CreateArticleTermDto {
   @MaxLength(MAX_TERM_LENGTH, { each: true })
   relatedTerms?: string[];
 
-  @ApiPropertyOptional({ example: 'technology' })
-  @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_TERM_LENGTH)
-  vocabularyTopic?: string;
-
   @ApiPropertyOptional({ type: [ArticleTermExampleDto], default: [] })
   @ValidateIf(isSupplied)
   @IsArray()
@@ -206,14 +179,6 @@ export class CreateArticleTermDto {
   @ValidateNested({ each: true })
   @Type(() => ArticleTermExampleDto)
   examples?: ArticleTermExampleDto[];
-
-  @ApiPropertyOptional({ example: 'vocabulary' })
-  @ValidateIf(isSupplied)
-  @Transform(trimString)
-  @IsString()
-  @MinLength(1)
-  @MaxLength(MAX_TERM_LENGTH)
-  skill?: string;
 
   @ApiPropertyOptional({ default: true })
   @ValidateIf(isSupplied)
@@ -251,11 +216,6 @@ export class ArticleTermListQueryDto {
   @ValidateIf(isSupplied)
   @IsEnum(CefrLevel)
   cefrLevel?: CefrLevel;
-
-  @ApiPropertyOptional({ enum: LexicalUnitType })
-  @ValidateIf(isSupplied)
-  @IsEnum(LexicalUnitType)
-  unitType?: LexicalUnitType;
 
   @ApiPropertyOptional({ enum: TermOrigin })
   @ValidateIf(isSupplied)

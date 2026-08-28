@@ -45,7 +45,6 @@ describe('ArticleSentencesRepository', () => {
       sourceContentHtml: '<p>Source.</p>',
       annotatedContentHtml:
         '<p><span data-sentence-id="sentence-1">Source.</span></p>',
-      actingAdminId: 'admin-id',
       resetAiAnalysis: true,
       sentences: [
         { id: 'sentence-1', sentenceOrder: 1, sentenceText: 'Source.' },
@@ -63,7 +62,6 @@ describe('ArticleSentencesRepository', () => {
       data: {
         contentHtml:
           '<p><span data-sentence-id="sentence-1">Source.</span></p>',
-        updatedByUserId: 'admin-id',
         aiAnalysisStatus: AiGenerationStatus.PENDING,
         aiAnalysisError: null,
       },
@@ -79,8 +77,6 @@ describe('ArticleSentencesRepository', () => {
           sentenceText: 'Source.',
           articleId: 'article-id',
           contentVersion: 3,
-          createdByUserId: 'admin-id',
-          updatedByUserId: 'admin-id',
         },
       ],
     });
@@ -133,7 +129,6 @@ describe('ArticleSentencesRepository', () => {
     articleSentence.findUnique.mockResolvedValue({ id: 'sentence-id' });
     await repository.updateSentence('article-id', 'sentence-id', {
       translationVi: 'Bản dịch',
-      updatedByUserId: 'admin-id',
     });
     expect(articleSentence.updateMany).toHaveBeenCalledWith({
       where: {
@@ -141,7 +136,7 @@ describe('ArticleSentencesRepository', () => {
         articleId: 'article-id',
         contentVersion: 2,
       },
-      data: { translationVi: 'Bản dịch', updatedByUserId: 'admin-id' },
+      data: { translationVi: 'Bản dịch' },
     });
   });
 });

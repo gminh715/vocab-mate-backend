@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
@@ -39,8 +39,17 @@ const lower = ({ value }: { value: unknown }): unknown =>
 
 @ValidatorConstraint({ name: 'hasNewsDiscoveryCriterion', async: false })
 class HasNewsDiscoveryCriterionConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, _args: ValidationArguments): boolean {
-    return true;
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const object = args.object as {
+      q?: unknown;
+      section?: unknown;
+      articleIds?: unknown;
+    };
+    return (
+      typeof object.q === 'string' ||
+      typeof object.section === 'string' ||
+      (Array.isArray(object.articleIds) && object.articleIds.length > 0)
+    );
   }
 
   defaultMessage(): string {
@@ -86,10 +95,6 @@ class NewsDiscoveryFieldsDto {
   @Matches(GUARDIAN_SECTION_ID)
   section?: string;
 
-  @IsEmpty()
-  @Validate(HasNewsDiscoveryCriterionConstraint)
-  private readonly discoveryCriterion?: never;
-
   @ApiPropertyOptional({ format: 'date', example: '2026-07-01' })
   @ValidateIf(isSupplied)
   @Transform(trim)
@@ -131,6 +136,10 @@ export class AdminNewsSearchQueryDto extends NewsDiscoveryFieldsDto {
 }
 
 export class AdminNewsSyncDto extends NewsDiscoveryFieldsDto {
+  @IsEmpty()
+  @Validate(HasNewsDiscoveryCriterionConstraint)
+  private readonly discoveryCriterion?: never;
+
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
   @IsUUID()

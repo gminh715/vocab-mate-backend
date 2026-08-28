@@ -43,6 +43,7 @@ export class ArticleSentencesService {
     sentenceCount: number;
     contentHtml: string;
   }> {
+    void actingAdminId;
     const state = await this.articlesRepository.findMutationState(articleId);
     if (!state) throw new NotFoundException('Article not found');
     if (state.status === ArticleStatus.ARCHIVED) {
@@ -77,7 +78,6 @@ export class ArticleSentencesService {
         contentVersion: state.contentVersion,
         sourceContentHtml: state.contentHtml,
         annotatedContentHtml,
-        actingAdminId,
         resetAiAnalysis: state.status === ArticleStatus.DRAFT,
         sentences: parsed.sentences,
       });
@@ -138,6 +138,7 @@ export class ArticleSentencesService {
     sentenceId: string,
     dto: UpdateArticleSentenceDto,
   ): Promise<{ sentence: ArticleSentenceRecord }> {
+    void actingAdminId;
     if (Object.values(dto).every((value) => value === undefined)) {
       throw new BadRequestException('At least one sentence field is required');
     }
@@ -148,15 +149,7 @@ export class ArticleSentencesService {
         ...(dto.translationVi === undefined
           ? {}
           : { translationVi: dto.translationVi }),
-        ...(dto.explanationVi === undefined
-          ? {}
-          : { explanationVi: dto.explanationVi }),
-        ...(dto.referenceExplanation === undefined
-          ? {}
-          : { referenceExplanation: dto.referenceExplanation }),
-        ...(dto.skill === undefined ? {} : { skill: dto.skill }),
         ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
-        updatedByUserId: actingAdminId,
       },
     );
     if (!sentence) throw new NotFoundException('Sentence not found');

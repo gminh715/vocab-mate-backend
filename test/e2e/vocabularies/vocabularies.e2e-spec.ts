@@ -7,11 +7,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import {
-  CefrLevel,
-  LearningStatus,
-  LexicalUnitType,
-} from '../../../generated/prisma/enums';
+import { CefrLevel } from '../../../generated/prisma/enums';
 import { AppModule } from '../../../src/app.module';
 import { configureApp, setupSwagger } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
@@ -79,21 +75,16 @@ interface StoredVocabulary {
   id: string;
   userId: string;
   articleSentenceTermId: string;
-  learningStatus: LearningStatus;
   savedWordDisplay: string;
   savedLemma: string;
   savedPartOfSpeech: string;
   savedIpa: string | null;
   savedCefrLevel: CefrLevel;
-  savedContextSentence: string;
-  savedContextTranslationVi: string;
   savedMeaningVi: string;
-  savedExplanation: string | null;
+  definitionEn: string;
   savedExamples: unknown[];
   savedAt: Date;
-  lastReviewedAt: Date | null;
-  nextReviewAt: Date | null;
-  reviewIntervalDays: number | null;
+  createdAt: Date;
   collectionItems: Array<{
     addedAt: Date;
     collection: {
@@ -133,7 +124,7 @@ class InMemoryVocabulariesRepository {
     }),
   ];
 
-  list(userId: string, query: VocabularyListQuery, now: Date) {
+  list(userId: string, query: VocabularyListQuery) {
     const direction = query.sort === VocabularySort.OLDEST ? 1 : -1;
     const matching = this.rows
       .filter((row) => row.userId === userId)
@@ -146,10 +137,6 @@ class InMemoryVocabulariesRepository {
           ),
       )
       .filter(
-        (row) =>
-          !query.learningStatus || row.learningStatus === query.learningStatus,
-      )
-      .filter(
         (row) => !query.cefrLevel || row.savedCefrLevel === query.cefrLevel,
       )
       .filter(
@@ -158,19 +145,6 @@ class InMemoryVocabulariesRepository {
           row.collectionItems.some(
             ({ collection }) => collection.id === query.collectionId,
           ),
-      )
-      .filter(
-        (row) =>
-          !query.dueOnly ||
-          ([
-            LearningStatus.NEW,
-            LearningStatus.LEARNING,
-            LearningStatus.REVIEWING,
-          ].includes(row.learningStatus) &&
-            ((row.nextReviewAt?.getTime() ?? Number.POSITIVE_INFINITY) <=
-              now.getTime() ||
-              (row.learningStatus === LearningStatus.NEW &&
-                row.nextReviewAt === null))),
       )
       .sort(
         (left, right) =>
@@ -241,23 +215,16 @@ class InMemoryVocabulariesRepository {
       id: options.id,
       userId: options.userId,
       articleSentenceTermId: options.articleSentenceTermId,
-      learningStatus: input?.learningStatus ?? LearningStatus.NEW,
       savedWordDisplay: input?.savedWordDisplay ?? 'harmful',
       savedLemma: input?.savedLemma ?? 'harmful',
       savedPartOfSpeech: input?.savedPartOfSpeech ?? 'adjective',
       savedIpa: input?.savedIpa ?? '/ˈhɑːrmfəl/',
       savedCefrLevel: input?.savedCefrLevel ?? CefrLevel.B1,
-      savedContextSentence:
-        input?.savedContextSentence ?? 'Plastic waste is harmful.',
-      savedContextTranslationVi:
-        input?.savedContextTranslationVi ?? 'Rác thải nhựa có hại.',
       savedMeaningVi: input?.savedMeaningVi ?? 'có hại',
-      savedExplanation: input?.savedExplanation ?? null,
+      definitionEn: input?.definitionEn ?? 'causing damage',
       savedExamples: (input?.savedExamples as unknown[]) ?? [],
       savedAt: options.savedAt,
-      lastReviewedAt: null,
-      nextReviewAt: null,
-      reviewIntervalDays: null,
+      createdAt: options.savedAt,
       collectionItems: options.collectionIds.map((id) => ({
         addedAt: options.savedAt,
         collection: {
@@ -290,9 +257,7 @@ const readingService = {
       term: {
         id: termId,
         value: 'harmful',
-        wordDisplay: 'harmful',
         lemma: 'harmful',
-        unitType: LexicalUnitType.WORD,
         partOfSpeech: 'adjective',
         ipa: '/ˈhɑːrmfəl/',
         cefrLevel: CefrLevel.B1,
@@ -303,18 +268,13 @@ const readingService = {
         antonyms: [],
         collocations: [],
         relatedTerms: [],
-        vocabularyTopic: null,
         examples: [],
-        skill: null,
       },
       parentSentence: {
         id: '88888888-8888-4888-8888-888888888888',
         sentenceOrder: 1,
         sentenceText: 'Plastic waste is harmful.',
         translationVi: 'Rác thải nhựa có hại.',
-        explanationVi: null,
-        referenceExplanation: null,
-        skill: null,
         contentVersion: 1,
       },
       sourceArticle: { id: ARTICLE_ID, contentVersion: 1 },
@@ -350,7 +310,7 @@ describe('Vocabulary APIs (e2e)', () => {
 
   afterAll(async () => app.close());
 
-  it('documents VOC-001 through VOC-003 with corrected boolean and array contracts', async () => {
+  it('documents vocabulary endpoints with corrected array contracts', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/docs-json')
       .expect(200);
@@ -364,10 +324,6 @@ describe('Vocabulary APIs (e2e)', () => {
     expect(Object.keys(path.post.responses)).toEqual(
       expect.arrayContaining(['201', '400', '401', '404', '409', '422']),
     );
-    const dueOnly = path.get.parameters.find(
-      ({ name }: { name: string }) => name === 'dueOnly',
-    );
-    expect(dueOnly.schema.type).toBe('boolean');
     expect(
       swagger.components.schemas.SaveVocabularyDto.properties.collectionIds
         .type,
@@ -407,7 +363,7 @@ describe('Vocabulary APIs (e2e)', () => {
   it('lists only the authenticated owner with filters and pagination', async () => {
     const response = await request(app.getHttpServer())
       .get(
-        `/api/v1/vocabularies?page=1&limit=1&q=harmful&learningStatus=NEW&cefrLevel=B1&collectionId=${OWNED_COLLECTION_ID}&dueOnly=true&sort=newest`,
+        `/api/v1/vocabularies?page=1&limit=1&q=harmful&cefrLevel=B1&collectionId=${OWNED_COLLECTION_ID}&sort=newest`,
       )
       .set('Authorization', 'Bearer user-a')
       .expect(200);
@@ -459,7 +415,7 @@ describe('Vocabulary APIs (e2e)', () => {
     );
   });
 
-  it('saves atomically as NEW and maps a duplicate to conflict', async () => {
+  it('saves atomically and maps a duplicate to conflict', async () => {
     const requestBody = {
       articleSentenceTermId: SAVE_TERM_ID,
       collectionIds: [OWNED_COLLECTION_ID, OWNED_COLLECTION_ID],
@@ -471,17 +427,13 @@ describe('Vocabulary APIs (e2e)', () => {
       .expect(201);
     const body = responseBody<
       SuccessBody<{
-        vocabulary: {
-          learningStatus: LearningStatus;
-          nextReviewAt: null;
-        };
+        vocabulary: { savedWordDisplay: string };
         collections: unknown[];
       }>
     >(first);
 
     expect(body.data.vocabulary).toMatchObject({
-      learningStatus: LearningStatus.NEW,
-      nextReviewAt: null,
+      savedWordDisplay: 'harmful',
     });
     expect(body.data.collections).toHaveLength(1);
 
@@ -526,7 +478,7 @@ describe('Vocabulary APIs (e2e)', () => {
       .send({
         articleSentenceTermId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         collectionIds: OWNED_COLLECTION_ID,
-        learningStatus: 'MASTERED',
+        savedMeaningVi: 'injected',
       })
       .expect(400);
   });

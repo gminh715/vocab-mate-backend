@@ -8,9 +8,6 @@ import {
 describe('UsersRepository', () => {
   const findUnique: jest.MockedFunction<(query: object) => Promise<unknown>> =
     jest.fn();
-  const profileUpdate: jest.MockedFunction<
-    (query: object) => Promise<unknown>
-  > = jest.fn();
   const userUpdate: jest.MockedFunction<(query: object) => Promise<unknown>> =
     jest.fn();
   const findMany: jest.MockedFunction<(query: object) => Promise<unknown>> =
@@ -87,7 +84,6 @@ describe('UsersRepository', () => {
               update: userUpdate,
               count: userCount,
             },
-            userProfile: { update: profileUpdate },
             userVocabulary: { count: vocabularyCount },
             userArticleProgress: { count: articleProgressCount },
             refreshSession: transactionClient().refreshSession,
@@ -100,7 +96,7 @@ describe('UsersRepository', () => {
     repository = module.get(UsersRepository);
   });
 
-  it('selects only safe account and profile fields', async () => {
+  it('selects only safe account and learning-setting fields', async () => {
     findUnique.mockResolvedValue(null);
 
     await repository.findMyAccount('user-id');
@@ -113,60 +109,49 @@ describe('UsersRepository', () => {
         email: true,
         role: true,
         status: true,
-        profile: {
-          select: {
-            displayName: true,
-            avatarUrl: true,
-            currentCefrLevel: true,
-            learningGoal: true,
-            dailyStudyMinutes: true,
-            preferredLanguage: true,
-          },
-        },
+        displayName: true,
+        avatarUrl: true,
+        currentCefrLevel: true,
+        learningGoal: true,
+        preferredLanguage: true,
       },
     });
     expect(JSON.stringify(query)).not.toContain('passwordHash');
   });
 
-  it('scopes a partial profile update by userId and returns a safe projection', async () => {
-    profileUpdate.mockResolvedValue({
+  it('scopes a partial learning-setting update by user ID and returns a safe projection', async () => {
+    userUpdate.mockResolvedValue({
+      id: 'user-id',
+      email: 'user@example.com',
+      role: 'USER',
+      status: 'ACTIVE',
       displayName: 'Updated Name',
       avatarUrl: null,
       currentCefrLevel: 'B1',
       learningGoal: null,
       preferredLanguage: 'vi',
-      user: {
-        id: 'user-id',
-        email: 'user@example.com',
-        role: 'USER',
-        status: 'ACTIVE',
-      },
     });
 
     const result = await repository.updateMyProfile('user-id', {
       displayName: 'Updated Name',
     });
 
-    const query = profileUpdate.mock.calls[0][0];
+    const query = userUpdate.mock.calls[0][0];
     expect(query).toMatchObject({
-      where: { userId: 'user-id' },
+      where: { id: 'user-id' },
       data: { displayName: 'Updated Name' },
     });
     expect(JSON.stringify(query)).not.toContain('passwordHash');
     expect(result).toEqual({
-      user: {
-        id: 'user-id',
-        email: 'user@example.com',
-        role: 'USER',
-        status: 'ACTIVE',
-      },
-      profile: {
-        displayName: 'Updated Name',
-        avatarUrl: null,
-        currentCefrLevel: 'B1',
-        learningGoal: null,
-        preferredLanguage: 'vi',
-      },
+      id: 'user-id',
+      email: 'user@example.com',
+      role: 'USER',
+      status: 'ACTIVE',
+      displayName: 'Updated Name',
+      avatarUrl: null,
+      currentCefrLevel: 'B1',
+      learningGoal: null,
+      preferredLanguage: 'vi',
     });
   });
 
@@ -229,13 +214,9 @@ describe('UsersRepository', () => {
         OR: [
           { email: { contains: 'nguyen', mode: 'insensitive' } },
           {
-            profile: {
-              is: {
-                displayName: {
-                  contains: 'nguyen',
-                  mode: 'insensitive',
-                },
-              },
+            displayName: {
+              contains: 'nguyen',
+              mode: 'insensitive',
             },
           },
         ],
@@ -271,32 +252,26 @@ describe('UsersRepository', () => {
       status: 'ACTIVE',
       lastLoginAt: null,
       createdAt: new Date('2026-07-22T10:00:00Z'),
-      profile: {
-        displayName: 'Nguyen Van A',
-        avatarUrl: null,
-        currentCefrLevel: 'B1',
-        learningGoal: null,
-        preferredLanguage: 'vi',
-      },
+      displayName: 'Nguyen Van A',
+      avatarUrl: null,
+      currentCefrLevel: 'B1',
+      learningGoal: null,
+      preferredLanguage: 'vi',
     });
-    vocabularyCount.mockResolvedValueOnce(12).mockResolvedValueOnce(4);
+    vocabularyCount.mockResolvedValue(12);
     articleProgressCount.mockResolvedValue(3);
 
     const result = await repository.findAdminUserDetail('user-id');
 
     expect(result?.learningSummary).toEqual({
       savedVocabularyCount: 12,
-      masteredVocabularyCount: 4,
       completedArticleCount: 3,
     });
-    expect(vocabularyCount).toHaveBeenNthCalledWith(1, {
+    expect(vocabularyCount).toHaveBeenCalledWith({
       where: { userId: 'user-id' },
     });
-    expect(vocabularyCount).toHaveBeenNthCalledWith(2, {
-      where: { userId: 'user-id', learningStatus: 'MASTERED' },
-    });
     expect(articleProgressCount).toHaveBeenCalledWith({
-      where: { userId: 'user-id', status: 'COMPLETED' },
+      where: { userId: 'user-id', completedAt: { not: null } },
     });
     expect(JSON.stringify(findUnique.mock.calls[0][0])).not.toContain(
       'passwordHash',

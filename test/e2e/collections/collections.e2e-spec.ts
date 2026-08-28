@@ -7,7 +7,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { CefrLevel, LearningStatus } from '../../../generated/prisma/enums';
+import { CefrLevel } from '../../../generated/prisma/enums';
 import { AppModule } from '../../../src/app.module';
 import { configureApp, setupSwagger } from '../../../src/app.setup';
 import { PrismaService } from '../../../src/database/prisma.service';
@@ -57,7 +57,6 @@ interface StoredVocabulary {
   id: string;
   userId: string;
   articleSentenceTermId: string;
-  learningStatus: LearningStatus;
   savedWordDisplay: string;
   savedLemma: string;
   savedPartOfSpeech: string;
@@ -65,7 +64,6 @@ interface StoredVocabulary {
   savedCefrLevel: CefrLevel;
   savedMeaningVi: string;
   savedAt: Date;
-  nextReviewAt: Date | null;
 }
 
 const responseBody = <T>(response: { text: string }): T =>
@@ -142,7 +140,6 @@ class InMemoryCollectionsRepository {
           userId: 'user-a',
           word: 'harmful',
           meaning: 'có hại',
-          status: LearningStatus.NEW,
           savedAt: new Date('2026-07-20T03:00:00Z'),
         }),
         this.makeVocabulary({
@@ -150,7 +147,6 @@ class InMemoryCollectionsRepository {
           userId: 'user-a',
           word: 'software',
           meaning: 'phần mềm',
-          status: LearningStatus.LEARNING,
           savedAt: new Date('2026-07-21T03:00:00Z'),
         }),
         this.makeVocabulary({
@@ -158,7 +154,6 @@ class InMemoryCollectionsRepository {
           userId: 'user-a',
           word: 'algorithm',
           meaning: 'thuật toán',
-          status: LearningStatus.MASTERED,
           savedAt: new Date('2026-07-22T03:00:00Z'),
         }),
         this.makeVocabulary({
@@ -166,7 +161,6 @@ class InMemoryCollectionsRepository {
           userId: 'user-b',
           word: 'private',
           meaning: 'riêng tư',
-          status: LearningStatus.NEW,
           savedAt: new Date('2026-07-23T03:00:00Z'),
         }),
       ].map((vocabulary) => [vocabulary.id, vocabulary]),
@@ -311,11 +305,6 @@ class InMemoryCollectionsRepository {
             value.toLocaleLowerCase().includes(query.q!.toLocaleLowerCase()),
           ),
       )
-      .filter(
-        ({ vocabulary }) =>
-          !query.learningStatus ||
-          vocabulary.learningStatus === query.learningStatus,
-      )
       .sort(
         (left, right) =>
           (left.addedAt.getTime() - right.addedAt.getTime()) * direction ||
@@ -400,14 +389,12 @@ class InMemoryCollectionsRepository {
     userId: string;
     word: string;
     meaning: string;
-    status: LearningStatus;
     savedAt: Date;
   }): StoredVocabulary {
     return {
       id: options.id,
       userId: options.userId,
       articleSentenceTermId: options.id,
-      learningStatus: options.status,
       savedWordDisplay: options.word,
       savedLemma: options.word,
       savedPartOfSpeech: 'noun',
@@ -415,7 +402,6 @@ class InMemoryCollectionsRepository {
       savedCefrLevel: CefrLevel.B1,
       savedMeaningVi: options.meaning,
       savedAt: options.savedAt,
-      nextReviewAt: null,
     };
   }
 }
@@ -643,7 +629,7 @@ describe('Collection APIs (e2e)', () => {
   it('lists only owner collection items using snapshot search, status, pagination, and added order', async () => {
     const response = await request(app.getHttpServer())
       .get(
-        `/api/v1/collections/${COLLECTION_ID}/items?page=1&limit=1&q=%20harm%20&learningStatus=NEW&sort=newest`,
+        `/api/v1/collections/${COLLECTION_ID}/items?page=1&limit=1&q=%20harm%20&sort=newest`,
       )
       .set('Authorization', 'Bearer user-a')
       .expect(200);
@@ -652,7 +638,6 @@ describe('Collection APIs (e2e)', () => {
         items: Array<{
           id: string;
           savedWordDisplay: string;
-          learningStatus: LearningStatus;
           addedAt: string;
         }>;
         meta: { page: number; limit: number; total: number };
@@ -663,7 +648,6 @@ describe('Collection APIs (e2e)', () => {
       expect.objectContaining({
         id: USER_VOCABULARY_ID,
         savedWordDisplay: 'harmful',
-        learningStatus: LearningStatus.NEW,
         addedAt: '2026-07-23T05:00:00.000Z',
       }),
     ]);

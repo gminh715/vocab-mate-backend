@@ -330,7 +330,7 @@ export class AdminArticlesController {
     operationId: 'deleteAdminArticlesByArticleId',
     summary: 'Delete an unused draft article',
     description:
-      'Hard deletion is limited to drafts with no learning or review history. Used articles should be archived.',
+      'Hard deletion is limited to drafts with no reading progress or saved vocabulary. Used articles should be archived.',
   })
   @ApiNoContentResponse({ description: 'Unused draft deleted.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

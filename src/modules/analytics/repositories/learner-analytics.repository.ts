@@ -1,14 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
-import {
-  LearningStatus,
-  ReadingStatus,
-  ReviewSessionStatus,
-} from '../../../../generated/prisma/enums';
 import type { ReturnTypeOfAppConfig } from '../../../config/app.config';
 import { APP_CONFIG } from '../../../config/config.module';
 import { PrismaService } from '../../../database/prisma.service';
-import { dueVocabularyWhere } from '../../vocabularies/due-vocabulary.where';
 import {
   bucketExpression,
   type AnalyticsNumericValue,
@@ -37,50 +31,21 @@ export class LearnerAnalyticsRepository {
     @Inject(APP_CONFIG) private readonly appConfig: ReturnTypeOfAppConfig,
   ) {}
 
-  getOverview(userId: string, from: Date, to: Date, requestTime: Date) {
-    const completedSessionWhere = {
-      userId,
-      status: ReviewSessionStatus.COMPLETED,
-      completedAt: { gte: from, lt: to },
-    } as const;
+  getOverview(userId: string, from: Date, to: Date) {
     return Promise.all([
       this.prisma.userVocabulary.count({ where: { userId } }),
-      this.prisma.userVocabulary.count({
-        where: { userId, ...dueVocabularyWhere(requestTime) },
-      }),
-      this.prisma.userVocabulary.count({
-        where: { userId, learningStatus: LearningStatus.MASTERED },
-      }),
       this.prisma.userArticleProgress.count({
         where: {
           userId,
-          status: ReadingStatus.COMPLETED,
-          completedAt: { gte: from, lt: to },
+          completedAt: { not: null, gte: from, lt: to },
         },
-      }),
-      this.prisma.reviewSession.count({ where: completedSessionWhere }),
-      this.prisma.reviewAnswer.groupBy({
-        by: ['isCorrect'],
-        where: {
-          reviewSessionItem: {
-            is: { reviewSession: { is: completedSessionWhere } },
-          },
-        },
-        _count: { _all: true },
       }),
     ]);
   }
 
-  getVocabularySnapshot(userId: string, requestTime: Date) {
+  getVocabularySnapshot(userId: string) {
     return Promise.all([
-      this.prisma.userVocabulary.groupBy({
-        by: ['learningStatus'],
-        where: { userId },
-        _count: { _all: true },
-      }),
-      this.prisma.userVocabulary.count({
-        where: { userId, ...dueVocabularyWhere(requestTime) },
-      }),
+      this.prisma.userVocabulary.count({ where: { userId } }),
       this.prisma.userVocabulary.groupBy({
         by: ['savedCefrLevel'],
         where: { userId },
@@ -117,7 +82,6 @@ export class LearnerAnalyticsRepository {
       this.prisma.userArticleProgress.count({
         where: {
           ...cohortWhere,
-          status: ReadingStatus.COMPLETED,
           completedAt: { not: null },
         },
       }),
@@ -128,10 +92,7 @@ export class LearnerAnalyticsRepository {
     return this.prisma.$queryRaw<ReadingCategoryRow[]>(Prisma.sql`
       SELECT c.id AS "categoryId", c.name AS "categoryName",
         COUNT(*)::bigint AS opened,
-        COUNT(*) FILTER (
-          WHERE uap.status = ${ReadingStatus.COMPLETED}::reading_status
-            AND uap.completed_at IS NOT NULL
-        )::bigint AS completed
+        COUNT(*) FILTER (WHERE uap.completed_at IS NOT NULL)::bigint AS completed
       FROM user_article_progress uap
       JOIN articles a ON a.id = uap.article_id
       JOIN categories c ON c.id = a.category_id
@@ -152,10 +113,7 @@ export class LearnerAnalyticsRepository {
     return this.prisma.$queryRaw<ReadingTrendRow[]>(Prisma.sql`
       SELECT ${bucketExpression(Prisma.sql`uap.first_opened_at`, groupBy, this.appConfig.analyticsTimezone)} AS bucket,
         COUNT(*)::bigint AS opened,
-        COUNT(*) FILTER (
-          WHERE uap.status = ${ReadingStatus.COMPLETED}::reading_status
-            AND uap.completed_at IS NOT NULL
-        )::bigint AS completed
+        COUNT(*) FILTER (WHERE uap.completed_at IS NOT NULL)::bigint AS completed
       FROM user_article_progress uap
       WHERE uap.user_id = ${userId}::uuid
         AND uap.first_opened_at >= ${from}

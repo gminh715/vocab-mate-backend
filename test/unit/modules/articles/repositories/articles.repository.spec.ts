@@ -105,20 +105,11 @@ describe('ArticlesRepository', () => {
     },
   );
 
-  it('looks up imported duplicates by external identity, canonical URL, or content hash', async () => {
-    await repository.findImportedDuplicate({
-      importSource: 'guardian',
-      externalId: 'external-id',
-    });
-    await repository.findImportedDuplicate({
-      canonicalUrl: 'https://example.com/story',
-    });
-    await repository.findImportedDuplicate({ contentHash: 'a'.repeat(64) });
+  it('looks up imported duplicates only by external identity', async () => {
+    await repository.findImportedDuplicate({ externalId: 'external-id' });
 
     expect(findFirst.mock.calls.map(([query]) => query.where)).toEqual([
-      { importSource: 'guardian', externalId: 'external-id' },
-      { canonicalUrl: 'https://example.com/story' },
-      { contentHash: 'a'.repeat(64) },
+      { externalId: 'external-id' },
     ]);
   });
 
@@ -131,14 +122,9 @@ describe('ArticlesRepository', () => {
       contentHtml: '<p>Article.</p>',
       cefrLevel: 'B1',
       sourceName: 'Example News',
-      importSource: 'guardian',
       externalId: 'external-id',
-      canonicalUrl: 'https://example.com/story',
-      contentHash: 'a'.repeat(64),
       sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
       aiAnalysisStatus: 'PENDING',
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
 
     const createCall = create.mock.calls.at(0);
@@ -160,8 +146,6 @@ describe('ArticlesRepository', () => {
       summary: 'Summary',
       contentHtml: '<p>Article.</p>',
       cefrLevel: 'B1',
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
 
     expect(create.mock.calls[0][0].data).toMatchObject({

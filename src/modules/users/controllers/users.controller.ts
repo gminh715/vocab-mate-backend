@@ -30,7 +30,7 @@ import { UpdateMyProfileDto } from '../dto/update-my-profile.dto';
 import { UsersService } from '../services/users.service';
 
 /**
- * HTTP boundary for the authenticated user's own account and profile.
+ * HTTP boundary for the authenticated user's own account and learning settings.
  * The verified JWT identity is the only source of the user ID.
  */
 @ApiTags('Users')
@@ -45,7 +45,7 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'getUsersMe',
-    summary: 'Get the current account and learning profile',
+    summary: 'Get the current account and learning settings',
     description:
       'Returns current account data from the database using the authenticated JWT identity.',
   })
@@ -62,9 +62,9 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'patchUsersMe',
-    summary: 'Update the current learning profile',
+    summary: 'Update the current learning settings',
     description:
-      'Partially updates only profile fields owned by the authenticated user.',
+      'Partially updates only learning settings owned by the authenticated user.',
   })
   @ApiOkResponse({ type: UpdateMyProfileSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

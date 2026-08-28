@@ -203,8 +203,6 @@ describe('ArticlesService', () => {
       summary: 'Summary',
       contentHtml: '<p>Safe</p>',
       cefrLevel: 'B1',
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
   });
 
@@ -218,10 +216,7 @@ describe('ArticlesService', () => {
       slug: 'imported-report-abc123',
       summary: 'Summary',
       contentHtml: '<p onclick="bad()">Sanitized import.</p>',
-      importSource: 'guardian',
       externalId: 'external-id',
-      canonicalUrl: 'https://example.com/story',
-      contentHash: 'a'.repeat(64),
       sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
       sourceName: 'Example',
     });
@@ -232,16 +227,11 @@ describe('ArticlesService', () => {
       slug: 'imported-report-abc123',
       summary: 'Summary',
       contentHtml: '<p>Sanitized import.</p>',
-      importSource: 'guardian',
       externalId: 'external-id',
-      canonicalUrl: 'https://example.com/story',
-      contentHash: 'a'.repeat(64),
       sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
       sourceName: 'Example',
       cefrLevel: CefrLevel.B1,
       aiAnalysisStatus: AiGenerationStatus.PENDING,
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
   });
 
@@ -257,10 +247,7 @@ describe('ArticlesService', () => {
         slug: 'imported-report-abc123',
         summary: 'Summary',
         contentHtml: '<p>Imported.</p>',
-        importSource: 'guardian',
         externalId: 'external-id',
-        canonicalUrl: 'https://example.com/story',
-        contentHash: 'a'.repeat(64),
         sourcePublishedAt: new Date('2026-07-30T00:00:00Z'),
       }),
     ).rejects.toMatchObject({
@@ -327,7 +314,6 @@ describe('ArticlesService', () => {
       3,
       {
         contentHtml: '<p>New</p>',
-        updatedByUserId: 'admin-id',
       },
       true,
     );
@@ -352,7 +338,6 @@ describe('ArticlesService', () => {
     ).resolves.toMatchObject({ contentChanged: false });
     expect(repository.update).toHaveBeenCalledWith('article-id', {
       title: 'Updated',
-      updatedByUserId: 'admin-id',
     });
     expect(repository.updateContent).not.toHaveBeenCalled();
   });
@@ -375,7 +360,6 @@ describe('ArticlesService', () => {
     );
     expect(repository.update).toHaveBeenCalledWith('article-id', {
       categoryId: 'replacement-category-id',
-      updatedByUserId: 'admin-id',
     });
   });
 
@@ -403,7 +387,6 @@ describe('ArticlesService', () => {
       status: ArticleStatus.DRAFT,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      reviewAnswerCount: 0,
     });
 
     await expect(
@@ -418,7 +401,6 @@ describe('ArticlesService', () => {
       status: ArticleStatus.DRAFT,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      reviewAnswerCount: 0,
     });
     repository.delete.mockRejectedValue(
       Object.assign(new Error('foreign key'), { code: 'P2003' }),
@@ -435,14 +417,12 @@ describe('ArticlesService', () => {
     { status: ArticleStatus.PUBLISHED },
     { status: ArticleStatus.DRAFT, readingProgressCount: 1 },
     { status: ArticleStatus.DRAFT, savedVocabularyCount: 1 },
-    { status: ArticleStatus.DRAFT, reviewAnswerCount: 1 },
   ])('blocks unsafe deletion: $status', async (override) => {
     repository.findDeleteSafety.mockResolvedValue({
       id: 'article-id',
       status: ArticleStatus.DRAFT,
       readingProgressCount: 0,
       savedVocabularyCount: 0,
-      reviewAnswerCount: 0,
       ...override,
     });
 

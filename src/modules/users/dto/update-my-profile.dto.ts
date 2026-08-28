@@ -3,7 +3,6 @@ import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsIn,
-  IsInt,
   IsString,
   IsUrl,
   MaxLength,
@@ -48,12 +47,6 @@ export class UpdateMyProfileDto {
   @ValidateIf(isSupplied)
   @IsEnum(CefrLevel)
   learningGoal?: CefrLevel;
-
-  @ApiPropertyOptional({ enum: [5, 10, 15], example: 10 })
-  @ValidateIf(isSupplied)
-  @IsInt()
-  @IsIn([5, 10, 15])
-  dailyStudyMinutes?: number;
 
   @ApiPropertyOptional({
     enum: ['vi', 'en'],

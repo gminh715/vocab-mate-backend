@@ -4,7 +4,6 @@ import {
   AiGenerationStatus,
   ArticleStatus,
   type CefrLevel,
-  LexicalUnitType,
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
@@ -42,9 +41,6 @@ const articleSentenceSelect = {
   sentenceOrder: true,
   sentenceText: true,
   translationVi: true,
-  explanationVi: true,
-  referenceExplanation: true,
-  skill: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -53,10 +49,7 @@ const articleSentenceTermSelect = {
   id: true,
   sentenceId: true,
   value: true,
-  wordDisplay: true,
   lemma: true,
-  normalizedLemma: true,
-  unitType: true,
   partOfSpeech: true,
   ipa: true,
   cefrLevel: true,
@@ -67,15 +60,11 @@ const articleSentenceTermSelect = {
   antonyms: true,
   collocations: true,
   relatedTerms: true,
-  vocabularyTopic: true,
   examples: true,
-  skill: true,
   origin: true,
   reviewStatus: true,
-  selectionReason: true,
   explanationStatus: true,
   explanationError: true,
-  explanationGeneratedAt: true,
   isLookupEnabled: true,
   isActive: true,
   createdAt: true,
@@ -136,7 +125,6 @@ export class ArticleTermsRepository {
         },
         data: {
           contentHtml: marker.updatedContentHtml,
-          updatedByUserId: marker.actingAdminId,
         },
       });
       if (articleUpdate.count !== 1) throw new ArticleTermStateConflictError();
@@ -174,7 +162,6 @@ export class ArticleTermsRepository {
         },
         data: {
           contentHtml: marker.updatedContentHtml,
-          updatedByUserId: marker.actingAdminId,
         },
       });
       if (articleUpdate.count !== 1) throw new ArticleTermStateConflictError();
@@ -191,7 +178,6 @@ export class ArticleTermsRepository {
           reviewStatus: TermReviewStatus.APPROVED,
           isActive: true,
           isLookupEnabled: true,
-          updatedByUserId: marker.actingAdminId,
         },
       });
       if (termUpdate.count !== 1) throw new ArticleTermStateConflictError();
@@ -208,7 +194,6 @@ export class ArticleTermsRepository {
     articleId: string,
     contentVersion: number,
     termId: string,
-    actingAdminId: string,
   ): Promise<ArticleSentenceTermRecord> {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.articleSentenceTerm.updateMany({
@@ -228,7 +213,6 @@ export class ArticleTermsRepository {
           reviewStatus: TermReviewStatus.REJECTED,
           isActive: false,
           isLookupEnabled: false,
-          updatedByUserId: actingAdminId,
         },
       });
       if (updated.count !== 1) throw new ArticleTermStateConflictError();
@@ -248,7 +232,6 @@ export class ArticleTermsRepository {
       limit: number;
       sentenceId?: string;
       cefrLevel?: CefrLevel;
-      unitType?: LexicalUnitType;
       origin?: TermOrigin;
       reviewStatus?: TermReviewStatus;
       explanationStatus?: AiGenerationStatus;
@@ -265,7 +248,6 @@ export class ArticleTermsRepository {
       const where: Prisma.ArticleSentenceTermWhereInput = {
         ...(query.sentenceId ? { sentenceId: query.sentenceId } : {}),
         ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
-        ...(query.unitType ? { unitType: query.unitType } : {}),
         ...(query.origin ? { origin: query.origin } : {}),
         ...(query.reviewStatus ? { reviewStatus: query.reviewStatus } : {}),
         ...(query.explanationStatus
@@ -276,9 +258,7 @@ export class ArticleTermsRepository {
           ? {
               OR: [
                 { value: { contains: query.q, mode: 'insensitive' } },
-                { wordDisplay: { contains: query.q, mode: 'insensitive' } },
                 { lemma: { contains: query.q, mode: 'insensitive' } },
-                { normalizedLemma: { contains: query.q, mode: 'insensitive' } },
                 { partOfSpeech: { contains: query.q, mode: 'insensitive' } },
               ],
             }
@@ -428,7 +408,6 @@ export class ArticleTermsRepository {
         },
         data: {
           contentHtml: marker.updatedContentHtml,
-          updatedByUserId: marker.actingAdminId,
         },
       });
       if (articleUpdate.count !== 1) throw new ArticleTermStateConflictError();
@@ -461,31 +440,10 @@ export class ArticleTermsRepository {
         },
       });
       if (currentTermCount !== 1) throw new ArticleTermStateConflictError();
-      const [savedVocabularyCount, reviewQuestionCount, reviewAnswerCount] =
-        await Promise.all([
-          tx.userVocabulary.count({
-            where: { articleSentenceTermId: marker.termId },
-          }),
-          tx.reviewQuestion.count({
-            where: { articleSentenceTermId: marker.termId },
-          }),
-          tx.reviewAnswer.count({
-            where: {
-              reviewSessionItem: {
-                is: {
-                  reviewQuestion: {
-                    is: { articleSentenceTermId: marker.termId },
-                  },
-                },
-              },
-            },
-          }),
-        ]);
-      if (
-        savedVocabularyCount > 0 ||
-        reviewQuestionCount > 0 ||
-        reviewAnswerCount > 0
-      ) {
+      const savedVocabularyCount = await tx.userVocabulary.count({
+        where: { articleSentenceTermId: marker.termId },
+      });
+      if (savedVocabularyCount > 0) {
         throw new ArticleTermReferencedError();
       }
       const articleUpdate = await tx.article.updateMany({
@@ -497,7 +455,6 @@ export class ArticleTermsRepository {
         },
         data: {
           contentHtml: marker.updatedContentHtml,
-          updatedByUserId: marker.actingAdminId,
         },
       });
       if (articleUpdate.count !== 1) throw new ArticleTermStateConflictError();

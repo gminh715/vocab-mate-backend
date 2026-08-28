@@ -6,11 +6,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  CefrLevel,
-  LearningStatus,
-  LexicalUnitType,
-} from '../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../generated/prisma/enums';
+
 import { AiService } from '../../../../src/modules/ai/services/ai.service';
 import {
   type ContextualTermEnrichmentClaimRecord,
@@ -29,9 +26,7 @@ const lookupRecord = (
   term: {
     id: termId,
     value: 'harmful',
-    wordDisplay: 'harmful',
     lemma: 'harmful',
-    unitType: LexicalUnitType.WORD,
     partOfSpeech: 'adjective',
     ipa: null,
     cefrLevel: CefrLevel.B1,
@@ -39,23 +34,17 @@ const lookupRecord = (
     definitionEn: 'causing damage',
     contextualExplanation: null,
     explanationStatus: 'READY',
-    explanationGeneratedAt: null,
     synonyms: ['damaging'],
     antonyms: ['beneficial'],
     collocations: ['harmful effect'],
     relatedTerms: ['harm'],
-    vocabularyTopic: 'environment',
     examples: [],
-    skill: 'vocabulary',
   },
   parentSentence: {
     id: '550e8400-e29b-41d4-a716-446655440001',
     sentenceOrder: 1,
     sentenceText: 'Plastic waste is harmful.',
     translationVi: 'RÃ¡c tháº£i nhá»±a cÃ³ háº¡i.',
-    explanationVi: null,
-    referenceExplanation: null,
-    skill: 'reading',
   },
   isLookupEnabled: true,
   save: null,
@@ -72,7 +61,6 @@ const enrichmentClaim = (): ContextualTermEnrichmentClaimRecord => ({
     id: termId,
     value: 'harmful',
     lemma: 'harmful',
-    unitType: LexicalUnitType.WORD,
   },
   parentSentence: {
     id: '550e8400-e29b-41d4-a716-446655440001',
@@ -99,8 +87,6 @@ const enrichmentClaim = (): ContextualTermEnrichmentClaimRecord => ({
 });
 
 const enrichmentResult = {
-  wordDisplay: 'harmful',
-  normalizedLemma: 'harmful',
   partOfSpeech: 'adjective',
   cefrLevel: CefrLevel.B1,
   contextualMeaningVi: 'cÃ³ háº¡i',
@@ -111,7 +97,6 @@ const enrichmentResult = {
   antonyms: ['beneficial'],
   collocations: ['harmful effect'],
   relatedTerms: ['harm'],
-  vocabularyTopic: 'environment',
   examples: [
     {
       sentence: 'Smoke is harmful to health.',
@@ -158,7 +143,6 @@ describe('ContextualTermsService', () => {
       lookupRecord({
         save: {
           id: '550e8400-e29b-41d4-a716-446655440004',
-          learningStatus: LearningStatus.LEARNING,
         },
       }),
     );
@@ -169,7 +153,6 @@ describe('ContextualTermsService', () => {
       saveState: {
         isSaved: true,
         userVocabularyId: '550e8400-e29b-41d4-a716-446655440004',
-        learningStatus: LearningStatus.LEARNING,
       },
     });
   });
@@ -216,7 +199,6 @@ describe('ContextualTermsService', () => {
         termId,
         value: 'harmful',
         lemma: 'harmful',
-        unitType: LexicalUnitType.WORD,
         parentSentenceText: 'Plastic waste is harmful.',
         surroundingSentenceContext:
           '[1] Plastic remains in the environment.\n[3] Communities are reducing waste.',
@@ -346,7 +328,6 @@ describe('ContextualTermsService', () => {
       saveState: {
         isSaved: false,
         userVocabularyId: null,
-        learningStatus: null,
       },
     });
   });

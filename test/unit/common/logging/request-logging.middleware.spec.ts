@@ -20,8 +20,8 @@ describe('request logging middleware', () => {
     const request = {
       headers: { 'x-request-id': 'request-123' },
       method: 'POST',
-      baseUrl: '/api/v1/review-sessions',
-      path: '/api/v1/review-sessions',
+      baseUrl: '/api/v1/vocabularies',
+      path: '/api/v1/vocabularies',
       user: { id: 'user-123' },
     } as unknown as Request;
     const next = jest.fn<ReturnType<NextFunction>, Parameters<NextFunction>>();
@@ -43,7 +43,7 @@ describe('request logging middleware', () => {
       event: 'http.request.completed',
       requestId: 'request-123',
       httpMethod: 'POST',
-      route: '/api/v1/review-sessions',
+      route: '/api/v1/vocabularies',
       responseStatus: 201,
       userId: 'user-123',
     });

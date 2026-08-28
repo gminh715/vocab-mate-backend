@@ -9,8 +9,6 @@ import { Prisma } from '../../../generated/prisma/client';
 import {
   ArticleStatus,
   CefrLevel,
-  LearningStatus,
-  LexicalUnitType,
   ReadingStatus,
 } from '../../../generated/prisma/enums';
 import request from 'supertest';
@@ -91,9 +89,7 @@ class InMemoryReadingRepository {
       this.progressKey('user-other', ARTICLE_ID),
       {
         articleId: ARTICLE_ID,
-        status: ReadingStatus.COMPLETED,
         progressPercent: new Prisma.Decimal('100'),
-        lastBlockKey: 'sentence-1',
         completedAt: new Date('2026-07-23T02:00:00Z'),
         firstOpenedAt: new Date('2026-07-22T01:00:00Z'),
         lastReadAt: new Date('2026-07-23T02:00:00Z'),
@@ -103,9 +99,7 @@ class InMemoryReadingRepository {
       this.progressKey('user-history', ARCHIVED_ARTICLE_ID),
       {
         articleId: ARCHIVED_ARTICLE_ID,
-        status: ReadingStatus.READING,
         progressPercent: new Prisma.Decimal('25'),
-        lastBlockKey: 'archived-paragraph',
         completedAt: null,
         firstOpenedAt: new Date('2026-07-18T01:00:00Z'),
         lastReadAt: new Date('2026-07-19T01:00:00Z'),
@@ -113,7 +107,6 @@ class InMemoryReadingRepository {
     ],
   ]);
   readonly savedVocabularyCount = 1;
-  readonly reviewHistoryCount = 1;
 
   findReaderArticle(
     userId: string,
@@ -178,9 +171,7 @@ class InMemoryReadingRepository {
       term: {
         id: termId,
         value: 'harmful',
-        wordDisplay: 'harmful',
         lemma: 'harmful',
-        unitType: LexicalUnitType.WORD,
         partOfSpeech: 'adjective',
         ipa: '/ˈhɑːrmfəl/',
         cefrLevel: CefrLevel.B1,
@@ -188,35 +179,28 @@ class InMemoryReadingRepository {
         definitionEn: 'causing damage',
         contextualExplanation: 'A negative effect in this context.',
         explanationStatus: 'READY',
-        explanationGeneratedAt: null,
         synonyms: ['damaging'],
         antonyms: ['beneficial'],
         collocations: ['harmful effect'],
         relatedTerms: ['harm'],
-        vocabularyTopic: 'environment',
         examples: [
           {
             sentence: 'Plastic waste is harmful to marine life.',
             translationVi: 'Rác thải nhựa có hại cho sinh vật biển.',
           },
         ],
-        skill: 'vocabulary',
       },
       parentSentence: {
         id: SENTENCE_ID,
         sentenceOrder: 1,
         sentenceText: 'Plastic waste is harmful to marine life.',
         translationVi: 'Rác thải nhựa có hại cho sinh vật biển.',
-        explanationVi: null,
-        referenceExplanation: null,
-        skill: 'reading',
       },
       isLookupEnabled: termId !== DISABLED_TERM_ID,
       save:
         userId === 'user-saved'
           ? {
               id: VOCABULARY_ID,
-              learningStatus: LearningStatus.LEARNING,
             }
           : null,
     });
@@ -269,7 +253,13 @@ class InMemoryReadingRepository {
                 },
               },
       }))
-      .filter(({ status }) => !query.status || status === query.status)
+      .filter(
+        ({ completedAt }) =>
+          !query.status ||
+          (query.status === ReadingStatus.COMPLETED
+            ? completedAt !== null
+            : completedAt === null),
+      )
       .sort(
         (left, right) =>
           (left.lastReadAt.getTime() - right.lastReadAt.getTime()) * direction,
@@ -302,19 +292,14 @@ class InMemoryReadingRepository {
     const key = this.progressKey(userId, articleId);
     const existing = this.progressRows.get(key);
     const now = new Date();
-    const completed = existing?.status === ReadingStatus.COMPLETED;
+    const completed = existing !== undefined && existing.completedAt !== null;
     const progress: StoredProgress = {
       articleId,
-      status: completed ? ReadingStatus.COMPLETED : ReadingStatus.READING,
       progressPercent: completed
         ? new Prisma.Decimal('100')
         : new Prisma.Decimal(
             input.progressPercent ?? existing?.progressPercent.toNumber() ?? 0,
           ),
-      lastBlockKey:
-        input.lastBlockKey === undefined
-          ? (existing?.lastBlockKey ?? null)
-          : input.lastBlockKey,
       completedAt: completed ? (existing.completedAt ?? now) : null,
       firstOpenedAt: existing?.firstOpenedAt ?? now,
       lastReadAt: now,
@@ -333,9 +318,7 @@ class InMemoryReadingRepository {
     const now = new Date();
     const progress: StoredProgress = {
       articleId,
-      status: ReadingStatus.COMPLETED,
       progressPercent: new Prisma.Decimal('100'),
-      lastBlockKey: existing?.lastBlockKey ?? null,
       completedAt: existing?.completedAt ?? now,
       firstOpenedAt: existing?.firstOpenedAt ?? now,
       lastReadAt: now,
@@ -452,8 +435,8 @@ describe('Reading APIs (e2e)', () => {
       'READY',
       'FAILED',
     ]);
-    expect(contextualTermProperties.explanationGeneratedAt?.nullable).toBe(
-      true,
+    expect(contextualTermProperties).not.toHaveProperty(
+      'explanationGeneratedAt',
     );
     const history = swagger.paths['/api/v1/reading/history'].get;
     const progress = swagger.paths['/api/v1/reading/progress/{articleId}'];
@@ -544,15 +527,14 @@ describe('Reading APIs (e2e)', () => {
         progress: {
           status: ReadingStatus;
           progressPercent: number;
-          lastBlockKey: string | null;
         };
       }>
     >(response);
     expect(body.data.progress).toMatchObject({
       status: ReadingStatus.COMPLETED,
       progressPercent: 100,
-      lastBlockKey: 'sentence-1',
     });
+    expect(body.data.progress).not.toHaveProperty('lastBlockKey');
   });
 
   it('returns the contextual popup without an AI call', async () => {
@@ -607,14 +589,12 @@ describe('Reading APIs (e2e)', () => {
           saveState: {
             isSaved: boolean;
             userVocabularyId: string | null;
-            learningStatus: LearningStatus | null;
           };
         }>
       >(savedResponse).data.saveState,
     ).toEqual({
       isSaved: true,
       userVocabularyId: VOCABULARY_ID,
-      learningStatus: LearningStatus.LEARNING,
     });
     expect(
       responseBody<
@@ -622,14 +602,12 @@ describe('Reading APIs (e2e)', () => {
           saveState: {
             isSaved: boolean;
             userVocabularyId: string | null;
-            learningStatus: LearningStatus | null;
           };
         }>
       >(otherResponse).data.saveState,
     ).toEqual({
       isSaved: false,
       userVocabularyId: null,
-      learningStatus: null,
     });
   });
 
@@ -685,7 +663,7 @@ describe('Reading APIs (e2e)', () => {
     });
   });
 
-  it('returns progress default without inserting, then creates and partially updates progress', async () => {
+  it('returns progress default without inserting, then creates and updates progress', async () => {
     const defaultResponse = await request(app.getHttpServer())
       .get(`/api/v1/reading/progress/${ARTICLE_ID}`)
       .set('Authorization', 'Bearer user-isolated')
@@ -710,17 +688,16 @@ describe('Reading APIs (e2e)', () => {
     const updateResponse = await request(app.getHttpServer())
       .put(`/api/v1/reading/progress/${ARTICLE_ID}`)
       .set('Authorization', 'Bearer user-isolated')
-      .send({ lastBlockKey: '  paragraph-3  ' })
+      .send({ progressPercent: 75 })
       .expect(200);
     expect(
       responseBody<
         SuccessBody<{
-          progress: { progressPercent: number; lastBlockKey: string };
+          progress: { progressPercent: number };
         }>
       >(updateResponse).data.progress,
     ).toMatchObject({
-      progressPercent: 60,
-      lastBlockKey: 'paragraph-3',
+      progressPercent: 75,
     });
   });
 
@@ -733,7 +710,7 @@ describe('Reading APIs (e2e)', () => {
       request(app.getHttpServer())
         .put(`/api/v1/reading/progress/${ARTICLE_ID}`)
         .set('Authorization', 'Bearer user-c1')
-        .send({ lastBlockKey: 'concurrent-block' }),
+        .send({ progressPercent: 40 }),
     ]);
 
     expect(first.status).toBe(200);
@@ -824,11 +801,11 @@ describe('Reading APIs (e2e)', () => {
   it('isolates progress ownership across reads and mutations', async () => {
     const otherBefore = repository.progressRows.get(
       `user-other:${ARTICLE_ID}`,
-    )?.lastBlockKey;
+    )?.progressPercent;
     await request(app.getHttpServer())
       .put(`/api/v1/reading/progress/${ARTICLE_ID}`)
       .set('Authorization', 'Bearer user-isolated')
-      .send({ lastBlockKey: 'isolated-key' })
+      .send({ progressPercent: 30 })
       .expect(200);
     const response = await request(app.getHttpServer())
       .get(`/api/v1/reading/progress/${ARTICLE_ID}`)
@@ -836,15 +813,14 @@ describe('Reading APIs (e2e)', () => {
       .expect(200);
 
     expect(
-      responseBody<SuccessBody<{ progress: { lastBlockKey: string | null } }>>(
+      responseBody<SuccessBody<{ progress: { progressPercent: number } }>>(
         response,
-      ).data.progress.lastBlockKey,
-    ).toBe(otherBefore);
+      ).data.progress.progressPercent,
+    ).toBe(otherBefore?.toNumber());
   });
 
-  it('deletes only progress with real 204 and preserves vocabulary/review state', async () => {
+  it('deletes only progress with real 204 and preserves saved vocabulary', async () => {
     const vocabularyCount = repository.savedVocabularyCount;
-    const reviewCount = repository.reviewHistoryCount;
     const response = await request(app.getHttpServer())
       .delete(`/api/v1/reading/progress/${ARTICLE_ID}`)
       .set('Authorization', 'Bearer user-isolated')
@@ -854,7 +830,6 @@ describe('Reading APIs (e2e)', () => {
     expect(repository.hasProgress('user-isolated', ARTICLE_ID)).toBe(false);
     expect(repository.hasProgress('user-other', ARTICLE_ID)).toBe(true);
     expect(repository.savedVocabularyCount).toBe(vocabularyCount);
-    expect(repository.reviewHistoryCount).toBe(reviewCount);
 
     await request(app.getHttpServer())
       .delete(`/api/v1/reading/progress/${ARTICLE_ID}`)

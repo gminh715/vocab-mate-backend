@@ -132,7 +132,6 @@ describe('ArticleSentencesService', () => {
       {
         translationVi: 'Bản dịch',
         isActive: false,
-        updatedByUserId: 'admin-id',
       },
     );
   });

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../generated/prisma/enums';
 import { PaginationMetaDto } from '../../../common/dto/pagination-meta.dto';
 
 export class VocabularyCollectionSummaryDto {
@@ -20,9 +20,6 @@ export class VocabularySnapshotDto {
   @ApiProperty({ format: 'uuid' })
   articleSentenceTermId!: string;
 
-  @ApiProperty({ enum: LearningStatus })
-  learningStatus!: LearningStatus;
-
   @ApiProperty({ example: 'harmful' })
   savedWordDisplay!: string;
 
@@ -41,11 +38,14 @@ export class VocabularySnapshotDto {
   @ApiProperty({ example: 'có hại' })
   savedMeaningVi!: string;
 
+  @ApiProperty({ example: 'causing damage or injury', nullable: true })
+  definitionEn!: string | null;
+
   @ApiProperty({ format: 'date-time' })
   savedAt!: Date;
 
-  @ApiProperty({ format: 'date-time', nullable: true })
-  nextReviewAt!: Date | null;
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
 }
 
 export class VocabularyListItemDto extends VocabularySnapshotDto {
@@ -54,23 +54,8 @@ export class VocabularyListItemDto extends VocabularySnapshotDto {
 }
 
 export class VocabularyDetailDto extends VocabularySnapshotDto {
-  @ApiProperty()
-  savedContextSentence!: string;
-
-  @ApiProperty()
-  savedContextTranslationVi!: string;
-
-  @ApiProperty({ nullable: true })
-  savedExplanation!: string | null;
-
   @ApiProperty({ type: 'array', items: { type: 'object' } })
   savedExamples!: unknown[];
-
-  @ApiProperty({ format: 'date-time', nullable: true })
-  lastReviewedAt!: Date | null;
-
-  @ApiProperty({ nullable: true })
-  reviewIntervalDays!: number | null;
 }
 
 export class VocabularySourceArticleDto {

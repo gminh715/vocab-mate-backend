@@ -49,7 +49,7 @@ export class AdminAnalyticsController {
     operationId: 'getAdminAnalyticsOverview',
     summary: 'Get aggregate operational analytics',
     description:
-      'ADMIN only. Users and articles are current all-status stock metrics. Active users are distinct learners with reading, vocabulary-save, or Daily Review activity in the half-open range. Saved vocabulary and completed sessions are period flows. Returns aggregate numbers only and zeroes when no data exists.',
+      'ADMIN only. Users and articles are current all-status stock metrics. Active users are distinct learners with reading or vocabulary-save activity in the half-open range. Saved vocabulary is a period flow. Returns aggregate numbers only and zeroes when no data exists.',
   })
   @ApiOkResponse({
     type: AdminAnalyticsOverviewSuccessResponseDto,
@@ -61,7 +61,6 @@ export class AdminAnalyticsController {
         articles: 48,
         publishedArticles: 32,
         savedVocabulary: 310,
-        completedSessions: 85,
       },
     },
   })
@@ -124,7 +123,7 @@ export class AdminAnalyticsController {
     operationId: 'getAdminUserAnalytics',
     summary: 'Get aggregate user-activity analytics',
     description:
-      'ADMIN only. status applies consistently to registrations, active learners, retention proxy, and distribution. The retention proxy compares activity in equal first/second windows and is not signup-cohort or D1/D7/D30 retention. Distribution is mutually exclusive across reading-only, vocabulary-only, Daily-Review-only, multi-activity, and inactive users. No PII is returned.',
+      'ADMIN only. status applies consistently to registrations, active learners, retention proxy, and distribution. The retention proxy compares activity in equal first/second windows and is not signup-cohort or D1/D7/D30 retention. Distribution is mutually exclusive across reading-only, vocabulary-only, multi-activity, and inactive users. No PII is returned.',
   })
   @ApiOkResponse({ type: AdminUserAnalyticsSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

@@ -2,35 +2,23 @@ model UserVocabulary {
   id                        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId                    String         @map("user_id") @db.Uuid
   articleSentenceTermId     String         @map("article_sentence_term_id") @db.Uuid
-  learningStatus            LearningStatus @default(NEW) @map("learning_status")
   savedWordDisplay          String         @map("saved_word_display") @db.Text
   savedLemma                String         @map("saved_lemma") @db.Text
   savedPartOfSpeech         String         @map("saved_part_of_speech") @db.Text
   savedIpa                  String?        @map("saved_ipa") @db.Text
   savedCefrLevel            CefrLevel      @map("saved_cefr_level")
-  savedContextSentence      String         @map("saved_context_sentence") @db.Text
-  savedContextTranslationVi String         @map("saved_context_translation_vi") @db.Text
   savedMeaningVi            String         @map("saved_meaning_vi") @db.Text
-  savedExplanation          String?        @map("saved_explanation") @db.Text
+  definitionEn              String?        @map("definition_en") @db.Text
   savedExamples             Json           @default("[]") @map("saved_examples") @db.JsonB
   savedAt                   DateTime       @default(now()) @map("saved_at") @db.Timestamptz(6)
-  lastReviewedAt            DateTime?      @map("last_reviewed_at") @db.Timestamptz(6)
-  nextReviewAt              DateTime?      @map("next_review_at") @db.Timestamptz(6)
-  reviewIntervalDays        Int?           @map("review_interval_days")
-  consecutiveCorrectReviews Int            @default(0) @map("consecutive_correct_reviews") @db.SmallInt
-  lapseCount                Int            @default(0) @map("lapse_count") @db.SmallInt
-  lastReviewScore           Int?           @map("last_review_score") @db.SmallInt
   createdAt                 DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   user                User                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_user_vocabularies_user")
   articleSentenceTerm ArticleSentenceTerm        @relation(fields: [articleSentenceTermId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_user_vocabularies_article_sentence_term")
   collectionItems     VocabularyCollectionItem[]
-  reviewSessionItems  ReviewSessionItem[]
 
   @@unique([userId, articleSentenceTermId], map: "uq_user_vocabularies_user_sentence_term")
-  @@index([userId, learningStatus, savedAt(sort: Desc)], map: "idx_user_vocabularies_user_status_saved")
-  @@index([userId, lapseCount(sort: Desc), nextReviewAt], map: "idx_user_vocabularies_due_review", where: raw("learning_status = ANY (ARRAY['NEW'::learning_status, 'LEARNING'::learning_status, 'REVIEWING'::learning_status])"))
   @@index([articleSentenceTermId], map: "idx_user_vocabularies_sentence_term")
   @@map("user_vocabularies")
 }

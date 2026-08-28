@@ -45,9 +45,6 @@ const createSnapshot = (): ArticlePublicationSnapshot => ({
       sentenceOrder: 1,
       sentenceText: 'Digital tools improve learning.',
       translationVi: 'Công cụ số cải thiện việc học.',
-      explanationVi: null,
-      referenceExplanation: null,
-      skill: null,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -56,29 +53,22 @@ const createSnapshot = (): ArticlePublicationSnapshot => ({
           id: termId,
           sentenceId,
           value: 'tools',
-          wordDisplay: 'tools',
           lemma: 'tool',
-          normalizedLemma: 'tool',
-          unitType: 'WORD',
           partOfSpeech: 'noun',
           ipa: null,
           cefrLevel: CefrLevel.B1,
           contextualMeaningVi: 'công cụ',
-          definitionEn: null,
+          definitionEn: 'an object used to perform a task',
           contextualExplanation: null,
           synonyms: [],
           antonyms: [],
           collocations: [],
           relatedTerms: [],
-          vocabularyTopic: null,
           examples: [],
-          skill: null,
           origin: TermOrigin.MANUAL,
           reviewStatus: TermReviewStatus.APPROVED,
-          selectionReason: null,
           explanationStatus: AiGenerationStatus.READY,
           explanationError: null,
-          explanationGeneratedAt: null,
           isLookupEnabled: true,
           isActive: true,
           createdAt: now,
@@ -181,7 +171,7 @@ describe('ArticlePublicationValidator', () => {
     {
       name: 'incomplete term metadata',
       mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].terms[0].normalizedLemma = ' ';
+        snapshot.sentences[0].terms[0].lemma = ' ';
       },
       code: 'TERM_METADATA_INCOMPLETE',
     },
@@ -235,8 +225,6 @@ describe('ArticlePublicationValidator', () => {
       const term = snapshot.sentences[0].terms[0];
       term.origin = TermOrigin.NLP;
       term.explanationStatus = explanationStatus;
-      term.wordDisplay = null;
-      term.normalizedLemma = null;
       term.partOfSpeech = null;
       term.cefrLevel = null;
       term.contextualMeaningVi = null;
@@ -254,9 +242,9 @@ describe('ArticlePublicationValidator', () => {
       },
     },
     {
-      name: 'missing parent translation',
+      name: 'missing English definition',
       mutate: (snapshot: ArticlePublicationSnapshot) => {
-        snapshot.sentences[0].translationVi = ' ';
+        snapshot.sentences[0].terms[0].definitionEn = ' ';
       },
     },
     {

@@ -25,32 +25,27 @@ export interface CreateRegisteredUserInput {
   preferredLanguage?: string;
 }
 
-export interface UserProfileRecord {
+export interface UserLearningSettingsRecord {
   displayName: string;
   avatarUrl: string | null;
   currentCefrLevel: CefrLevel;
   learningGoal: string | null;
-  dailyStudyMinutes: number | null;
   preferredLanguage: string;
 }
 
-export interface MyAccountRecord extends PublicUserRecord {
-  profile: UserProfileRecord | null;
-}
+export interface MyAccountRecord
+  extends PublicUserRecord,
+  UserLearningSettingsRecord { }
 
 export interface UpdateMyProfileInput {
   displayName?: string;
   avatarUrl?: string;
   currentCefrLevel?: CefrLevel;
   learningGoal?: CefrLevel;
-  dailyStudyMinutes?: number;
   preferredLanguage?: string;
 }
 
-export interface UpdatedMyProfileRecord {
-  user: PublicUserRecord;
-  profile: UserProfileRecord;
-}
+export type UpdatedMyProfileRecord = MyAccountRecord;
 
 export interface AdminUserListQuery {
   page: number;
@@ -64,7 +59,7 @@ export interface AdminUserListQuery {
 export interface AdminUserListRecord extends PublicUserRecord {
   lastLoginAt: Date | null;
   createdAt: Date;
-  profile: { displayName: string } | null;
+  displayName: string;
 }
 
 export interface AdminUserListResult {
@@ -73,14 +68,12 @@ export interface AdminUserListResult {
 }
 
 export interface AdminUserDetailRecord {
-  user: PublicUserRecord & {
+  user: MyAccountRecord & {
     lastLoginAt: Date | null;
     createdAt: Date;
   };
-  profile: UserProfileRecord | null;
   learningSummary: {
     savedVocabularyCount: number;
-    masteredVocabularyCount: number;
     completedArticleCount: number;
   };
 }
@@ -129,17 +122,29 @@ const authUserSelect = {
   passwordHash: true,
 } as const;
 
-const userProfileSelect = {
+const userLearningSettingsSelect = {
   displayName: true,
   avatarUrl: true,
   currentCefrLevel: true,
   learningGoal: true,
-  dailyStudyMinutes: true,
   preferredLanguage: true,
+} as const;
+
+const myAccountSelect = {
+  ...publicUserSelect,
+  ...userLearningSettingsSelect,
+} as const;
+
+const adminUserListSelect = {
+  ...publicUserSelect,
+  lastLoginAt: true,
+  createdAt: true,
+  displayName: true,
 } as const;
 
 const adminUserAccountSelect = {
   ...publicUserSelect,
+  ...userLearningSettingsSelect,
   lastLoginAt: true,
   createdAt: true,
 } as const;
@@ -167,7 +172,7 @@ const isTransactionConflictError = (
  */
 @Injectable()
 export class UsersRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   findByEmailWithPassword(email: string): Promise<AuthUserRecord | null> {
     return this.prisma.user.findUnique({
@@ -193,10 +198,7 @@ export class UsersRepository {
   findMyAccount(id: string): Promise<MyAccountRecord | null> {
     return this.prisma.user.findUnique({
       where: { id },
-      select: {
-        ...publicUserSelect,
-        profile: { select: userProfileSelect },
-      },
+      select: myAccountSelect,
     });
   }
 
@@ -204,16 +206,11 @@ export class UsersRepository {
     userId: string,
     input: UpdateMyProfileInput,
   ): Promise<UpdatedMyProfileRecord> {
-    const { user, ...profile } = await this.prisma.userProfile.update({
-      where: { userId },
+    return this.prisma.user.update({
+      where: { id: userId },
       data: input,
-      select: {
-        ...userProfileSelect,
-        user: { select: publicUserSelect },
-      },
+      select: myAccountSelect,
     });
-
-    return { user, profile };
   }
 
   async findAdminUsers(
@@ -224,20 +221,16 @@ export class UsersRepository {
       ...(query.status ? { status: query.status } : {}),
       ...(query.q
         ? {
-            OR: [
-              { email: { contains: query.q, mode: 'insensitive' } },
-              {
-                profile: {
-                  is: {
-                    displayName: {
-                      contains: query.q,
-                      mode: 'insensitive',
-                    },
-                  },
-                },
+          OR: [
+            { email: { contains: query.q, mode: 'insensitive' } },
+            {
+              displayName: {
+                contains: query.q,
+                mode: 'insensitive',
               },
-            ],
-          }
+            },
+          ],
+        }
         : {}),
     };
     const direction = query.sort === 'oldest' ? 'asc' : 'desc';
@@ -250,10 +243,7 @@ export class UsersRepository {
         skip: (query.page - 1) * query.limit,
         take: query.limit,
         orderBy: [{ createdAt: direction }, { id: 'asc' }],
-        select: {
-          ...adminUserAccountSelect,
-          profile: { select: { displayName: true } },
-        },
+        select: adminUserListSelect,
       }),
       this.prisma.user.count({ where }),
     ]);
@@ -265,25 +255,15 @@ export class UsersRepository {
     userId: string,
   ): Promise<AdminUserDetailRecord | null> {
     // Counts are computed in the database; learning histories are never loaded.
-    const [
-      account,
-      savedVocabularyCount,
-      masteredVocabularyCount,
-      completedArticleCount,
-    ] = await this.prisma.$transaction([
+    const [account, savedVocabularyCount, completedArticleCount] =
+      await this.prisma.$transaction([
       this.prisma.user.findUnique({
         where: { id: userId },
-        select: {
-          ...adminUserAccountSelect,
-          profile: { select: userProfileSelect },
-        },
+        select: adminUserAccountSelect,
       }),
       this.prisma.userVocabulary.count({ where: { userId } }),
-      this.prisma.userVocabulary.count({
-        where: { userId, learningStatus: 'MASTERED' },
-      }),
       this.prisma.userArticleProgress.count({
-        where: { userId, status: 'COMPLETED' },
+        where: { userId, completedAt: { not: null } },
       }),
     ]);
 
@@ -291,14 +271,10 @@ export class UsersRepository {
       return null;
     }
 
-    const { profile, ...user } = account;
-
     return {
-      user,
-      profile,
+      user: account,
       learningSummary: {
         savedVocabularyCount,
-        masteredVocabularyCount,
         completedArticleCount,
       },
     };
@@ -405,7 +381,7 @@ export class UsersRepository {
     });
   }
 
-  createWithProfile(
+  createRegisteredUser(
     input: CreateRegisteredUserInput,
   ): Promise<PublicUserRecord> {
     return this.prisma.user.create({
@@ -414,13 +390,9 @@ export class UsersRepository {
         passwordHash: input.passwordHash,
         role: 'USER',
         status: 'ACTIVE',
-        profile: {
-          create: {
-            displayName: input.displayName,
-            currentCefrLevel: 'A1',
-            preferredLanguage: input.preferredLanguage,
-          },
-        },
+        displayName: input.displayName,
+        currentCefrLevel: 'A1',
+        preferredLanguage: input.preferredLanguage,
       },
       select: publicUserSelect,
     });

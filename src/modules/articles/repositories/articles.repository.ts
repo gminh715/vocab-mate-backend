@@ -4,7 +4,6 @@ import {
   AiGenerationStatus,
   ArticleStatus,
   type CefrLevel,
-  LexicalUnitType,
   TermOrigin,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
@@ -72,10 +71,7 @@ export interface AdminArticleListQuery {
 
 export interface AdminArticleListRecord extends PublicArticleCardRecord {
   categoryId: string;
-  importSource: string | null;
   externalId: string | null;
-  canonicalUrl: string | null;
-  contentHash: string | null;
   sourcePublishedAt: Date | null;
   aiAnalysisStatus: AiGenerationStatus | null;
   aiAnalysisError: string | null;
@@ -103,10 +99,7 @@ export interface AdminArticleRecord {
   sourceUrl: string | null;
   authorName: string | null;
   thumbnailUrl: string | null;
-  importSource: string | null;
   externalId: string | null;
-  canonicalUrl: string | null;
-  contentHash: string | null;
   sourcePublishedAt: Date | null;
   aiAnalysisStatus: AiGenerationStatus | null;
   aiAnalysisError: string | null;
@@ -136,24 +129,16 @@ export interface CreateArticleInput {
   sourceUrl?: string;
   authorName?: string;
   thumbnailUrl?: string;
-  createdByUserId: string;
-  updatedByUserId: string;
 }
 
 export interface CreateImportedArticleInput extends CreateArticleInput {
-  importSource: string;
   externalId: string;
-  canonicalUrl: string;
-  contentHash: string;
   sourcePublishedAt: Date;
   aiAnalysisStatus: AiGenerationStatus;
 }
 
 export interface ImportedArticleDuplicateLookup {
-  importSource?: string;
-  externalId?: string;
-  canonicalUrl?: string;
-  contentHash?: string;
+  externalId: string;
 }
 
 export interface ImportedArticleDuplicateRecord {
@@ -171,7 +156,6 @@ export interface UpdateArticleInput {
   sourceUrl?: string;
   authorName?: string;
   thumbnailUrl?: string;
-  updatedByUserId: string;
 }
 
 export interface ArticleMutationState {
@@ -185,7 +169,6 @@ export interface ArticleAnalysisTermInventoryRecord {
   id: string;
   sentenceId: string;
   value: string;
-  unitType: LexicalUnitType;
   updatedAt: Date;
 }
 
@@ -214,8 +197,6 @@ export interface AnalyzedTermInput {
   value: string;
   lemma: string;
   cefrLevel: CefrLevel | null;
-  createdByUserId: string;
-  updatedByUserId: string;
 }
 
 export interface CompleteArticleAnalysisInput {
@@ -223,7 +204,6 @@ export interface CompleteArticleAnalysisInput {
   contentVersion: number;
   sourceContentHtml: string;
   annotatedContentHtml: string;
-  actingAdminId: string;
   expectedSentences: ArticleAnalysisSentenceRecord[];
   articleCefrLevel: CefrLevel;
   terms: AnalyzedTermInput[];
@@ -243,7 +223,6 @@ export interface ArticleDeleteSafetyRecord {
   status: ArticleStatus;
   readingProgressCount: number;
   savedVocabularyCount: number;
-  reviewAnswerCount: number;
 }
 
 export interface ArticleSentenceRecord {
@@ -253,9 +232,6 @@ export interface ArticleSentenceRecord {
   sentenceOrder: number;
   sentenceText: string;
   translationVi: string | null;
-  explanationVi: string | null;
-  referenceExplanation: string | null;
-  skill: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -265,10 +241,7 @@ export interface ArticleSentenceTermRecord {
   id: string;
   sentenceId: string;
   value: string;
-  wordDisplay: string | null;
   lemma: string;
-  normalizedLemma: string | null;
-  unitType: LexicalUnitType;
   partOfSpeech: string | null;
   ipa: string | null;
   cefrLevel: CefrLevel | null;
@@ -279,15 +252,11 @@ export interface ArticleSentenceTermRecord {
   antonyms: string[];
   collocations: string[];
   relatedTerms: string[];
-  vocabularyTopic: string | null;
   examples: Prisma.JsonValue;
-  skill: string | null;
   origin: TermOrigin;
   reviewStatus: TermReviewStatus;
-  selectionReason: string | null;
   explanationStatus: AiGenerationStatus;
   explanationError: string | null;
-  explanationGeneratedAt: Date | null;
   isLookupEnabled: boolean;
   isActive: boolean;
   createdAt: Date;
@@ -365,17 +334,13 @@ export interface ArticleStatusTransitionInput {
   status: ArticleStatus;
   publishedAt?: Date | null;
   archivedAt?: Date | null;
-  updatedByUserId: string;
 }
 
 export interface CreateArticleTermInput {
   id: string;
   sentenceId: string;
   value: string;
-  wordDisplay: string;
   lemma: string;
-  normalizedLemma: string;
-  unitType: LexicalUnitType;
   partOfSpeech: string;
   ipa?: string;
   cefrLevel: CefrLevel;
@@ -386,21 +351,14 @@ export interface CreateArticleTermInput {
   antonyms: string[];
   collocations: string[];
   relatedTerms: string[];
-  vocabularyTopic?: string;
   examples: Prisma.InputJsonValue;
-  skill?: string;
   isLookupEnabled: boolean;
   isActive: boolean;
-  createdByUserId: string;
-  updatedByUserId: string;
 }
 
 export type UpdateArticleTermInput = Partial<
-  Omit<
-    CreateArticleTermInput,
-    'id' | 'sentenceId' | 'createdByUserId' | 'updatedByUserId'
-  >
-> & { updatedByUserId: string };
+  Omit<CreateArticleTermInput, 'id' | 'sentenceId'>
+>;
 
 export interface TermMarkerWriteInput {
   articleId: string;
@@ -409,7 +367,6 @@ export interface TermMarkerWriteInput {
   contentVersion: number;
   sourceContentHtml: string;
   updatedContentHtml: string;
-  actingAdminId: string;
 }
 
 export class ArticleTermStateConflictError extends Error {}
@@ -430,11 +387,7 @@ export interface ArticleSentenceDetailRecord {
 
 export interface UpdateArticleSentenceInput {
   translationVi?: string;
-  explanationVi?: string;
-  referenceExplanation?: string;
-  skill?: string;
   isActive?: boolean;
-  updatedByUserId: string;
 }
 
 export interface ReplaceParsedContentInput {
@@ -442,7 +395,6 @@ export interface ReplaceParsedContentInput {
   contentVersion: number;
   sourceContentHtml: string;
   annotatedContentHtml: string;
-  actingAdminId: string;
   resetAiAnalysis: boolean;
   sentences: Array<{
     id: string;
@@ -491,10 +443,7 @@ const publicArticleMetadataSelect = {
 const adminArticleListSelect = {
   ...publicArticleCardSelect,
   categoryId: true,
-  importSource: true,
   externalId: true,
-  canonicalUrl: true,
-  contentHash: true,
   sourcePublishedAt: true,
   aiAnalysisStatus: true,
   aiAnalysisError: true,
@@ -517,10 +466,7 @@ const adminArticleSelect = {
   sourceUrl: true,
   authorName: true,
   thumbnailUrl: true,
-  importSource: true,
   externalId: true,
-  canonicalUrl: true,
-  contentHash: true,
   sourcePublishedAt: true,
   aiAnalysisStatus: true,
   aiAnalysisError: true,
@@ -540,9 +486,6 @@ const articleSentenceSelect = {
   sentenceOrder: true,
   sentenceText: true,
   translationVi: true,
-  explanationVi: true,
-  referenceExplanation: true,
-  skill: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -552,10 +495,7 @@ const articleSentenceTermSelect = {
   id: true,
   sentenceId: true,
   value: true,
-  wordDisplay: true,
   lemma: true,
-  normalizedLemma: true,
-  unitType: true,
   partOfSpeech: true,
   ipa: true,
   cefrLevel: true,
@@ -566,15 +506,11 @@ const articleSentenceTermSelect = {
   antonyms: true,
   collocations: true,
   relatedTerms: true,
-  vocabularyTopic: true,
   examples: true,
-  skill: true,
   origin: true,
   reviewStatus: true,
-  selectionReason: true,
   explanationStatus: true,
   explanationError: true,
-  explanationGeneratedAt: true,
   isLookupEnabled: true,
   isActive: true,
   createdAt: true,
@@ -774,17 +710,8 @@ export class ArticlesRepository {
   findImportedDuplicate(
     lookup: ImportedArticleDuplicateLookup,
   ): Promise<ImportedArticleDuplicateRecord | null> {
-    const where: Prisma.ArticleWhereInput = lookup.contentHash
-      ? { contentHash: lookup.contentHash }
-      : lookup.canonicalUrl
-        ? { canonicalUrl: lookup.canonicalUrl }
-        : {
-            importSource: lookup.importSource,
-            externalId: lookup.externalId,
-          };
-
     return this.prisma.article.findFirst({
-      where,
+      where: { externalId: lookup.externalId },
       select: { id: true },
     });
   }
@@ -838,7 +765,6 @@ export class ArticlesRepository {
           ...(input.archivedAt === undefined
             ? {}
             : { archivedAt: input.archivedAt }),
-          updatedByUserId: input.updatedByUserId,
         },
       });
       if (updated.count !== 1) {
@@ -892,7 +818,7 @@ export class ArticlesRepository {
           contentVersion: previousContentVersion,
           isActive: true,
         },
-        data: { isActive: false, updatedByUserId: input.updatedByUserId },
+        data: { isActive: false },
       });
 
       return article;
@@ -921,27 +847,10 @@ export class ArticlesRepository {
       const savedVocabularyCount = await tx.userVocabulary.count({
         where: termRelation,
       });
-      const reviewAnswerCount = await tx.reviewAnswer.count({
-        where: {
-          reviewSessionItem: {
-            is: {
-              reviewQuestion: {
-                is: {
-                  articleSentenceTerm: {
-                    is: { sentence: { is: { articleId } } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-
       return {
         ...article,
         readingProgressCount,
         savedVocabularyCount,
-        reviewAnswerCount,
       };
     });
   }

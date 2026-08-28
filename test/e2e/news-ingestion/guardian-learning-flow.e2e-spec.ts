@@ -13,8 +13,6 @@ import {
   AiGenerationStatus,
   ArticleStatus,
   CefrLevel,
-  LearningStatus,
-  LexicalUnitType,
   TermOrigin,
   TermReviewStatus,
   UserRole,
@@ -84,9 +82,7 @@ interface FlowArticle {
   contentHtml: string;
   contentVersion: number;
   status: ArticleStatus;
-  importSource: string;
   externalId: string;
-  canonicalUrl: string;
   sourcePublishedAt: Date;
   publishedAt: Date | null;
 }
@@ -94,9 +90,7 @@ interface FlowArticle {
 interface FlowTerm {
   id: string;
   value: string;
-  wordDisplay: string;
   lemma: string;
-  unitType: LexicalUnitType;
   partOfSpeech: string;
   ipa: string | null;
   cefrLevel: CefrLevel;
@@ -104,7 +98,6 @@ interface FlowTerm {
   definitionEn: string | null;
   contextualExplanation: string | null;
   explanationStatus: AiGenerationStatus;
-  explanationGeneratedAt: Date | null;
   origin: TermOrigin;
   reviewStatus: TermReviewStatus;
   isActive: boolean;
@@ -113,9 +106,7 @@ interface FlowTerm {
   antonyms: string[];
   collocations: string[];
   relatedTerms: string[];
-  vocabularyTopic: string | null;
   examples: Array<{ sentence: string; translationVi: string }>;
-  skill: string | null;
 }
 
 interface ImportedDraftInput {
@@ -123,9 +114,7 @@ interface ImportedDraftInput {
   slug: string;
   summary: string;
   contentHtml: string;
-  importSource: string;
   externalId: string;
-  canonicalUrl: string;
   sourcePublishedAt: Date;
 }
 
@@ -146,7 +135,6 @@ interface EnrichmentResult {
   antonyms: string[];
   collocations: string[];
   relatedTerms: string[];
-  vocabularyTopic: string;
   examples: Array<{ sentence: string; translationVi: string }>;
   sentenceTranslationVi: string;
 }
@@ -248,21 +236,12 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
     );
 
     const articlesService = {
-      findImportedDuplicate: jest.fn(
-        (identity: {
-          importSource?: string;
-          externalId?: string;
-          canonicalUrl?: string;
-          contentHash?: string;
-        }) =>
-          Promise.resolve(
-            Boolean(
-              article &&
-              ((identity.importSource === article.importSource &&
-                identity.externalId === article.externalId) ||
-                identity.canonicalUrl === article.canonicalUrl),
-            ),
-          ),
+      findImportedDuplicate: jest.fn((identity: { externalId: string }) =>
+        Promise.resolve(
+          article?.externalId === identity.externalId
+            ? { id: article.id }
+            : null,
+        ),
       ),
       createImportedDraft: jest.fn(
         (_adminId: string, input: ImportedDraftInput) => {
@@ -274,9 +253,7 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
             contentHtml: input.contentHtml,
             contentVersion: 1,
             status: ArticleStatus.DRAFT,
-            importSource: input.importSource,
             externalId: input.externalId,
-            canonicalUrl: input.canonicalUrl,
             sourcePublishedAt: input.sourcePublishedAt,
             publishedAt: null,
           };
@@ -345,7 +322,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
           sentenceId,
           term.id,
           term.value,
-          term.unitType,
         );
         return Promise.resolve({ term, contentHtmlChanged: true });
       }),
@@ -398,7 +374,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
             articleId,
             status: 'READING',
             progressPercent: 0,
-            lastBlockKey: null,
             completedAt: null,
           },
         });
@@ -438,7 +413,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
               term.antonyms = [...generated.antonyms];
               term.collocations = [...generated.collocations];
               term.relatedTerms = [...generated.relatedTerms];
-              term.vocabularyTopic = generated.vocabularyTopic;
               term.examples = generated.examples.map(
                 (example: { sentence: string; translationVi: string }) => ({
                   ...example,
@@ -446,7 +420,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
               );
               sentenceTranslationVi = generated.sentenceTranslationVi;
               term.explanationStatus = AiGenerationStatus.READY;
-              term.explanationGeneratedAt = new Date('2026-07-31T00:01:00Z');
             }
             return {
               term,
@@ -455,14 +428,10 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
                 sentenceOrder: 1,
                 sentenceText,
                 translationVi: sentenceTranslationVi,
-                explanationVi: null,
-                referenceExplanation: null,
-                skill: null,
               },
               saveState: {
                 isSaved: Boolean(savedVocabulary),
                 userVocabularyId: savedVocabulary ? vocabularyId : null,
-                learningStatus: savedVocabulary ? LearningStatus.NEW : null,
               },
             };
           },
@@ -482,28 +451,23 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
           if (
             term.explanationStatus !== AiGenerationStatus.READY ||
             !term.contextualMeaningVi ||
-            !sentenceTranslationVi
+            !term.definitionEn
           ) {
             throw new NotFoundException('Contextual term is not ready');
           }
           savedVocabulary = {
             id: vocabularyId,
             articleSentenceTermId: term.id,
-            learningStatus: LearningStatus.NEW,
-            savedWordDisplay: term.wordDisplay,
+            savedWordDisplay: term.value,
             savedLemma: term.lemma,
             savedPartOfSpeech: term.partOfSpeech,
             savedIpa: term.ipa,
             savedCefrLevel: term.cefrLevel,
             savedMeaningVi: term.contextualMeaningVi,
-            savedContextSentence: sentenceText,
-            savedContextTranslationVi: sentenceTranslationVi,
-            savedExplanation: term.contextualExplanation,
+            definitionEn: term.definitionEn,
             savedExamples: term.examples.map((example) => ({ ...example })),
             savedAt: new Date('2026-07-31T00:02:00Z'),
-            nextReviewAt: null,
-            lastReviewedAt: null,
-            reviewIntervalDays: null,
+            createdAt: new Date('2026-07-31T00:02:00Z'),
           };
           return Promise.resolve({
             vocabulary: savedVocabulary,
@@ -579,7 +543,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
       antonyms: ['unambitious'],
       collocations: ['ambitious plan'],
       relatedTerms: ['ambition'],
-      vocabularyTopic: 'Community',
       examples: [
         {
           sentence: 'The town approved an ambitious recovery plan.',
@@ -625,9 +588,7 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
     return {
       id,
       value,
-      wordDisplay: value,
       lemma: value,
-      unitType: LexicalUnitType.WORD,
       partOfSpeech: 'adjective',
       ipa: null,
       cefrLevel: CefrLevel.B1,
@@ -635,7 +596,6 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
       definitionEn: null,
       contextualExplanation: null,
       explanationStatus: AiGenerationStatus.PENDING,
-      explanationGeneratedAt: null,
       origin: TermOrigin.AI,
       reviewStatus: TermReviewStatus.PENDING,
       isActive: false,
@@ -644,9 +604,7 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
       antonyms: [],
       collocations: [],
       relatedTerms: [],
-      vocabularyTopic: null,
       examples: [],
-      skill: null,
     };
   }
 
@@ -698,8 +656,7 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
     });
     expect(requireArticle()).toMatchObject({
       status: ArticleStatus.DRAFT,
-      importSource: 'guardian',
-      canonicalUrl: sourceUrl,
+      externalId: 'environment/2026/jul/30/community-plan',
       sourcePublishedAt: new Date('2026-07-30T08:30:00Z'),
       publishedAt: null,
     });
@@ -836,6 +793,7 @@ describe('Guardian to vocabulary learning flow (e2e)', () => {
       id: vocabularyId,
       articleSentenceTermId: approvedTermId,
       savedMeaningVi: 'đầy tham vọng',
+      definitionEn: 'Requiring determination and substantial effort.',
       savedExamples: [
         {
           sentence: 'The town approved an ambitious recovery plan.',

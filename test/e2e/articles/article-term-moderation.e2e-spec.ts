@@ -79,7 +79,6 @@ describe('Admin article term moderation API (e2e)', () => {
       origin: TermOrigin.AI,
       reviewStatus: TermReviewStatus.PENDING,
       explanationStatus: AiGenerationStatus.PENDING,
-      selectionReason: 'Useful contextual phrase.',
     };
     termsService.findAll.mockResolvedValue({
       items: [term],
@@ -143,7 +142,7 @@ describe('Admin article term moderation API (e2e)', () => {
     const termSchema = JSON.stringify(
       document.components?.schemas?.ArticleSentenceTermDto,
     );
-    expect(termSchema).toContain('selectionReason');
+    expect(termSchema).not.toContain('selectionReason');
     expect(termSchema).toContain('reviewStatus');
     expect(termSchema).toContain('explanationStatus');
   });
@@ -176,7 +175,6 @@ describe('Admin article term moderation API (e2e)', () => {
       origin: TermOrigin.AI,
       reviewStatus: TermReviewStatus.PENDING,
       explanationStatus: AiGenerationStatus.PENDING,
-      selectionReason: 'Useful contextual phrase.',
     });
   });
 

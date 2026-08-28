@@ -40,7 +40,6 @@ describe('ArticleAnalysisRepository', () => {
     contentVersion: 2,
     sourceContentHtml,
     annotatedContentHtml,
-    actingAdminId: 'admin-id',
     expectedSentences,
     articleCefrLevel: CefrLevel.A2,
     terms: [
@@ -50,8 +49,6 @@ describe('ArticleAnalysisRepository', () => {
         value: 'ambitious',
         lemma: 'ambitious',
         cefrLevel: CefrLevel.B1,
-        createdByUserId: 'admin-id',
-        updatedByUserId: 'admin-id',
       },
     ],
   };
@@ -178,15 +175,11 @@ describe('ArticleAnalysisRepository', () => {
       sentenceId: 'sentence-id',
       value: 'ambitious',
       lemma: 'ambitious',
-      wordDisplay: null,
-      normalizedLemma: null,
-      unitType: 'WORD',
       partOfSpeech: null,
       cefrLevel: CefrLevel.B1,
       origin: 'NLP',
       reviewStatus: 'APPROVED',
       explanationStatus: 'PENDING',
-      selectionReason: null,
       contextualMeaningVi: null,
       definitionEn: null,
       contextualExplanation: null,
@@ -198,8 +191,6 @@ describe('ArticleAnalysisRepository', () => {
       examples: [],
       isActive: true,
       isLookupEnabled: true,
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
     expect(context.state()).toEqual({
       contentHtml: annotatedContentHtml,

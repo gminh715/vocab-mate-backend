@@ -6,11 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  CefrLevel,
-  LearningStatus,
-  LexicalUnitType,
-} from '../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../generated/prisma/enums';
 import { ContextualTermsService } from '../../../../src/modules/reading/services/contextual-terms.service';
 import { VocabularySort } from '../../../../src/modules/vocabularies/dto/vocabulary-request.dto';
 import {
@@ -27,9 +23,7 @@ const sourceRecord = () => ({
   term: {
     id: TERM_ID,
     value: 'harmful',
-    wordDisplay: 'harmful',
     lemma: 'harmful',
-    unitType: LexicalUnitType.WORD,
     partOfSpeech: 'adjective',
     ipa: '/ˈhɑːrmfəl/',
     cefrLevel: CefrLevel.B1,
@@ -37,28 +31,22 @@ const sourceRecord = () => ({
     definitionEn: 'causing damage',
     contextualExplanation: 'A negative effect in this context.',
     explanationStatus: 'READY',
-    explanationGeneratedAt: new Date('2026-07-23T00:00:00Z'),
     synonyms: ['damaging'],
     antonyms: ['beneficial'],
     collocations: ['harmful effect'],
     relatedTerms: ['harm'],
-    vocabularyTopic: 'environment',
     examples: [
       {
         sentence: 'Plastic is harmful.',
         translationVi: 'Nhựa có hại.',
       },
     ],
-    skill: null,
   },
   parentSentence: {
     id: '44444444-4444-4444-8444-444444444444',
     sentenceOrder: 1,
     sentenceText: 'Plastic waste is harmful.',
     translationVi: 'Rác thải nhựa có hại.',
-    explanationVi: null,
-    referenceExplanation: null,
-    skill: null,
     contentVersion: 2,
   },
   sourceArticle: {
@@ -71,21 +59,16 @@ const sourceRecord = () => ({
 const savedRecord = () => ({
   id: VOCABULARY_ID,
   articleSentenceTermId: TERM_ID,
-  learningStatus: LearningStatus.NEW,
   savedWordDisplay: 'harmful',
   savedLemma: 'harmful',
   savedPartOfSpeech: 'adjective',
   savedIpa: '/ˈhɑːrmfəl/',
   savedCefrLevel: CefrLevel.B1,
-  savedContextSentence: 'Plastic waste is harmful.',
-  savedContextTranslationVi: 'Rác thải nhựa có hại.',
   savedMeaningVi: 'có hại',
-  savedExplanation: 'A negative effect in this context.',
+  definitionEn: 'causing damage',
   savedExamples: [],
   savedAt: new Date('2026-07-23T01:00:00Z'),
-  lastReviewedAt: null,
-  nextReviewAt: null,
-  reviewIntervalDays: null,
+  createdAt: new Date('2026-07-23T01:00:00Z'),
   collectionItems: [
     {
       addedAt: new Date('2026-07-23T01:00:00Z'),
@@ -153,10 +136,8 @@ describe('VocabulariesService', () => {
       page: 2,
       limit: 10,
       q: 'harmful',
-      learningStatus: LearningStatus.NEW,
       cefrLevel: CefrLevel.B1,
       collectionId: COLLECTION_ID,
-      dueOnly: true,
       sort: VocabularySort.NEWEST,
     });
 
@@ -166,13 +147,10 @@ describe('VocabulariesService', () => {
         page: 2,
         limit: 10,
         q: 'harmful',
-        learningStatus: LearningStatus.NEW,
         cefrLevel: CefrLevel.B1,
         collectionId: COLLECTION_ID,
-        dueOnly: true,
         sort: VocabularySort.NEWEST,
       },
-      expect.any(Date),
     );
     expect(result.meta).toEqual({
       page: 2,
@@ -216,7 +194,7 @@ describe('VocabulariesService', () => {
     );
   });
 
-  it('deletes owned vocabulary regardless of review history references', async () => {
+  it('deletes owned vocabulary', async () => {
     repository.deleteOwned.mockResolvedValue(true);
 
     await expect(
@@ -251,25 +229,19 @@ describe('VocabulariesService', () => {
       'owner-id',
       expect.objectContaining({
         articleSentenceTermId: TERM_ID,
-        learningStatus: LearningStatus.NEW,
         savedWordDisplay: 'harmful',
         savedLemma: 'harmful',
         savedPartOfSpeech: 'adjective',
         savedIpa: '/ˈhɑːrmfəl/',
         savedCefrLevel: CefrLevel.B1,
-        savedContextSentence: 'Plastic waste is harmful.',
-        savedContextTranslationVi: 'Rác thải nhựa có hại.',
         savedMeaningVi: 'có hại',
-        savedExplanation: 'A negative effect in this context.',
+        definitionEn: 'causing damage',
         savedExamples: sourceRecord().term.examples,
-        lastReviewedAt: null,
-        nextReviewAt: null,
-        reviewIntervalDays: null,
       }),
       [COLLECTION_ID],
     );
     expect(result).toMatchObject({
-      vocabulary: { learningStatus: LearningStatus.NEW },
+      vocabulary: { savedWordDisplay: 'harmful' },
       collections: [{ id: COLLECTION_ID }],
     });
   });
@@ -303,7 +275,7 @@ describe('VocabulariesService', () => {
         storedSnapshot = {
           ...savedRecord(),
           savedMeaningVi: String(input.savedMeaningVi),
-          savedContextTranslationVi: String(input.savedContextTranslationVi),
+          definitionEn: String(input.definitionEn),
           savedExamples: input.savedExamples,
         };
         return Promise.resolve(storedSnapshot);
@@ -315,7 +287,7 @@ describe('VocabulariesService', () => {
       collectionIds: [COLLECTION_ID],
     });
     originalSource.term.contextualMeaningVi = 'nghĩa nguồn đã sửa';
-    originalSource.parentSentence.translationVi = 'Bản dịch nguồn đã sửa.';
+    originalSource.term.definitionEn = 'later source definition';
     originalSource.term.examples = [
       {
         sentence: 'A later source example.',
@@ -331,7 +303,7 @@ describe('VocabulariesService', () => {
     ).resolves.toMatchObject({
       vocabulary: {
         savedMeaningVi: 'có hại',
-        savedContextTranslationVi: 'Rác thải nhựa có hại.',
+        definitionEn: 'causing damage',
         savedExamples: [
           {
             sentence: 'Plastic is harmful.',
@@ -381,12 +353,12 @@ describe('VocabulariesService', () => {
     expect(repository.createWithCollections).not.toHaveBeenCalled();
   });
 
-  it('rejects a missing required translation with a structured readiness error', async () => {
+  it('rejects a missing required English definition with a structured readiness error', async () => {
     contextualTermsService.getContextualTermForSave.mockResolvedValue({
       ...sourceRecord(),
-      parentSentence: {
-        ...sourceRecord().parentSentence,
-        translationVi: null,
+      term: {
+        ...sourceRecord().term,
+        definitionEn: null,
       },
     });
 

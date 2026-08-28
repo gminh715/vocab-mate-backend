@@ -1,27 +1,24 @@
 model User {
-  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String     @unique(map: "uq_users_email") @db.Citext
-  passwordHash String     @map("password_hash") @db.Text
-  role         UserRole   @default(USER)
-  status       UserStatus @default(ACTIVE)
-  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String     @unique(map: "uq_users_email") @db.Citext
+  passwordHash      String     @map("password_hash") @db.Text
+  role              UserRole   @default(USER)
+  status            UserStatus @default(ACTIVE)
+  lastLoginAt       DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  displayName       String     @map("display_name") @db.Text
+  avatarUrl         String?    @map("avatar_url") @db.Text
+  currentCefrLevel  CefrLevel  @map("current_cefr_level")
+  learningGoal      String?    @map("learning_goal") @db.Text
+  preferredLanguage String     @default("vi") @map("preferred_language") @db.VarChar(20)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  profile                     UserProfile?
-  categoriesCreated           Category[]             @relation("CategoryCreatedBy")
-  categoriesUpdated           Category[]             @relation("CategoryUpdatedBy")
-  articlesCreated             Article[]              @relation("ArticleCreatedBy")
-  articlesUpdated             Article[]              @relation("ArticleUpdatedBy")
-  articleSentencesCreated     ArticleSentence[]      @relation("ArticleSentenceCreatedBy")
-  articleSentencesUpdated     ArticleSentence[]      @relation("ArticleSentenceUpdatedBy")
-  articleSentenceTermsCreated ArticleSentenceTerm[]  @relation("ArticleSentenceTermCreatedBy")
-  articleSentenceTermsUpdated ArticleSentenceTerm[]  @relation("ArticleSentenceTermUpdatedBy")
-  articleProgress             UserArticleProgress[]
-  vocabularies                UserVocabulary[]
-  vocabularyCollections       VocabularyCollection[]
-  reviewSessions              ReviewSession[]
-  refreshSessions             RefreshSession[]
+  categoriesCreated     Category[]             @relation("CategoryCreatedBy")
+  categoriesUpdated     Category[]             @relation("CategoryUpdatedBy")
+  articleProgress       UserArticleProgress[]
+  vocabularies          UserVocabulary[]
+  vocabularyCollections VocabularyCollection[]
+  refreshSessions       RefreshSession[]
 
   @@map("users")
 }
@@ -41,20 +38,4 @@ model RefreshSession {
 
   @@index([userId, revokedAt], map: "idx_refresh_sessions_user_revoked")
   @@map("refresh_sessions")
-}
-
-model UserProfile {
-  userId            String    @id @map("user_id") @db.Uuid
-  displayName       String    @map("display_name") @db.Text
-  avatarUrl         String?   @map("avatar_url") @db.Text
-  currentCefrLevel  CefrLevel @map("current_cefr_level")
-  learningGoal      String?   @map("learning_goal") @db.Text
-  dailyStudyMinutes Int?      @map("daily_study_minutes") @db.SmallInt
-  preferredLanguage String    @default("vi") @map("preferred_language") @db.VarChar(20)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user_profiles_user")
-
-  @@map("user_profiles")
 }

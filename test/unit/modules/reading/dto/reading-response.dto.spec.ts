@@ -25,19 +25,6 @@ describe('Reading DTO validation', () => {
     },
   );
 
-  it('trims a valid opaque lastBlockKey and rejects a blank key', async () => {
-    const valid = plainToInstance(UpdateReadingProgressDto, {
-      lastBlockKey: '  paragraph-3  ',
-    });
-    const blank = plainToInstance(UpdateReadingProgressDto, {
-      lastBlockKey: '   ',
-    });
-
-    await expect(validate(valid)).resolves.toHaveLength(0);
-    expect(valid.lastBlockKey).toBe('paragraph-3');
-    expect(await validate(blank)).not.toHaveLength(0);
-  });
-
   it('validates bounded history pagination and allowlisted filters', async () => {
     const valid = plainToInstance(ReadingHistoryQueryDto, {
       page: '1',

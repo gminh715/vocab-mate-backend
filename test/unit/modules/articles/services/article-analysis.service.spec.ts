@@ -46,10 +46,7 @@ describe('ArticleAnalysisService', () => {
       [string]
     >(),
     claimArticleAnalysis: jest.fn<Promise<boolean>, [string, number]>(),
-    failArticleAnalysis: jest.fn<
-      Promise<boolean>,
-      [string, number, string, string]
-    >(),
+    failArticleAnalysis: jest.fn<Promise<boolean>, [string, number, string]>(),
     completeArticleAnalysis: jest.fn<
       Promise<ArticleAnalysisCompletionRecord>,
       [CompleteArticleAnalysisInput]
@@ -118,8 +115,6 @@ describe('ArticleAnalysisService', () => {
       sentenceId: 'sentence-1',
       value: 'The',
       lemma: 'the',
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
     expect(completion.terms[0]?.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
@@ -239,7 +234,6 @@ describe('ArticleAnalysisService', () => {
       'article-id',
       3,
       'Vocabulary analysis could not be completed',
-      'admin-id',
     );
     expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
   });
@@ -262,7 +256,6 @@ describe('ArticleAnalysisService', () => {
       'article-id',
       3,
       'Vocabulary analysis could not be completed',
-      'admin-id',
     );
     expect(repository.completeArticleAnalysis).not.toHaveBeenCalled();
   });
@@ -279,7 +272,6 @@ describe('ArticleAnalysisService', () => {
       'article-id',
       3,
       'Article changed during vocabulary analysis; retry',
-      'admin-id',
     );
   });
 

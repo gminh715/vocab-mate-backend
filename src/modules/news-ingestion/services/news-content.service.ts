@@ -73,7 +73,6 @@ export class NewsContentService {
     return {
       contentHtml,
       plainText,
-      canonicalUrl: article.url,
     };
   }
 

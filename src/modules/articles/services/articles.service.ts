@@ -62,11 +62,7 @@ export class ImportedArticleDuplicateError extends Error {
 
 export interface ImportedDraftInput extends Omit<
   CreateImportedArticleInput,
-  | 'contentHtml'
-  | 'cefrLevel'
-  | 'aiAnalysisStatus'
-  | 'createdByUserId'
-  | 'updatedByUserId'
+  'contentHtml' | 'cefrLevel' | 'aiAnalysisStatus'
 > {
   contentHtml: string;
 }
@@ -154,6 +150,7 @@ export class ArticlesService {
     actingAdminId: string,
     dto: CreateArticleDto,
   ): Promise<{ article: AdminArticleRecord }> {
+    void actingAdminId;
     await this.categoriesService.requireActiveCategory(dto.categoryId);
 
     try {
@@ -176,8 +173,6 @@ export class ArticlesService {
         ...(dto.thumbnailUrl === undefined
           ? {}
           : { thumbnailUrl: dto.thumbnailUrl.trim() }),
-        createdByUserId: actingAdminId,
-        updatedByUserId: actingAdminId,
       });
 
       return { article };
@@ -196,14 +191,13 @@ export class ArticlesService {
     actingAdminId: string,
     input: ImportedDraftInput,
   ): Promise<{ article: AdminArticleRecord }> {
+    void actingAdminId;
     try {
       const article = await this.articlesRepository.createImported({
         ...input,
         contentHtml: this.articleContentService.sanitize(input.contentHtml),
         cefrLevel: CefrLevel.B1,
         aiAnalysisStatus: AiGenerationStatus.PENDING,
-        createdByUserId: actingAdminId,
-        updatedByUserId: actingAdminId,
       });
       return { article };
     } catch (error: unknown) {
@@ -238,7 +232,8 @@ export class ArticlesService {
         : this.articleContentService.sanitize(dto.contentHtml);
     const contentChanged =
       sanitizedContent !== undefined && sanitizedContent !== state.contentHtml;
-    const input = this.toUpdateInput(actingAdminId, dto);
+    void actingAdminId;
+    const input = this.toUpdateInput(dto);
 
     try {
       const article = contentChanged
@@ -266,8 +261,7 @@ export class ArticlesService {
 
     const hasHistory =
       safety.readingProgressCount > 0 ||
-      safety.savedVocabularyCount > 0 ||
-      safety.reviewAnswerCount > 0;
+      safety.savedVocabularyCount > 0;
     if (safety.status !== ArticleStatus.DRAFT || hasHistory) {
       throw new ConflictException(
         'Only unused draft articles can be deleted; archive this article instead',
@@ -286,10 +280,7 @@ export class ArticlesService {
     }
   }
 
-  private toUpdateInput(
-    actingAdminId: string,
-    dto: UpdateArticleDto,
-  ): UpdateArticleInput {
+  private toUpdateInput(dto: UpdateArticleDto): UpdateArticleInput {
     return {
       ...(dto.categoryId === undefined ? {} : { categoryId: dto.categoryId }),
       ...(dto.title === undefined ? {} : { title: dto.title.trim() }),
@@ -310,7 +301,6 @@ export class ArticlesService {
       ...(dto.thumbnailUrl === undefined
         ? {}
         : { thumbnailUrl: dto.thumbnailUrl.trim() }),
-      updatedByUserId: actingAdminId,
     };
   }
 

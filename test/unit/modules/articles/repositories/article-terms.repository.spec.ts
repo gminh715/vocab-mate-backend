@@ -32,19 +32,11 @@ describe('ArticleTermsRepository', () => {
   const userVocabulary = {
     count: jest.fn<Promise<number>, [unknown]>(),
   };
-  const reviewQuestion = {
-    count: jest.fn<Promise<number>, [unknown]>(),
-  };
-  const reviewAnswer = {
-    count: jest.fn<Promise<number>, [unknown]>(),
-  };
   const transactionClient = {
     article,
     articleSentence,
     articleSentenceTerm,
     userVocabulary,
-    reviewQuestion,
-    reviewAnswer,
   };
   const prisma = {
     ...transactionClient,
@@ -63,16 +55,12 @@ describe('ArticleTermsRepository', () => {
     contentVersion: 3,
     sourceContentHtml: '<p>old</p>',
     updatedContentHtml: '<p>new</p>',
-    actingAdminId: 'admin-id',
   };
   const termInput: CreateArticleTermInput = {
     id: 'term-id',
     sentenceId: 'sentence-id',
     value: 'term',
-    wordDisplay: 'term',
     lemma: 'term',
-    normalizedLemma: 'term',
-    unitType: 'WORD',
     partOfSpeech: 'noun',
     cefrLevel: 'B1',
     contextualMeaningVi: 'nghĩa',
@@ -83,8 +71,6 @@ describe('ArticleTermsRepository', () => {
     examples: [],
     isLookupEnabled: true,
     isActive: true,
-    createdByUserId: 'admin-id',
-    updatedByUserId: 'admin-id',
   };
 
   beforeEach(() => {
@@ -97,8 +83,6 @@ describe('ArticleTermsRepository', () => {
     articleSentenceTerm.updateMany.mockResolvedValue({ count: 1 });
     articleSentenceTerm.deleteMany.mockResolvedValue({ count: 1 });
     userVocabulary.count.mockResolvedValue(0);
-    reviewQuestion.count.mockResolvedValue(0);
-    reviewAnswer.count.mockResolvedValue(0);
   });
 
   it('creates a term and updates matching current HTML in one transaction', async () => {
@@ -120,7 +104,7 @@ describe('ArticleTermsRepository', () => {
         contentHtml: '<p>old</p>',
         status: { not: ArticleStatus.ARCHIVED },
       },
-      data: { contentHtml: '<p>new</p>', updatedByUserId: 'admin-id' },
+      data: { contentHtml: '<p>new</p>' },
     });
     expect(articleSentenceTerm.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -144,7 +128,6 @@ describe('ArticleTermsRepository', () => {
       limit: 10,
       sentenceId: 'sentence-id',
       cefrLevel: 'B2',
-      unitType: 'PHRASE',
       origin: TermOrigin.AI,
       reviewStatus: TermReviewStatus.PENDING,
       explanationStatus: AiGenerationStatus.FAILED,
@@ -161,7 +144,6 @@ describe('ArticleTermsRepository', () => {
     expect(findManyInput.where).toMatchObject({
       sentenceId: 'sentence-id',
       cefrLevel: 'B2',
-      unitType: 'PHRASE',
       origin: TermOrigin.AI,
       reviewStatus: TermReviewStatus.PENDING,
       explanationStatus: AiGenerationStatus.FAILED,
@@ -194,7 +176,6 @@ describe('ArticleTermsRepository', () => {
       },
       data: {
         contentHtml: '<p>new</p>',
-        updatedByUserId: 'admin-id',
       },
     });
     expect(articleSentenceTerm.updateMany).toHaveBeenCalledWith({
@@ -210,7 +191,6 @@ describe('ArticleTermsRepository', () => {
         reviewStatus: TermReviewStatus.APPROVED,
         isActive: true,
         isLookupEnabled: true,
-        updatedByUserId: 'admin-id',
       },
     });
   });
@@ -251,7 +231,6 @@ describe('ArticleTermsRepository', () => {
         reviewStatus: TermReviewStatus.REJECTED,
         isActive: false,
         isLookupEnabled: false,
-        updatedByUserId: 'admin-id',
       },
     });
   });
@@ -265,8 +244,8 @@ describe('ArticleTermsRepository', () => {
     expect(articleSentenceTerm.findUnique).not.toHaveBeenCalled();
   });
 
-  it('checks all historical references before changing HTML or deleting', async () => {
-    reviewQuestion.count.mockResolvedValue(1);
+  it('checks saved vocabulary references before changing HTML or deleting', async () => {
+    userVocabulary.count.mockResolvedValue(1);
 
     await expect(
       repository.deleteTermWithMarker(marker),

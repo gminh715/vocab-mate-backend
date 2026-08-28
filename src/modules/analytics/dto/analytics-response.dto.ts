@@ -2,23 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   ArticleStatus,
   CefrLevel,
-  LearningStatus,
-  ReviewDecisionSource,
-  ReviewSkillDimension,
 } from '../../../../generated/prisma/enums';
 
 export class AnalyticsOverviewDataDto {
   @ApiProperty({ example: 42, description: 'Current saved vocabulary stock.' })
   savedVocabulary!: number;
-
-  @ApiProperty({
-    example: 7,
-    description: 'Current vocabulary due at the captured request time.',
-  })
-  dueToday!: number;
-
-  @ApiProperty({ example: 12, description: 'Current MASTERED stock.' })
-  mastered!: number;
 
   @ApiProperty({
     example: 4,
@@ -27,36 +15,11 @@ export class AnalyticsOverviewDataDto {
   })
   articlesCompleted!: number;
 
-  @ApiProperty({
-    example: 0.8,
-    minimum: 0,
-    maximum: 1,
-    description:
-      'Answer-level accuracy for completed review sessions in the range; zero when there are no answers.',
-  })
-  reviewAccuracy!: number;
-
-  @ApiProperty({
-    example: 5,
-    description: 'Completed review sessions in the requested range.',
-  })
-  sessions!: number;
 }
 
 export class VocabularyAnalyticsTotalsDto {
   @ApiProperty({ example: 42 })
   total!: number;
-  @ApiProperty({ example: 7 })
-  due!: number;
-  @ApiProperty({ example: 12 })
-  mastered!: number;
-}
-
-export class VocabularyStatusCountDto {
-  @ApiProperty({ enum: LearningStatus, example: LearningStatus.NEW })
-  status!: LearningStatus;
-  @ApiProperty({ example: 10 })
-  count!: number;
 }
 
 export class VocabularyCefrCountDto {
@@ -80,8 +43,6 @@ export class VocabularyTrendBucketDto {
 export class VocabularyAnalyticsDataDto {
   @ApiProperty({ type: VocabularyAnalyticsTotalsDto })
   totals!: VocabularyAnalyticsTotalsDto;
-  @ApiProperty({ type: [VocabularyStatusCountDto] })
-  byStatus!: VocabularyStatusCountDto[];
   @ApiProperty({ type: [VocabularyCefrCountDto] })
   byCefr!: VocabularyCefrCountDto[];
   @ApiProperty({ type: [VocabularyTrendBucketDto] })
@@ -152,122 +113,6 @@ export class ReadingAnalyticsSuccessResponseDto extends successResponse(
   ReadingAnalyticsDataDto,
 ) {}
 
-export class ReviewRetestAnalyticsDto {
-  @ApiProperty()
-  attempts!: number;
-  @ApiProperty()
-  correct!: number;
-  @ApiProperty(ratioProperty)
-  successRate!: number;
-}
-
-export class ReviewSkillAnalyticsDto {
-  @ApiProperty({ enum: ReviewSkillDimension })
-  skillDimension!: ReviewSkillDimension;
-  @ApiProperty()
-  attempts!: number;
-  @ApiProperty()
-  correct!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-  @ApiProperty({ nullable: true, example: 3200 })
-  averageResponseTimeMs!: number | null;
-  @ApiProperty()
-  hintsUsed!: number;
-}
-
-export class ReviewDurationAnalyticsDto {
-  @ApiProperty({ enum: [5, 10, 15] })
-  targetDurationMinutes!: number;
-  @ApiProperty()
-  started!: number;
-  @ApiProperty()
-  completed!: number;
-  @ApiProperty(ratioProperty)
-  completionRate!: number;
-}
-
-export class ReviewDecisionSourceAnalyticsDto {
-  @ApiProperty({ enum: ReviewDecisionSource })
-  source!: ReviewDecisionSource;
-  @ApiProperty()
-  interventions!: number;
-  @ApiProperty()
-  retestAttempts!: number;
-  @ApiProperty()
-  successfulRetests!: number;
-  @ApiProperty(ratioProperty)
-  retestSuccessRate!: number;
-}
-
-export class ReviewRetentionWindowDto {
-  @ApiProperty()
-  followUps!: number;
-  @ApiProperty()
-  correct!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-}
-
-export class ReviewRetentionAnalyticsDto {
-  @ApiProperty({ type: ReviewRetentionWindowDto })
-  nextDay!: ReviewRetentionWindowDto;
-  @ApiProperty({ type: ReviewRetentionWindowDto })
-  sevenDay!: ReviewRetentionWindowDto;
-}
-
-export class ReviewTrendBucketDto {
-  @ApiProperty({ example: '2026-07-24' })
-  bucket!: string;
-  @ApiProperty()
-  answers!: number;
-  @ApiProperty()
-  correctAnswers!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-  @ApiProperty({ nullable: true, example: 3200 })
-  averageResponseTimeMs!: number | null;
-  @ApiProperty()
-  hintsUsed!: number;
-}
-
-export class ReviewAnalyticsDataDto {
-  @ApiProperty()
-  sessionsStarted!: number;
-  @ApiProperty()
-  sessionsCompleted!: number;
-  @ApiProperty()
-  sessionsAbandoned!: number;
-  @ApiProperty(ratioProperty)
-  completionRate!: number;
-  @ApiProperty()
-  answers!: number;
-  @ApiProperty()
-  correctAnswers!: number;
-  @ApiProperty(ratioProperty)
-  accuracy!: number;
-  @ApiProperty({ nullable: true, example: 3200 })
-  averageResponseTimeMs!: number | null;
-  @ApiProperty()
-  hintsUsed!: number;
-  @ApiProperty({ type: ReviewRetestAnalyticsDto })
-  sameSessionRetest!: ReviewRetestAnalyticsDto;
-  @ApiProperty({ type: [ReviewSkillAnalyticsDto] })
-  bySkill!: ReviewSkillAnalyticsDto[];
-  @ApiProperty({ type: [ReviewDurationAnalyticsDto] })
-  byDuration!: ReviewDurationAnalyticsDto[];
-  @ApiProperty({ type: [ReviewDecisionSourceAnalyticsDto] })
-  byDecisionSource!: ReviewDecisionSourceAnalyticsDto[];
-  @ApiProperty({ type: ReviewRetentionAnalyticsDto })
-  retention!: ReviewRetentionAnalyticsDto;
-  @ApiProperty({ type: [ReviewTrendBucketDto] })
-  trend!: ReviewTrendBucketDto[];
-}
-
-export class ReviewAnalyticsSuccessResponseDto extends successResponse(
-  ReviewAnalyticsDataDto,
-) {}
-
 export class AdminAnalyticsOverviewDataDto {
   @ApiProperty()
   users!: number;
@@ -279,8 +124,6 @@ export class AdminAnalyticsOverviewDataDto {
   publishedArticles!: number;
   @ApiProperty()
   savedVocabulary!: number;
-  @ApiProperty()
-  completedSessions!: number;
 }
 
 export class AdminAnalyticsOverviewSuccessResponseDto extends successResponse(
@@ -325,7 +168,7 @@ export class AdminTermSaveDto {
   @ApiProperty()
   value!: string;
   @ApiProperty()
-  normalizedLemma!: string;
+  lemma!: string;
   @ApiProperty({ enum: CefrLevel })
   cefrLevel!: CefrLevel;
   @ApiProperty({ format: 'uuid' })
@@ -374,8 +217,6 @@ export class LearningDistributionDto {
   readingOnly!: number;
   @ApiProperty()
   vocabularyOnly!: number;
-  @ApiProperty()
-  reviewOnly!: number;
   @ApiProperty()
   multiActivity!: number;
 }

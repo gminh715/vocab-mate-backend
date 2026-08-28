@@ -4,8 +4,6 @@ import {
   AiGenerationStatus,
   ArticleStatus,
   type CefrLevel,
-  type LearningStatus,
-  type LexicalUnitType,
   TermReviewStatus,
 } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../database/prisma.service';
@@ -13,9 +11,7 @@ import { PrismaService } from '../../../database/prisma.service';
 export interface ContextualTermRecord {
   id: string;
   value: string;
-  wordDisplay: string | null;
   lemma: string;
-  unitType: LexicalUnitType;
   partOfSpeech: string | null;
   ipa: string | null;
   cefrLevel: CefrLevel | null;
@@ -23,14 +19,11 @@ export interface ContextualTermRecord {
   definitionEn: string | null;
   contextualExplanation: string | null;
   explanationStatus: AiGenerationStatus;
-  explanationGeneratedAt: Date | null;
   synonyms: string[];
   antonyms: string[];
   collocations: string[];
   relatedTerms: string[];
-  vocabularyTopic: string | null;
   examples: Prisma.JsonValue;
-  skill: string | null;
 }
 
 export interface ContextualParentSentenceRecord {
@@ -38,14 +31,10 @@ export interface ContextualParentSentenceRecord {
   sentenceOrder: number;
   sentenceText: string;
   translationVi: string | null;
-  explanationVi: string | null;
-  referenceExplanation: string | null;
-  skill: string | null;
 }
 
 export interface ContextualSaveRecord {
   id: string;
-  learningStatus: LearningStatus;
 }
 
 export interface ContextualTermLookupRecord {
@@ -77,7 +66,6 @@ export interface ContextualTermEnrichmentClaimRecord {
     id: string;
     value: string;
     lemma: string;
-    unitType: LexicalUnitType;
   };
   parentSentence: {
     id: string;
@@ -92,8 +80,6 @@ export interface ContextualTermEnrichmentClaimRecord {
 }
 
 export interface ContextualTermEnrichmentData {
-  wordDisplay: string;
-  normalizedLemma: string;
   partOfSpeech: string;
   cefrLevel: CefrLevel;
   contextualMeaningVi: string;
@@ -104,7 +90,6 @@ export interface ContextualTermEnrichmentData {
   antonyms: string[];
   collocations: string[];
   relatedTerms: string[];
-  vocabularyTopic: string | null;
   examples: Array<{
     sentence: string;
     translationVi: string;
@@ -136,17 +121,12 @@ const contextualParentSentenceSelect = {
   sentenceOrder: true,
   sentenceText: true,
   translationVi: true,
-  explanationVi: true,
-  referenceExplanation: true,
-  skill: true,
 } as const;
 
 const contextualTermSelect = {
   id: true,
   value: true,
-  wordDisplay: true,
   lemma: true,
-  unitType: true,
   partOfSpeech: true,
   ipa: true,
   cefrLevel: true,
@@ -154,14 +134,11 @@ const contextualTermSelect = {
   definitionEn: true,
   contextualExplanation: true,
   explanationStatus: true,
-  explanationGeneratedAt: true,
   synonyms: true,
   antonyms: true,
   collocations: true,
   relatedTerms: true,
-  vocabularyTopic: true,
   examples: true,
-  skill: true,
   isLookupEnabled: true,
   sentence: { select: contextualParentSentenceSelect },
 } as const;
@@ -169,9 +146,7 @@ const contextualTermSelect = {
 const savableContextualTermSelect = {
   id: true,
   value: true,
-  wordDisplay: true,
   lemma: true,
-  unitType: true,
   partOfSpeech: true,
   ipa: true,
   cefrLevel: true,
@@ -179,14 +154,11 @@ const savableContextualTermSelect = {
   definitionEn: true,
   contextualExplanation: true,
   explanationStatus: true,
-  explanationGeneratedAt: true,
   synonyms: true,
   antonyms: true,
   collocations: true,
   relatedTerms: true,
-  vocabularyTopic: true,
   examples: true,
-  skill: true,
   isLookupEnabled: true,
   sentence: {
     select: {
@@ -258,7 +230,7 @@ export class ContextualTermsRepository {
                 articleSentenceTermId: termId,
               },
             },
-            select: { id: true, learningStatus: true },
+            select: { id: true },
           })
         : null;
 
@@ -366,7 +338,6 @@ export class ContextualTermsRepository {
           id: true,
           value: true,
           lemma: true,
-          unitType: true,
           sentence: {
             select: {
               id: true,
@@ -438,8 +409,6 @@ export class ContextualTermsRepository {
               },
             },
             select: {
-              wordDisplay: true,
-              normalizedLemma: true,
               partOfSpeech: true,
               cefrLevel: true,
               contextualMeaningVi: true,
@@ -450,7 +419,6 @@ export class ContextualTermsRepository {
               antonyms: true,
               collocations: true,
               relatedTerms: true,
-              vocabularyTopic: true,
               examples: true,
               sentence: {
                 select: {
@@ -502,12 +470,6 @@ export class ContextualTermsRepository {
               },
             },
             data: {
-              ...(hasNonEmptyText(current.wordDisplay)
-                ? {}
-                : { wordDisplay: input.enrichment.wordDisplay }),
-              ...(hasNonEmptyText(current.normalizedLemma)
-                ? {}
-                : { normalizedLemma: input.enrichment.normalizedLemma }),
               ...(hasNonEmptyText(current.partOfSpeech)
                 ? {}
                 : { partOfSpeech: input.enrichment.partOfSpeech }),
@@ -543,16 +505,11 @@ export class ContextualTermsRepository {
               ...(current.relatedTerms.length > 0
                 ? {}
                 : { relatedTerms: input.enrichment.relatedTerms }),
-              ...(hasNonEmptyText(current.vocabularyTopic) ||
-              !input.enrichment.vocabularyTopic
-                ? {}
-                : { vocabularyTopic: input.enrichment.vocabularyTopic }),
               ...(hasStoredExamples(current.examples)
                 ? {}
                 : { examples: input.enrichment.examples }),
               explanationStatus: AiGenerationStatus.READY,
               explanationError: null,
-              explanationGeneratedAt: input.generatedAt,
               updatedAt: input.generatedAt,
             },
           });

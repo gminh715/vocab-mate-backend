@@ -62,7 +62,7 @@ export class AuthController {
   @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'postAuthRegister',
-    summary: 'Register a USER account and create a learning profile',
+    summary: 'Register a USER account with initial learning settings',
   })
   @ApiCreatedResponse({ type: AuthSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

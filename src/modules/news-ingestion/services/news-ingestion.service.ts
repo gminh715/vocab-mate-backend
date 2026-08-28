@@ -52,18 +52,6 @@ export interface NewsSyncResult {
   items: NewsSyncItem[];
 }
 
-const normalizedContentHash = (contentHtml: string): string =>
-  createHash('sha256')
-    .update(
-      contentHtml
-        .normalize('NFC')
-        .replace(/>\s+</gu, '><')
-        .replace(/\s+/gu, ' ')
-        .trim(),
-      'utf8',
-    )
-    .digest('hex');
-
 const importSlug = (
   title: string,
   externalId: string,
@@ -185,30 +173,13 @@ export class NewsIngestionService {
     try {
       if (
         await this.articlesService.findImportedDuplicate({
-          importSource: IMPORT_SOURCE,
           externalId: article.externalId,
-        })
-      ) {
-        return { ...base, status: 'skippedDuplicate' };
-      }
-      if (
-        await this.articlesService.findImportedDuplicate({
-          canonicalUrl: article.url,
         })
       ) {
         return { ...base, status: 'skippedDuplicate' };
       }
 
       const extracted = this.newsContentService.resolve(article);
-
-      const contentHash = normalizedContentHash(extracted.contentHtml);
-      if (await this.articlesService.findImportedDuplicate({ contentHash })) {
-        return {
-          ...base,
-          canonicalUrl: extracted.canonicalUrl,
-          status: 'skippedDuplicate',
-        };
-      }
 
       const categoryId =
         defaultCategoryId ??
@@ -222,17 +193,10 @@ export class NewsIngestionService {
         await this.articlesService.createImportedDraft(actingAdminId, {
           categoryId,
           title: article.title,
-          slug: importSlug(
-            article.title,
-            article.externalId,
-            extracted.canonicalUrl,
-          ),
+          slug: importSlug(article.title, article.externalId, article.url),
           summary: boundedSummary(article, extracted.plainText),
           contentHtml: extracted.contentHtml,
-          importSource: IMPORT_SOURCE,
           externalId: article.externalId,
-          canonicalUrl: extracted.canonicalUrl,
-          contentHash,
           sourcePublishedAt: article.publishedAt,
           sourceName: 'The Guardian',
           sourceUrl: article.url,
@@ -249,7 +213,7 @@ export class NewsIngestionService {
 
       return {
         ...base,
-        canonicalUrl: extracted.canonicalUrl,
+        canonicalUrl: article.url,
         status: 'imported',
         articleId: created.id,
       };

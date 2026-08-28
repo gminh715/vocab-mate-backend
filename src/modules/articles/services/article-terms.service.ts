@@ -50,6 +50,7 @@ export class ArticleTermsService {
     sentenceId: string,
     dto: CreateArticleTermDto,
   ) {
+    void actingAdminId;
     const context = await this.articleTermsRepository.findSentenceTermContext(
       articleId,
       sentenceId,
@@ -61,11 +62,7 @@ export class ArticleTermsService {
         'Terms cannot be added to an inactive sentence',
       );
     }
-    this.requireTextMatch(
-      context.sentence.sentenceText,
-      dto.value,
-      dto.unitType,
-    );
+    this.requireTextMatch(context.sentence.sentenceText, dto.value);
 
     const termId = randomUUID();
     let updatedContentHtml: string;
@@ -76,7 +73,6 @@ export class ArticleTermsService {
           sentenceId,
           termId,
           dto.value,
-          dto.unitType,
         ),
       );
     } catch (error: unknown) {
@@ -92,9 +88,8 @@ export class ArticleTermsService {
           contentVersion: context.article.contentVersion,
           sourceContentHtml: context.article.contentHtml,
           updatedContentHtml,
-          actingAdminId,
         },
-        this.toCreateInput(actingAdminId, sentenceId, termId, dto),
+        this.toCreateInput(sentenceId, termId, dto),
       );
       return { term, updatedContentHtml };
     } catch (error: unknown) {
@@ -108,7 +103,6 @@ export class ArticleTermsService {
       limit: query.limit,
       ...(query.sentenceId ? { sentenceId: query.sentenceId } : {}),
       ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
-      ...(query.unitType ? { unitType: query.unitType } : {}),
       ...(query.origin ? { origin: query.origin } : {}),
       ...(query.reviewStatus ? { reviewStatus: query.reviewStatus } : {}),
       ...(query.explanationStatus
@@ -156,9 +150,7 @@ export class ArticleTermsService {
     this.requireMutableArticle(context.article.status);
 
     const nextValue = dto.value ?? context.term.value;
-    const nextUnitType = dto.unitType ?? context.term.unitType;
-    const markerShapeRequested =
-      dto.value !== undefined || dto.unitType !== undefined;
+    const markerShapeRequested = dto.value !== undefined;
     let updatedContentHtml = context.article.contentHtml;
     const hasApprovedMarker =
       context.term.reviewStatus === TermReviewStatus.APPROVED;
@@ -195,11 +187,7 @@ export class ArticleTermsService {
             'Term markers cannot be changed in an inactive sentence',
           );
         }
-        this.requireTextMatch(
-          context.sentence.sentenceText,
-          nextValue,
-          nextUnitType,
-        );
+        this.requireTextMatch(context.sentence.sentenceText, nextValue);
         const replaceMarker = hasSingleOccurrenceMarker
           ? TermMarkerHelper.replaceFirst.bind(TermMarkerHelper)
           : TermMarkerHelper.replace.bind(TermMarkerHelper);
@@ -209,7 +197,6 @@ export class ArticleTermsService {
             context.sentence.id,
             termId,
             nextValue,
-            nextUnitType,
           ),
         );
       } else if (markerShapeRequested) {
@@ -218,11 +205,7 @@ export class ArticleTermsService {
             'Terms cannot be changed in an inactive sentence',
           );
         }
-        this.requireTextMatch(
-          context.sentence.sentenceText,
-          nextValue,
-          nextUnitType,
-        );
+        this.requireTextMatch(context.sentence.sentenceText, nextValue);
       }
     } catch (error: unknown) {
       if (error instanceof ConflictException) throw error;
@@ -231,7 +214,8 @@ export class ArticleTermsService {
 
     const contentHtmlChanged =
       updatedContentHtml !== context.article.contentHtml;
-    const input = this.toUpdateInput(actingAdminId, dto);
+    void actingAdminId;
+    const input = this.toUpdateInput(dto);
     try {
       const term = contentHtmlChanged
         ? await this.articleTermsRepository.updateTermWithMarker(
@@ -242,7 +226,6 @@ export class ArticleTermsService {
               contentVersion: context.article.contentVersion,
               sourceContentHtml: context.article.contentHtml,
               updatedContentHtml,
-              actingAdminId,
             },
             input,
           )
@@ -301,11 +284,7 @@ export class ArticleTermsService {
         'Rejected AI term candidates cannot be approved',
       );
     }
-    this.requireTextMatch(
-      context.sentence.sentenceText,
-      context.term.value,
-      context.term.unitType,
-    );
+    this.requireTextMatch(context.sentence.sentenceText, context.term.value);
 
     let updatedContentHtml: string;
     try {
@@ -315,7 +294,6 @@ export class ArticleTermsService {
           context.sentence.id,
           termId,
           context.term.value,
-          context.term.unitType,
         ),
       );
     } catch (error: unknown) {
@@ -330,7 +308,6 @@ export class ArticleTermsService {
         contentVersion: context.article.contentVersion,
         sourceContentHtml: context.article.contentHtml,
         updatedContentHtml,
-        actingAdminId,
       });
       return { term, contentHtmlChanged: true };
     } catch (error: unknown) {
@@ -372,7 +349,6 @@ export class ArticleTermsService {
         articleId,
         context.article.contentVersion,
         termId,
-        actingAdminId,
       );
       return { term, contentHtmlChanged: false };
     } catch (error: unknown) {
@@ -385,6 +361,7 @@ export class ArticleTermsService {
     articleId: string,
     termId: string,
   ): Promise<void> {
+    void actingAdminId;
     const context = await this.articleTermsRepository.findTermMutationContext(
       articleId,
       termId,
@@ -413,7 +390,6 @@ export class ArticleTermsService {
         contentVersion: context.article.contentVersion,
         sourceContentHtml: context.article.contentHtml,
         updatedContentHtml,
-        actingAdminId,
       });
     } catch (error: unknown) {
       if (
@@ -421,7 +397,7 @@ export class ArticleTermsService {
         hasPrismaCode(error, 'P2003')
       ) {
         throw new ConflictException(
-          'Term is referenced by vocabulary or review history and cannot be deleted',
+          'Term is referenced by saved vocabulary and cannot be deleted',
         );
       }
       this.mapWriteError(error);
@@ -442,12 +418,8 @@ export class ArticleTermsService {
     }
   }
 
-  private requireTextMatch(
-    sentenceText: string,
-    value: string,
-    unitType: 'WORD' | 'PHRASE',
-  ): void {
-    if (!TermMarkerHelper.matchesText(sentenceText, value, unitType)) {
+  private requireTextMatch(sentenceText: string, value: string): void {
+    if (!TermMarkerHelper.matchesText(sentenceText, value)) {
       throw new UnprocessableEntityException(
         'Term value does not match the selected sentence',
       );
@@ -455,7 +427,6 @@ export class ArticleTermsService {
   }
 
   private toCreateInput(
-    actingAdminId: string,
     sentenceId: string,
     termId: string,
     dto: CreateArticleTermDto,
@@ -464,10 +435,7 @@ export class ArticleTermsService {
       id: termId,
       sentenceId,
       value: dto.value,
-      wordDisplay: dto.wordDisplay,
       lemma: dto.lemma,
-      normalizedLemma: dto.normalizedLemma.toLocaleLowerCase('en-US'),
-      unitType: dto.unitType,
       partOfSpeech: dto.partOfSpeech.toLocaleLowerCase('en-US'),
       ...(dto.ipa === undefined ? {} : { ipa: dto.ipa }),
       cefrLevel: dto.cefrLevel,
@@ -482,37 +450,19 @@ export class ArticleTermsService {
       antonyms: dto.antonyms ?? [],
       collocations: dto.collocations ?? [],
       relatedTerms: dto.relatedTerms ?? [],
-      ...(dto.vocabularyTopic === undefined
-        ? {}
-        : { vocabularyTopic: dto.vocabularyTopic }),
       examples: (dto.examples ?? []).map(({ sentence, translationVi }) => ({
         sentence,
         translationVi,
       })),
-      ...(dto.skill === undefined ? {} : { skill: dto.skill }),
       isLookupEnabled: dto.isLookupEnabled ?? true,
       isActive: dto.isActive ?? true,
-      createdByUserId: actingAdminId,
-      updatedByUserId: actingAdminId,
     };
   }
 
-  private toUpdateInput(
-    actingAdminId: string,
-    dto: UpdateArticleTermDto,
-  ): UpdateArticleTermInput {
+  private toUpdateInput(dto: UpdateArticleTermDto): UpdateArticleTermInput {
     return {
       ...(dto.value === undefined ? {} : { value: dto.value }),
-      ...(dto.wordDisplay === undefined
-        ? {}
-        : { wordDisplay: dto.wordDisplay }),
       ...(dto.lemma === undefined ? {} : { lemma: dto.lemma }),
-      ...(dto.normalizedLemma === undefined
-        ? {}
-        : {
-            normalizedLemma: dto.normalizedLemma.toLocaleLowerCase('en-US'),
-          }),
-      ...(dto.unitType === undefined ? {} : { unitType: dto.unitType }),
       ...(dto.partOfSpeech === undefined
         ? {}
         : {
@@ -537,9 +487,6 @@ export class ArticleTermsService {
       ...(dto.relatedTerms === undefined
         ? {}
         : { relatedTerms: dto.relatedTerms }),
-      ...(dto.vocabularyTopic === undefined
-        ? {}
-        : { vocabularyTopic: dto.vocabularyTopic }),
       ...(dto.examples === undefined
         ? {}
         : {
@@ -548,12 +495,10 @@ export class ArticleTermsService {
               translationVi,
             })),
           }),
-      ...(dto.skill === undefined ? {} : { skill: dto.skill }),
       ...(dto.isLookupEnabled === undefined
         ? {}
         : { isLookupEnabled: dto.isLookupEnabled }),
       ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
-      updatedByUserId: actingAdminId,
     };
   }
 

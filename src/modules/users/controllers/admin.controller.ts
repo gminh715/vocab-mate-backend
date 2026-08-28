@@ -77,7 +77,7 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     operationId: 'getAdminUsersByUserId',
-    summary: 'Get a user account, profile, and learning summary',
+    summary: 'Get a user account and learning summary',
     description:
       'ADMIN-only detail containing safe account fields and lightweight aggregate counts.',
   })

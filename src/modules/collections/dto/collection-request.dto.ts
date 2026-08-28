@@ -14,7 +14,6 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { LearningStatus } from '../../../../generated/prisma/enums';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_SEARCH_LENGTH = 320;
@@ -115,11 +114,6 @@ export class GetCollectionItemsQueryDto {
   @MinLength(1)
   @MaxLength(MAX_SEARCH_LENGTH)
   q?: string;
-
-  @ApiPropertyOptional({ enum: LearningStatus })
-  @ValidateIf(isSupplied)
-  @IsEnum(LearningStatus)
-  learningStatus?: LearningStatus;
 
   @ApiPropertyOptional({
     enum: CollectionItemSort,

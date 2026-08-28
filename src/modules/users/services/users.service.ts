@@ -76,24 +76,14 @@ export class UsersService {
     return this.usersRepository.findSafeById(id);
   }
 
-  async getMe(
-    userId: string,
-  ): Promise<
-    MyAccountRecord & { profile: NonNullable<MyAccountRecord['profile']> }
-  > {
+  async getMe(userId: string): Promise<MyAccountRecord> {
     const account = await this.usersRepository.findMyAccount(userId);
 
     if (!account) {
       throw new NotFoundException('User not found');
     }
 
-    if (!account.profile) {
-      throw new NotFoundException('User profile not found');
-    }
-
-    return account as MyAccountRecord & {
-      profile: NonNullable<MyAccountRecord['profile']>;
-    };
+    return account;
   }
 
   async updateMe(
@@ -108,9 +98,6 @@ export class UsersService {
       input.currentCefrLevel = dto.currentCefrLevel;
     }
     if (dto.learningGoal !== undefined) input.learningGoal = dto.learningGoal;
-    if (dto.dailyStudyMinutes !== undefined) {
-      input.dailyStudyMinutes = dto.dailyStudyMinutes;
-    }
     if (dto.preferredLanguage !== undefined) {
       input.preferredLanguage = dto.preferredLanguage;
     }
@@ -121,18 +108,18 @@ export class UsersService {
 
     const currentAccount = await this.getMe(userId);
     const targetCefr =
-      input.currentCefrLevel ?? currentAccount.profile.currentCefrLevel;
+      input.currentCefrLevel ?? currentAccount.currentCefrLevel;
     const targetGoal =
       input.learningGoal !== undefined
         ? input.learningGoal
-        : currentAccount.profile.learningGoal;
+        : currentAccount.learningGoal;
     validateLearningGoalConstraint(targetCefr, targetGoal);
 
     try {
       return await this.usersRepository.updateMyProfile(userId, input);
     } catch (error: unknown) {
       if (isRecordNotFoundError(error)) {
-        throw new NotFoundException('User profile not found');
+        throw new NotFoundException('User not found');
       }
 
       throw error;
@@ -143,7 +130,7 @@ export class UsersService {
     input: CreateRegisteredUserInput,
   ): Promise<PublicUserRecord> {
     try {
-      return await this.usersRepository.createWithProfile(input);
+      return await this.usersRepository.createRegisteredUser(input);
     } catch (error: unknown) {
       if (isUniqueConstraintError(error)) {
         throw new ConflictException('Email is already registered');

@@ -31,7 +31,7 @@ export class ReadingService {
       throw new NotFoundException('Published article not found');
     }
     if (!result.userCefrLevel) {
-      throw new NotFoundException('User profile not found');
+      throw new NotFoundException('User not found');
     }
     const userCefrLevel = result.userCefrLevel;
     const userTargetCefrLevel = result.userTargetCefrLevel;
@@ -93,8 +93,8 @@ export class ReadingService {
     articleId: string,
     dto: UpdateReadingProgressDto,
   ) {
-    if (dto.progressPercent === undefined && dto.lastBlockKey === undefined) {
-      throw new BadRequestException('At least one progress field is required');
+    if (dto.progressPercent === undefined) {
+      throw new BadRequestException('progressPercent is required');
     }
 
     try {
@@ -105,9 +105,6 @@ export class ReadingService {
           ...(dto.progressPercent === undefined
             ? {}
             : { progressPercent: dto.progressPercent }),
-          ...(dto.lastBlockKey === undefined
-            ? {}
-            : { lastBlockKey: dto.lastBlockKey }),
         },
       );
       if (!result || !result.progress) {
@@ -157,16 +154,16 @@ export class ReadingService {
     return progress
       ? {
           articleId: progress.articleId,
-          status: progress.status,
+          status: progress.completedAt
+            ? ReadingStatus.COMPLETED
+            : ReadingStatus.READING,
           progressPercent: progress.progressPercent?.toNumber() ?? 0,
-          lastBlockKey: progress.lastBlockKey,
           completedAt: progress.completedAt,
         }
       : {
           articleId,
           status: ReadingStatus.READING,
           progressPercent: 0,
-          lastBlockKey: null,
           completedAt: null,
         };
   }

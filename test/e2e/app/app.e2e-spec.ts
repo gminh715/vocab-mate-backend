@@ -11,6 +11,8 @@ import type { AuthConfig } from '../../../src/config/auth.config';
 import { AUTH_CONFIG } from '../../../src/config/config.module';
 import { PrismaService } from '../../../src/database/prisma.service';
 import { ArticlesRepository } from '../../../src/modules/articles/repositories/articles.repository';
+import { ArticleSentencesRepository } from '../../../src/modules/articles/repositories/article-sentences.repository';
+import { ArticleTermsRepository } from '../../../src/modules/articles/repositories/article-terms.repository';
 import {
   type AdminCategoryRecord,
   CategoriesRepository,
@@ -29,7 +31,7 @@ import type {
   UpdatedAdminUserRoleRecord,
   UpdatedAdminUserStatusRecord,
   UpdateMyProfileInput,
-  UserProfileRecord,
+  UserLearningSettingsRecord,
 } from '../../../src/modules/users/repositories/users.repository';
 import { UsersRepository } from '../../../src/modules/users/repositories/users.repository';
 import { InMemoryCategoriesRepository } from '../../support/in-memory-categories.repository';
@@ -76,7 +78,7 @@ interface MessageResponseBody {
 
 interface MyAccountResponseBody {
   success: true;
-  data: MyAccountRecord & { profile: UserProfileRecord };
+  data: MyAccountRecord;
 }
 
 interface UpdateMyProfileResponseBody {
@@ -147,9 +149,10 @@ const refreshTokenFromCookie = (cookie: string): string =>
 const refreshTokenHash = (tokenId: string): string =>
   createHash('sha256').update(tokenId).digest('hex');
 
+type StoredUser = AuthUserRecord & UserLearningSettingsRecord;
+
 class InMemoryUsersRepository {
-  private readonly users = new Map<string, AuthUserRecord>();
-  private readonly profiles = new Map<string, UserProfileRecord>();
+  private readonly users = new Map<string, StoredUser>();
   private readonly accountDates = new Map<
     string,
     { createdAt: Date; lastLoginAt: Date | null; updatedAt: Date }
@@ -161,7 +164,6 @@ class InMemoryUsersRepository {
 
   reset(): void {
     this.users.clear();
-    this.profiles.clear();
     this.accountDates.clear();
     this.refreshSessions.clear();
   }
@@ -190,10 +192,7 @@ class InMemoryUsersRepository {
       return Promise.resolve(null);
     }
 
-    return Promise.resolve({
-      ...this.toSafeUser(user),
-      profile: this.profiles.get(id) ?? null,
-    });
+    return Promise.resolve(this.toMyAccount(user));
   }
 
   updateMyProfile(
@@ -201,20 +200,15 @@ class InMemoryUsersRepository {
     input: UpdateMyProfileInput,
   ): Promise<UpdatedMyProfileRecord> {
     const user = this.users.get(userId);
-    const profile = this.profiles.get(userId);
-
-    if (!user || !profile) {
+    if (!user) {
       return Promise.reject(
-        Object.assign(new Error('profile not found'), { code: 'P2025' }),
+        Object.assign(new Error('user not found'), { code: 'P2025' }),
       );
     }
 
-    const updatedProfile = { ...profile, ...input };
-    this.profiles.set(userId, updatedProfile);
-    return Promise.resolve({
-      user: this.toSafeUser(user),
-      profile: updatedProfile,
-    });
+    Object.assign(user, input);
+    this.requiredAccountDates(userId).updatedAt = new Date();
+    return Promise.resolve(this.toMyAccount(user));
   }
 
   findAdminUsers(query: AdminUserListQuery): Promise<AdminUserListResult> {
@@ -225,10 +219,9 @@ class InMemoryUsersRepository {
       .filter((user) => !query.status || user.status === query.status)
       .filter((user) => {
         if (!normalizedSearch) return true;
-        const displayName = this.profiles.get(user.id)?.displayName ?? '';
         return (
           user.email.toLowerCase().includes(normalizedSearch) ||
-          displayName.toLowerCase().includes(normalizedSearch)
+          user.displayName.toLowerCase().includes(normalizedSearch)
         );
       })
       .sort((left, right) => {
@@ -241,12 +234,11 @@ class InMemoryUsersRepository {
     const start = (query.page - 1) * query.limit;
     const items = filtered.slice(start, start + query.limit).map((user) => {
       const dates = this.requiredAccountDates(user.id);
-      const profile = this.profiles.get(user.id);
       return {
         ...this.toSafeUser(user),
         createdAt: dates.createdAt,
         lastLoginAt: dates.lastLoginAt,
-        profile: profile ? { displayName: profile.displayName } : null,
+        displayName: user.displayName,
       };
     });
 
@@ -262,14 +254,12 @@ class InMemoryUsersRepository {
 
     return Promise.resolve({
       user: {
-        ...this.toSafeUser(user),
+        ...this.toMyAccount(user),
         createdAt: this.requiredAccountDates(userId).createdAt,
         lastLoginAt: this.requiredAccountDates(userId).lastLoginAt,
       },
-      profile: this.profiles.get(userId) ?? null,
       learningSummary: {
         savedVocabularyCount: 0,
-        masteredVocabularyCount: 0,
         completedArticleCount: 0,
       },
     });
@@ -350,7 +340,7 @@ class InMemoryUsersRepository {
     });
   }
 
-  createWithProfile(
+  createRegisteredUser(
     input: CreateRegisteredUserInput,
   ): Promise<PublicUserRecord> {
     const duplicate = [...this.users.values()].some(
@@ -363,12 +353,17 @@ class InMemoryUsersRepository {
       );
     }
 
-    const user: AuthUserRecord = {
+    const user: StoredUser = {
       id: randomUUID(),
       email: input.email,
       passwordHash: input.passwordHash,
       role: 'USER',
       status: 'ACTIVE',
+      displayName: input.displayName,
+      avatarUrl: null,
+      currentCefrLevel: 'A1',
+      learningGoal: null,
+      preferredLanguage: input.preferredLanguage ?? 'vi',
     };
     this.users.set(user.id, user);
     const createdAt = new Date(
@@ -378,14 +373,6 @@ class InMemoryUsersRepository {
       createdAt,
       lastLoginAt: null,
       updatedAt: createdAt,
-    });
-    this.profiles.set(user.id, {
-      displayName: input.displayName,
-      avatarUrl: null,
-      currentCefrLevel: 'A1',
-      learningGoal: null,
-      dailyStudyMinutes: null,
-      preferredLanguage: input.preferredLanguage ?? 'vi',
     });
     return Promise.resolve(this.toSafeUser(user));
   }
@@ -528,6 +515,17 @@ class InMemoryUsersRepository {
       status: user.status,
     };
   }
+
+  private toMyAccount(user: StoredUser): MyAccountRecord {
+    return {
+      ...this.toSafeUser(user),
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+      currentCefrLevel: user.currentCefrLevel,
+      learningGoal: user.learningGoal,
+      preferredLanguage: user.preferredLanguage,
+    };
+  }
 }
 
 describe('Auth and Users APIs (e2e)', () => {
@@ -552,6 +550,10 @@ describe('Auth and Users APIs (e2e)', () => {
       .overrideProvider(CategoriesRepository)
       .useValue(categoriesRepository)
       .overrideProvider(ArticlesRepository)
+      .useValue(articlesRepository)
+      .overrideProvider(ArticleSentencesRepository)
+      .useValue(articlesRepository)
+      .overrideProvider(ArticleTermsRepository)
       .useValue(articlesRepository)
       .overrideGuard(AuthenticatedUserThrottlerGuard)
       .useValue({ canActivate: () => true })
@@ -631,13 +633,10 @@ describe('Auth and Users APIs (e2e)', () => {
     };
   };
 
-  const termPayload = (value: string, unitType: 'WORD' | 'PHRASE') => ({
+  const termPayload = (value: string, lexicalForm: 'WORD' | 'PHRASE') => ({
     value,
-    wordDisplay: value,
     lemma: value,
-    normalizedLemma: value,
-    unitType,
-    partOfSpeech: unitType === 'WORD' ? 'noun' : 'noun phrase',
+    partOfSpeech: lexicalForm === 'WORD' ? 'noun' : 'noun phrase',
     cefrLevel: 'B1',
     contextualMeaningVi: 'Nghĩa theo ngữ cảnh',
     definitionEn: `Definition for ${value}`,
@@ -1257,10 +1256,10 @@ describe('Auth and Users APIs (e2e)', () => {
     expect(Object.keys(member.delete.responses)).toContain('204');
     const adminArticleProperties =
       swagger.components.schemas['AdminArticleDto'].properties ?? {};
-    expect(adminArticleProperties.importSource?.nullable).toBe(true);
     expect(adminArticleProperties.externalId?.nullable).toBe(true);
-    expect(adminArticleProperties.canonicalUrl?.nullable).toBe(true);
-    expect(adminArticleProperties.contentHash?.nullable).toBe(true);
+    expect(adminArticleProperties).not.toHaveProperty('importSource');
+    expect(adminArticleProperties).not.toHaveProperty('canonicalUrl');
+    expect(adminArticleProperties).not.toHaveProperty('contentHash');
     expect(adminArticleProperties.sourcePublishedAt?.nullable).toBe(true);
     expect(adminArticleProperties.aiAnalysisStatus?.nullable).toBe(true);
     expect(adminArticleProperties.aiAnalysisError?.nullable).toBe(true);
@@ -1384,10 +1383,7 @@ describe('Auth and Users APIs (e2e)', () => {
       status: 'DRAFT',
       contentVersion: 1,
       contentHtml: '<p>Safe reader content</p>',
-      importSource: null,
       externalId: null,
-      canonicalUrl: null,
-      contentHash: null,
       sourcePublishedAt: null,
       aiAnalysisStatus: null,
       aiAnalysisError: null,
@@ -1489,8 +1485,6 @@ describe('Auth and Users APIs (e2e)', () => {
       summary: 'Summary',
       contentHtml: '<p>Content</p>',
       cefrLevel: 'B1',
-      createdByUserId: admin.data.user.id,
-      updatedByUserId: admin.data.user.id,
     });
     const deleted = await request(app.getHttpServer())
       .delete(`/api/v1/admin/articles/${unusedDraft.id}`)
@@ -1510,8 +1504,6 @@ describe('Auth and Users APIs (e2e)', () => {
       summary: 'Summary',
       contentHtml: '<p>Content</p>',
       cefrLevel: 'B1',
-      createdByUserId: admin.data.user.id,
-      updatedByUserId: admin.data.user.id,
     });
     articlesRepository.setDeleteSafety(created.id, { readingProgressCount: 1 });
     await request(app.getHttpServer())
@@ -1792,8 +1784,6 @@ describe('Auth and Users APIs (e2e)', () => {
       summary: 'No reader text',
       contentHtml: '<figure><img src="https://example.com/image.png"></figure>',
       cefrLevel: 'A1',
-      createdByUserId: admin.data.user.id,
-      updatedByUserId: admin.data.user.id,
     });
     await request(app.getHttpServer())
       .post(`/api/v1/admin/articles/${imageOnly.id}/parse-content`)
@@ -1853,8 +1843,9 @@ describe('Auth and Users APIs (e2e)', () => {
       swagger.components.schemas['ArticleSentenceTermDto'].properties ?? {};
     expect(termProperties.contextualMeaningVi?.nullable).toBe(true);
     expect(termProperties.origin?.enum).toEqual(['MANUAL', 'AI', 'NLP']);
-    expect(termProperties.wordDisplay?.nullable).toBe(true);
-    expect(termProperties.normalizedLemma?.nullable).toBe(true);
+    expect(termProperties).not.toHaveProperty('wordDisplay');
+    expect(termProperties).not.toHaveProperty('normalizedLemma');
+    expect(termProperties).not.toHaveProperty('unitType');
     expect(termProperties.partOfSpeech?.nullable).toBe(true);
     expect(termProperties.cefrLevel?.nullable).toBe(true);
     expect(termProperties.reviewStatus?.enum).toEqual([
@@ -2028,7 +2019,7 @@ describe('Auth and Users APIs (e2e)', () => {
     });
     const filtered = await request(app.getHttpServer())
       .get(
-        `/api/v1/admin/articles/${prepared.articleId}/terms?page=1&limit=20&sentenceId=${alphaTerm.sentenceId}&cefrLevel=B1&unitType=WORD&isActive=true&q=alpha`,
+        `/api/v1/admin/articles/${prepared.articleId}/terms?page=1&limit=20&sentenceId=${alphaTerm.sentenceId}&cefrLevel=B1&isActive=true&q=alpha`,
       )
       .set('Authorization', authorization)
       .expect(200);
@@ -2082,9 +2073,7 @@ describe('Auth and Users APIs (e2e)', () => {
       .set('Authorization', authorization)
       .send({
         value: 'works',
-        wordDisplay: 'works',
         lemma: 'work',
-        normalizedLemma: 'work',
       })
       .expect(200);
     const valueChangeData = responseBody<{
@@ -2667,7 +2656,6 @@ describe('Auth and Users APIs (e2e)', () => {
     });
     expect(body.data.learningSummary).toEqual({
       savedVocabularyCount: 0,
-      masteredVocabularyCount: 0,
       completedArticleCount: 0,
     });
     expect(JSON.stringify(body)).not.toContain('passwordHash');
@@ -2864,7 +2852,7 @@ describe('Auth and Users APIs (e2e)', () => {
     );
   });
 
-  it('USR-001 returns the authenticated account and profile without sensitive fields', async () => {
+  it('USR-001 returns the authenticated account and learning settings without sensitive fields', async () => {
     const authenticated = await registerWithRole(registration, 'USER');
     const accessToken = authenticated.data.accessToken;
     const response = await request(app.getHttpServer())
@@ -2877,14 +2865,11 @@ describe('Auth and Users APIs (e2e)', () => {
       email: registration.email,
       role: 'USER',
       status: 'ACTIVE',
-      profile: {
-        displayName: registration.displayName,
-        avatarUrl: null,
-        currentCefrLevel: 'A1',
-        learningGoal: null,
-        dailyStudyMinutes: null,
-        preferredLanguage: 'vi',
-      },
+      displayName: registration.displayName,
+      avatarUrl: null,
+      currentCefrLevel: 'A1',
+      learningGoal: null,
+      preferredLanguage: 'vi',
     });
     expect(body.data).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(body)).not.toContain('passwordHash');
@@ -2898,7 +2883,7 @@ describe('Auth and Users APIs (e2e)', () => {
       .expect(401);
   });
 
-  it('USR-002 partially updates only the authenticated profile and persists it', async () => {
+  it('USR-002 partially updates only the authenticated learning settings and persists them', async () => {
     const authenticated = await registerWithRole(registration, 'USER');
     const accessToken = authenticated.data.accessToken;
     const updated = await request(app.getHttpServer())
@@ -2908,16 +2893,13 @@ describe('Auth and Users APIs (e2e)', () => {
       .expect(200);
     const updatedBody = responseBody<UpdateMyProfileResponseBody>(updated);
 
-    expect(updatedBody.data.user).toMatchObject({
+    expect(updatedBody.data).toMatchObject({
       email: registration.email,
       role: 'USER',
       status: 'ACTIVE',
-    });
-    expect(updatedBody.data.profile).toMatchObject({
       displayName: 'Updated Name',
       currentCefrLevel: 'B2',
       learningGoal: null,
-      dailyStudyMinutes: null,
       preferredLanguage: 'vi',
     });
 
@@ -2925,12 +2907,12 @@ describe('Auth and Users APIs (e2e)', () => {
       .get('/api/v1/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(responseBody<MyAccountResponseBody>(laterGet).data.profile).toEqual(
-      updatedBody.data.profile,
+    expect(responseBody<MyAccountResponseBody>(laterGet).data).toEqual(
+      updatedBody.data,
     );
   });
 
-  it('USR-002 rejects unknown account fields and leaves the profile unchanged', async () => {
+  it('USR-002 rejects unknown account fields and leaves learning settings unchanged', async () => {
     const authenticated = await registerWithRole(registration, 'USER');
     const accessToken = authenticated.data.accessToken;
 
@@ -2950,9 +2932,9 @@ describe('Auth and Users APIs (e2e)', () => {
       .get('/api/v1/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(
-      responseBody<MyAccountResponseBody>(laterGet).data.profile.displayName,
-    ).toBe(registration.displayName);
+    expect(responseBody<MyAccountResponseBody>(laterGet).data.displayName).toBe(
+      registration.displayName,
+    );
   });
 
   it.each([
@@ -2994,7 +2976,7 @@ describe('Auth and Users APIs (e2e)', () => {
       .set('Authorization', `Bearer ${secondBody.data.accessToken}`)
       .expect(200);
     expect(
-      responseBody<MyAccountResponseBody>(secondGet).data.profile.displayName,
+      responseBody<MyAccountResponseBody>(secondGet).data.displayName,
     ).toBe(secondRegistration.displayName);
   });
 

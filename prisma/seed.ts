@@ -1155,14 +1155,10 @@ async function main(): Promise<void> {
       passwordHash,
       role: 'ADMIN',
       status: 'ACTIVE',
-      profile: {
-        create: {
-          displayName: 'Admin',
-          currentCefrLevel: 'C1',
-          learningGoal: 'C2',
-          preferredLanguage: 'vi',
-        },
-      },
+      displayName: 'Admin',
+      currentCefrLevel: 'C1',
+      learningGoal: 'C2',
+      preferredLanguage: 'vi',
     },
   });
   console.log('  ✔ Admin user upserted');
@@ -1329,8 +1325,6 @@ async function main(): Promise<void> {
         cefrLevel: art.cefrLevel,
         status: 'PUBLISHED',
         publishedAt: now,
-        createdByUserId: ADMIN_USER_ID,
-        updatedByUserId: ADMIN_USER_ID,
       },
     });
 
@@ -1347,10 +1341,7 @@ async function main(): Promise<void> {
           sentenceOrder: si + 1,
           sentenceText: sen.text,
           translationVi: sen.translationVi,
-          explanationVi: sen.explanationVi,
           isActive: true,
-          createdByUserId: ADMIN_USER_ID,
-          updatedByUserId: ADMIN_USER_ID,
         },
       });
 
@@ -1363,10 +1354,7 @@ async function main(): Promise<void> {
             id: art.termIds[si][ti],
             sentenceId: art.sentenceIds[si],
             value: term.value,
-            wordDisplay: term.wordDisplay,
             lemma: term.lemma,
-            normalizedLemma: term.normalizedLemma,
-            unitType: term.unitType,
             partOfSpeech: term.partOfSpeech,
             ipa: term.ipa,
             cefrLevel: term.cefrLevel,
@@ -1377,12 +1365,9 @@ async function main(): Promise<void> {
             antonyms: term.antonyms,
             collocations: term.collocations,
             relatedTerms: term.relatedTerms,
-            vocabularyTopic: term.vocabularyTopic,
             examples: term.examples,
             isLookupEnabled: true,
             isActive: true,
-            createdByUserId: ADMIN_USER_ID,
-            updatedByUserId: ADMIN_USER_ID,
           },
         });
       }

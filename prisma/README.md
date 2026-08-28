@@ -22,19 +22,20 @@ Language and must be preserved in customized migrations:
 
 Do not use `prisma db push` as a replacement for those migration details.
 
-## Single migration baseline
+## Migration baseline and follow-up migrations
 
-`migrations/20260826000000_baseline/migration.sql` is the repository's only
-migration. It represents the complete current multi-file Prisma schema,
-including news ingestion, Daily Review, refresh sessions, and collection-owned
-saved vocabulary. It was generated with the installed Prisma CLI and then
-reviewed and customized to preserve the PostgreSQL features listed above:
+`migrations/20260826000000_baseline/migration.sql` is the historical baseline.
+Later migrations evolve that baseline to the current schema. The generated
+snapshot and Prisma models represent the final state after every committed
+migration has been applied. The baseline was generated with the installed
+Prisma CLI and then reviewed and customized to preserve the PostgreSQL features
+listed above:
 
 ```bash
 npx prisma migrate diff --from-empty --to-schema prisma --script --output prisma/migrations/20260826000000_baseline/migration.sql
 ```
 
-Do not regenerate the committed file without restoring its extensions, named
+Do not regenerate the baseline without restoring its extensions, named
 check constraints, expression index and `updated_at` triggers.
 
 ### Existing database
@@ -83,23 +84,8 @@ npx prisma migrate status
 
 Never use `prisma db push` to initialize either an existing or a new database.
 
-## Review migration verification and rollback
-
-With `DIRECT_URL` pointing to a non-production PostgreSQL instance that already
-has `citext` and `pgcrypto`, run:
-
-```bash
-npm run prisma:verify-review-migrations
-```
-
-The verifier creates an isolated generated schema, applies the single baseline,
-and checks the final Daily Review tables, indexes, named checks, expression
-index and `updated_at` triggers. Its rollback check drops only that disposable
-schema and verifies that it no longer exists.
-
 Prisma migrations do not provide automatic production down migrations. Before
-deploying or reconciling this squashed baseline, take and test a database backup.
+deploying or reconciling the migration chain, take and test a database backup.
 If deployment must be reversed after writes begin, restore that backup to a
 replacement database and switch traffic, or ship a separately reviewed forward
-corrective migration. Do not run the disposable verifier as a production
-rollback.
+corrective migration.

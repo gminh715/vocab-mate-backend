@@ -30,9 +30,6 @@ const articleSentenceSelect = {
   sentenceOrder: true,
   sentenceText: true,
   translationVi: true,
-  explanationVi: true,
-  referenceExplanation: true,
-  skill: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -42,10 +39,7 @@ const articleSentenceTermSelect = {
   id: true,
   sentenceId: true,
   value: true,
-  wordDisplay: true,
   lemma: true,
-  normalizedLemma: true,
-  unitType: true,
   partOfSpeech: true,
   ipa: true,
   cefrLevel: true,
@@ -56,15 +50,11 @@ const articleSentenceTermSelect = {
   antonyms: true,
   collocations: true,
   relatedTerms: true,
-  vocabularyTopic: true,
   examples: true,
-  skill: true,
   origin: true,
   reviewStatus: true,
-  selectionReason: true,
   explanationStatus: true,
   explanationError: true,
-  explanationGeneratedAt: true,
   isLookupEnabled: true,
   isActive: true,
   createdAt: true,
@@ -92,7 +82,6 @@ export class ArticleSentencesRepository {
         },
         data: {
           contentHtml: input.annotatedContentHtml,
-          updatedByUserId: input.actingAdminId,
           ...(input.resetAiAnalysis
             ? {
                 aiAnalysisStatus: AiGenerationStatus.PENDING,
@@ -114,8 +103,6 @@ export class ArticleSentencesRepository {
           ...sentence,
           articleId: input.articleId,
           contentVersion: input.contentVersion,
-          createdByUserId: input.actingAdminId,
-          updatedByUserId: input.actingAdminId,
         })),
       });
     });

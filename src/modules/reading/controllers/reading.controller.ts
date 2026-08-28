@@ -150,7 +150,6 @@ export class ReadingController {
           articleId: '550e8400-e29b-41d4-a716-446655440000',
           status: 'COMPLETED',
           progressPercent: 100,
-          lastBlockKey: 'paragraph-3',
           completedAt: '2026-07-23T03:30:00.000Z',
         },
       },
@@ -181,7 +180,7 @@ export class ReadingController {
     operationId: 'deleteReadingProgressByArticleId',
     summary: 'Delete only the authenticated user article-progress row',
     description:
-      'Does not delete saved vocabulary, collections, or review history. Archived-article progress may still be reset by its owner.',
+      'Does not delete saved vocabulary or collections. Archived-article progress may still be reset by its owner.',
   })
   @ApiNoContentResponse({ description: 'Reading progress deleted.' })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })

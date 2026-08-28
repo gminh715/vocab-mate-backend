@@ -3,8 +3,6 @@ import {
   AiGenerationStatus,
   ArticleStatus,
   CefrLevel,
-  LearningStatus,
-  LexicalUnitType,
   ReadingStatus,
 } from '../../../../generated/prisma/enums';
 import { PublicCategoryDto } from '../../categories/dto/category-response.dto';
@@ -28,9 +26,6 @@ export class ReaderProgressDto {
 
   @ApiProperty({ example: 60, minimum: 0, maximum: 100 })
   progressPercent!: number;
-
-  @ApiProperty({ example: 'sentence-8', nullable: true })
-  lastBlockKey!: string | null;
 
   @ApiProperty({
     format: 'date-time',
@@ -171,13 +166,7 @@ export class ContextualTermDto {
   value!: string;
 
   @ApiProperty({ example: 'harmful' })
-  wordDisplay!: string;
-
-  @ApiProperty({ example: 'harmful' })
   lemma!: string;
-
-  @ApiProperty({ enum: LexicalUnitType, example: LexicalUnitType.WORD })
-  unitType!: LexicalUnitType;
 
   @ApiProperty({ example: 'adjective' })
   partOfSpeech!: string;
@@ -209,9 +198,6 @@ export class ContextualTermDto {
   })
   explanationStatus!: AiGenerationStatus;
 
-  @ApiProperty({ format: 'date-time', nullable: true })
-  explanationGeneratedAt!: Date | null;
-
   @ApiProperty({ type: [String], example: ['damaging'] })
   synonyms!: string[];
 
@@ -224,9 +210,6 @@ export class ContextualTermDto {
   @ApiProperty({ type: [String], example: ['harm'] })
   relatedTerms!: string[];
 
-  @ApiProperty({ example: 'environment', nullable: true })
-  vocabularyTopic!: string | null;
-
   @ApiProperty({
     type: 'array',
     items: { type: 'object' },
@@ -238,9 +221,6 @@ export class ContextualTermDto {
     ],
   })
   examples!: unknown[];
-
-  @ApiProperty({ example: 'vocabulary', nullable: true })
-  skill!: string | null;
 }
 
 export class ContextualParentSentenceDto {
@@ -261,18 +241,6 @@ export class ContextualParentSentenceDto {
     nullable: true,
   })
   translationVi!: string | null;
-
-  @ApiProperty({
-    example: 'Câu sử dụng tính từ sau động từ to be.',
-    nullable: true,
-  })
-  explanationVi!: string | null;
-
-  @ApiProperty({ example: null, nullable: true })
-  referenceExplanation!: string | null;
-
-  @ApiProperty({ example: 'reading', nullable: true })
-  skill!: string | null;
 }
 
 export class ContextualTermSaveStateDto {
@@ -285,13 +253,6 @@ export class ContextualTermSaveStateDto {
     nullable: true,
   })
   userVocabularyId!: string | null;
-
-  @ApiProperty({
-    enum: LearningStatus,
-    example: LearningStatus.LEARNING,
-    nullable: true,
-  })
-  learningStatus!: LearningStatus | null;
 }
 
 export class ContextualTermLookupDataDto {

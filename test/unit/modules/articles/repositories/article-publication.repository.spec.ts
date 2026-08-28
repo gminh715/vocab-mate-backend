@@ -95,7 +95,6 @@ describe('ArticlesRepository publication operations', () => {
       status: ArticleStatus.PUBLISHED,
       publishedAt,
       archivedAt: null,
-      updatedByUserId: 'admin-id',
     });
 
     expect(article.updateMany).toHaveBeenCalledWith({
@@ -110,7 +109,6 @@ describe('ArticlesRepository publication operations', () => {
         status: ArticleStatus.PUBLISHED,
         publishedAt,
         archivedAt: null,
-        updatedByUserId: 'admin-id',
       },
     });
   });
@@ -131,7 +129,6 @@ describe('ArticlesRepository publication operations', () => {
       expectedContentHtml: '<p>source</p>',
       status: ArticleStatus.ARCHIVED,
       archivedAt: new Date('2026-07-23T00:00:00Z'),
-      updatedByUserId: 'admin-id',
     });
 
     const updateInput = article.updateMany.mock.calls[0][0] as {
@@ -151,7 +148,6 @@ describe('ArticlesRepository publication operations', () => {
         expectedContentHtml: '<p>source</p>',
         status: ArticleStatus.ARCHIVED,
         archivedAt: new Date(),
-        updatedByUserId: 'admin-id',
       }),
     ).rejects.toBeInstanceOf(ArticleStatusTransitionConflictError);
     expect(article.findUnique).not.toHaveBeenCalled();

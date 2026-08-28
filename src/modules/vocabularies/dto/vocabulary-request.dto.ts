@@ -4,7 +4,6 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
-  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -15,7 +14,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../generated/prisma/enums';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_SEARCH_LENGTH = 320;
@@ -30,12 +29,6 @@ const trimStringArray = ({ value }: { value: unknown }): unknown =>
         typeof item === 'string' ? item.trim() : item,
       )
     : value;
-
-const parseBoolean = ({ value }: { value: unknown }): unknown => {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return value;
-};
 
 export enum VocabularySort {
   NEWEST = 'newest',
@@ -69,11 +62,6 @@ export class GetVocabulariesQueryDto {
   @MaxLength(MAX_SEARCH_LENGTH)
   q?: string;
 
-  @ApiPropertyOptional({ enum: LearningStatus })
-  @IsOptional()
-  @IsEnum(LearningStatus)
-  learningStatus?: LearningStatus;
-
   @ApiPropertyOptional({ enum: CefrLevel })
   @IsOptional()
   @IsEnum(CefrLevel)
@@ -83,17 +71,6 @@ export class GetVocabulariesQueryDto {
   @IsOptional()
   @IsUUID()
   collectionId?: string;
-
-  @ApiPropertyOptional({
-    type: Boolean,
-    example: true,
-    description:
-      'Returns due NEW, LEARNING, and REVIEWING items. NEW items with no nextReviewAt are due.',
-  })
-  @IsOptional()
-  @Transform(parseBoolean)
-  @IsBoolean()
-  dueOnly?: boolean;
 
   @ApiPropertyOptional({
     enum: VocabularySort,
@@ -134,10 +111,4 @@ export class SaveVocabularyDto {
   @ArrayMaxSize(MAX_COLLECTION_IDS)
   @IsUUID(undefined, { each: true })
   collectionIds!: string[];
-}
-
-export class UpdateLearningStatusDto {
-  @ApiProperty({ enum: LearningStatus })
-  @IsEnum(LearningStatus)
-  learningStatus!: LearningStatus;
 }

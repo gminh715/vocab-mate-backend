@@ -10,12 +10,12 @@ const TERM_ID = '11111111-1111-4111-8111-111111111111';
 const COLLECTION_ID = '22222222-2222-4222-8222-222222222222';
 
 describe('Vocabulary request DTOs', () => {
-  it('normalizes list search and parses dueOnly as a boolean', async () => {
+  it('normalizes list search and parses sort', async () => {
     const dto = plainToInstance(GetVocabulariesQueryDto, {
       page: '2',
       limit: '10',
       q: '  harmful  ',
-      dueOnly: 'true',
+      sort: 'oldest',
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
@@ -23,22 +23,20 @@ describe('Vocabulary request DTOs', () => {
       page: 2,
       limit: 10,
       q: 'harmful',
-      dueOnly: true,
-      sort: VocabularySort.NEWEST,
+      sort: VocabularySort.OLDEST,
     });
   });
 
-  it('rejects non-boolean dueOnly values and non-allowlisted sorting', async () => {
+  it('rejects non-allowlisted sorting', async () => {
     const dto = plainToInstance(GetVocabulariesQueryDto, {
       page: 1,
       limit: 20,
-      dueOnly: 'yes',
       sort: 'savedWordDisplay',
     });
 
     const errors = await validate(dto);
     expect(errors.map(({ property }) => property)).toEqual(
-      expect.arrayContaining(['dueOnly', 'sort']),
+      expect.arrayContaining(['sort']),
     );
   });
 
@@ -67,13 +65,11 @@ describe('Vocabulary request DTOs', () => {
     }
   });
 
-  it('rejects client-controlled snapshot and scheduling fields', async () => {
+  it('rejects client-controlled snapshot fields', async () => {
     const injected = plainToInstance(SaveVocabularyDto, {
       articleSentenceTermId: TERM_ID,
       collectionIds: [COLLECTION_ID],
-      learningStatus: 'MASTERED',
       savedMeaningVi: 'client value',
-      nextReviewAt: new Date().toISOString(),
       unexpectedField: 'client value',
     });
     const errors = await validate(injected, {
@@ -81,8 +77,6 @@ describe('Vocabulary request DTOs', () => {
       forbidNonWhitelisted: true,
     });
     expect(errors.map(({ property }) => property).sort()).toEqual([
-      'learningStatus',
-      'nextReviewAt',
       'savedMeaningVi',
       'unexpectedField',
     ]);

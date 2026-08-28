@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import {
   CefrLevel,
-  LearningStatus,
 } from '../../../../../generated/prisma/enums';
 import { LearnerAnalyticsRepository } from '../../../../../src/modules/analytics/repositories/learner-analytics.repository';
 import { LearnerAnalyticsService } from '../../../../../src/modules/analytics/services/learner-analytics.service';
@@ -22,10 +21,10 @@ describe('LearnerAnalyticsService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    jest.mocked(repository.getOverview).mockResolvedValue([0, 0, 0, 0, 0, []]);
+    jest.mocked(repository.getOverview).mockResolvedValue([0, 0]);
     jest
       .mocked(repository.getVocabularySnapshot)
-      .mockResolvedValue([[], 0, []]);
+      .mockResolvedValue([0, []]);
     jest.mocked(repository.queryVocabularyTrend).mockResolvedValue([]);
     jest.mocked(repository.getReadingCounts).mockResolvedValue([0, 0]);
     jest.mocked(repository.queryReadingCategories).mockResolvedValue([]);
@@ -37,22 +36,15 @@ describe('LearnerAnalyticsService', () => {
       service.getOverview('owner-id', {}, new Date('2026-07-24T00:00:00Z')),
     ).resolves.toEqual({
       savedVocabulary: 0,
-      dueToday: 0,
-      mastered: 0,
       articlesCompleted: 0,
-      reviewAccuracy: 0,
-      sessions: 0,
     });
   });
 
-  it('keeps stable empty status, CEFR, and date buckets', async () => {
+  it('keeps stable empty CEFR and date buckets', async () => {
     const result = await service.getVocabularyAnalytics('owner-id', {
       from: '2026-07-01T00:00:00Z',
       to: '2026-07-04T00:00:00Z',
     });
-    expect(result.byStatus).toEqual(
-      Object.values(LearningStatus).map((status) => ({ status, count: 0 })),
-    );
     expect(result.byCefr).toEqual(
       Object.values(CefrLevel).map((cefrLevel) => ({ cefrLevel, count: 0 })),
     );
@@ -61,5 +53,6 @@ describe('LearnerAnalyticsService', () => {
       { bucket: '2026-07-02', count: 0 },
       { bucket: '2026-07-03', count: 0 },
     ]);
+    expect(result).not.toHaveProperty('byStatus');
   });
 });

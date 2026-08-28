@@ -33,7 +33,6 @@ export class AdminAnalyticsService {
       articles,
       publishedArticles,
       savedVocabulary,
-      completedSessions,
     ] = await this.repository.getOverview(range.from, range.to);
     return {
       users,
@@ -41,7 +40,6 @@ export class AdminAnalyticsService {
       articles,
       publishedArticles,
       savedVocabulary,
-      completedSessions,
     };
   }
 
@@ -134,7 +132,6 @@ export class AdminAnalyticsService {
       inactive: 0,
       readingOnly: 0,
       vocabularyOnly: 0,
-      reviewOnly: 0,
       multiActivity: 0,
     };
     return {
@@ -158,7 +155,6 @@ export class AdminAnalyticsService {
         inactive: toSafeCount(distribution.inactive),
         readingOnly: toSafeCount(distribution.readingOnly),
         vocabularyOnly: toSafeCount(distribution.vocabularyOnly),
-        reviewOnly: toSafeCount(distribution.reviewOnly),
         multiActivity: toSafeCount(distribution.multiActivity),
       },
     };

@@ -124,29 +124,11 @@ export class AdminArticleListItemDto extends PublicArticleCardDto {
   @ApiProperty({ format: 'uuid' })
   categoryId!: string;
 
-  @ApiProperty({ example: 'guardian', nullable: true })
-  importSource!: string | null;
-
   @ApiProperty({
     example: 'technology/2026/jul/30/example-article',
     nullable: true,
   })
   externalId!: string | null;
-
-  @ApiProperty({
-    example:
-      'https://www.theguardian.com/technology/2026/jul/30/example-article',
-    nullable: true,
-  })
-  canonicalUrl!: string | null;
-
-  @ApiProperty({
-    example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-    nullable: true,
-    minLength: 64,
-    maxLength: 64,
-  })
-  contentHash!: string | null;
 
   @ApiProperty({ format: 'date-time', nullable: true })
   sourcePublishedAt!: Date | null;
@@ -207,29 +189,11 @@ export class AdminArticleDto {
   @ApiProperty({ nullable: true })
   thumbnailUrl!: string | null;
 
-  @ApiProperty({ example: 'guardian', nullable: true })
-  importSource!: string | null;
-
   @ApiProperty({
     example: 'technology/2026/jul/30/example-article',
     nullable: true,
   })
   externalId!: string | null;
-
-  @ApiProperty({
-    example:
-      'https://www.theguardian.com/technology/2026/jul/30/example-article',
-    nullable: true,
-  })
-  canonicalUrl!: string | null;
-
-  @ApiProperty({
-    example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-    nullable: true,
-    minLength: 64,
-    maxLength: 64,
-  })
-  contentHash!: string | null;
 
   @ApiProperty({ format: 'date-time', nullable: true })
   sourcePublishedAt!: Date | null;

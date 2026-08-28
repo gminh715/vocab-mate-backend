@@ -36,7 +36,6 @@ describe('NewsContentService', () => {
     const service = new NewsContentService(config, contentService);
     const result = service.resolve(article);
 
-    expect(result.canonicalUrl).toBe(article.url);
     expect(result.plainText).toContain('Complete Guardian content');
     expect(result.contentHtml).toContain('<p>');
     expect(result.contentHtml).not.toContain('<script>');

@@ -23,7 +23,7 @@ type QueryMock = jest.MockedFunction<(args: QueryMockArgs) => Promise<unknown>>;
 
 describe('ReadingRepository', () => {
   const articleFindFirst: QueryMock = jest.fn();
-  const profileFindUnique: QueryMock = jest.fn();
+  const userFindUnique: QueryMock = jest.fn();
   const termFindMany: QueryMock = jest.fn();
   const termFindFirst: QueryMock = jest.fn();
   const progressFindUnique: QueryMock = jest.fn();
@@ -34,7 +34,7 @@ describe('ReadingRepository', () => {
   const vocabularyFindUnique: QueryMock = jest.fn();
   const transactionClient = {
     article: { findFirst: articleFindFirst },
-    userProfile: { findUnique: profileFindUnique },
+    user: { findUnique: userFindUnique },
     articleSentenceTerm: {
       findMany: termFindMany,
       findFirst: termFindFirst,
@@ -62,7 +62,7 @@ describe('ReadingRepository', () => {
     transaction.mockImplementation((input: TransactionInput) =>
       Array.isArray(input) ? Promise.all(input) : input(transactionClient),
     );
-    profileFindUnique.mockResolvedValue({
+    userFindUnique.mockResolvedValue({
       currentCefrLevel: 'B1',
       learningGoal: 'C1',
     });
@@ -125,8 +125,8 @@ describe('ReadingRepository', () => {
         where: { slug: 'article', status: ArticleStatus.PUBLISHED },
       }),
     );
-    expect(profileFindUnique).toHaveBeenCalledWith({
-      where: { userId: 'user-id' },
+    expect(userFindUnique).toHaveBeenCalledWith({
+      where: { id: 'user-id' },
       select: { currentCefrLevel: true, learningGoal: true },
     });
     expect(result).toMatchObject({
@@ -168,24 +168,24 @@ describe('ReadingRepository', () => {
       publishedAt: new Date(),
       category: { id: 'category-id', name: 'News', slug: 'news' },
     });
-    let resolveProfile!: (value: {
+    let resolveUser!: (value: {
       currentCefrLevel: string;
       learningGoal: string;
     }) => void;
-    profileFindUnique.mockReturnValue(
+    userFindUnique.mockReturnValue(
       new Promise((resolve) => {
-        resolveProfile = resolve;
+        resolveUser = resolve;
       }),
     );
 
     const result = repository.findReaderArticle('user-id', 'article');
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(profileFindUnique).toHaveBeenCalledTimes(1);
+    expect(userFindUnique).toHaveBeenCalledTimes(1);
     expect(termFindMany).not.toHaveBeenCalled();
     expect(progressFindUnique).not.toHaveBeenCalled();
 
-    resolveProfile({ currentCefrLevel: 'B1', learningGoal: 'C1' });
+    resolveUser({ currentCefrLevel: 'B1', learningGoal: 'C1' });
     await result;
 
     expect(termFindMany).toHaveBeenCalledTimes(1);
@@ -305,7 +305,7 @@ describe('ReadingRepository', () => {
           articleSentenceTermId: 'term-id',
         },
       },
-      select: { id: true, learningStatus: true },
+      select: { id: true },
     });
     expect(JSON.stringify(termFindFirst.mock.calls[0][0].select)).not.toMatch(
       /createdAt|updatedAt|createdBy|updatedBy|normalizedLemma/,
@@ -335,9 +335,7 @@ describe('ReadingRepository', () => {
   it('paginates and filters owner history in the database while retaining archived articles', async () => {
     const archived = {
       articleId: 'article-id',
-      status: ReadingStatus.READING,
       progressPercent: new Prisma.Decimal('25'),
-      lastBlockKey: null,
       completedAt: null,
       firstOpenedAt: new Date('2026-07-20T01:00:00Z'),
       lastReadAt: new Date('2026-07-23T01:00:00Z'),
@@ -367,7 +365,7 @@ describe('ReadingRepository', () => {
 
     const query = progressFindMany.mock.calls[0][0];
     expect(query).toMatchObject({
-      where: { userId: 'owner-id', status: ReadingStatus.READING },
+      where: { userId: 'owner-id', completedAt: null },
       skip: 10,
       take: 10,
       orderBy: [{ lastReadAt: 'asc' }, { id: 'asc' }],
@@ -399,9 +397,7 @@ describe('ReadingRepository', () => {
           take: 1,
           select: {
             articleId: true,
-            status: true,
             progressPercent: true,
-            lastBlockKey: true,
             completedAt: true,
           },
         },
@@ -415,9 +411,7 @@ describe('ReadingRepository', () => {
     progressFindUnique.mockResolvedValue(null);
     progressUpsert.mockResolvedValue({
       articleId: 'article-id',
-      status: ReadingStatus.READING,
       progressPercent: new Prisma.Decimal('100'),
-      lastBlockKey: null,
       completedAt: null,
     });
 
@@ -442,7 +436,6 @@ describe('ReadingRepository', () => {
         create: {
           userId: 'owner-id',
           articleId: 'article-id',
-          status: ReadingStatus.READING,
           progressPercent: 100,
           completedAt: null,
         },
@@ -453,46 +446,36 @@ describe('ReadingRepository', () => {
     });
   });
 
-  it('preserves omitted fields during a READING partial upsert', async () => {
+  it('updates progress without changing completion state', async () => {
     articleFindFirst.mockResolvedValue({ id: 'article-id' });
     progressFindUnique.mockResolvedValue({
-      status: ReadingStatus.READING,
       completedAt: null,
     });
     progressUpsert.mockResolvedValue({
       articleId: 'article-id',
-      status: ReadingStatus.READING,
       progressPercent: new Prisma.Decimal('40'),
-      lastBlockKey: 'paragraph-4',
       completedAt: null,
     });
 
     await repository.upsertUserArticleProgress('owner-id', 'article-id', {
-      lastBlockKey: 'paragraph-4',
+      progressPercent: 40,
     });
 
     expect(progressUpsert.mock.calls[0][0].update).toMatchObject({
-      status: ReadingStatus.READING,
       completedAt: null,
-      lastBlockKey: 'paragraph-4',
+      progressPercent: 40,
     });
-    expect(progressUpsert.mock.calls[0][0].update).not.toHaveProperty(
-      'progressPercent',
-    );
   });
 
   it('does not silently reopen a COMPLETED row through REA-005', async () => {
     const completedAt = new Date('2026-07-23T03:00:00Z');
     articleFindFirst.mockResolvedValue({ id: 'article-id' });
     progressFindUnique.mockResolvedValue({
-      status: ReadingStatus.COMPLETED,
       completedAt,
     });
     progressUpsert.mockResolvedValue({
       articleId: 'article-id',
-      status: ReadingStatus.COMPLETED,
       progressPercent: new Prisma.Decimal('100'),
-      lastBlockKey: null,
       completedAt,
     });
 
@@ -501,7 +484,6 @@ describe('ReadingRepository', () => {
     });
 
     expect(progressUpsert.mock.calls[0][0].update).toMatchObject({
-      status: ReadingStatus.COMPLETED,
       progressPercent: 100,
       completedAt,
     });
@@ -513,9 +495,7 @@ describe('ReadingRepository', () => {
     progressFindUnique.mockResolvedValue({ completedAt });
     progressUpsert.mockResolvedValue({
       articleId: 'article-id',
-      status: ReadingStatus.COMPLETED,
       progressPercent: new Prisma.Decimal('100'),
-      lastBlockKey: null,
       completedAt,
     });
 
@@ -529,7 +509,6 @@ describe('ReadingRepository', () => {
         },
       },
       update: {
-        status: ReadingStatus.COMPLETED,
         progressPercent: 100,
         completedAt,
       },

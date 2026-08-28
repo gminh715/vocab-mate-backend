@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  Patch,
   Post,
   Query,
   UseGuards,
@@ -37,7 +36,6 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import {
   GetVocabulariesQueryDto,
   SaveVocabularyDto,
-  UpdateLearningStatusDto,
   VocabularyParamsDto,
 } from '../dto/vocabulary-request.dto';
 import {
@@ -109,7 +107,7 @@ export class VocabulariesController {
     operationId: 'postVocabulary',
     summary: 'Save an eligible contextual term as an immutable snapshot',
     description:
-      'Requires a READY exact contextual term with complete snapshot fields, then creates a NEW immutable vocabulary snapshot and all requested owner collection memberships atomically. Later source enrichment changes do not rewrite the snapshot; scheduling fields start null.',
+      'Requires a READY exact contextual term with complete snapshot fields, then creates an immutable vocabulary snapshot and all requested owner collection memberships atomically.',
   })
   @ApiCreatedResponse({ type: VocabularySaveSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -135,29 +133,6 @@ export class VocabulariesController {
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   save(@CurrentUser() user: AuthenticatedUser, @Body() dto: SaveVocabularyDto) {
     return this.vocabulariesService.save(user.id, dto);
-  }
-
-  @Patch(':userVocabularyId/status')
-  @Version('1')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    operationId: 'patchVocabularyStatus',
-    summary: 'Update learning status of a saved vocabulary',
-  })
-  @ApiOkResponse({ type: VocabularyDetailSuccessResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
-  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
-  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
-  updateStatus(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param() params: VocabularyParamsDto,
-    @Body() dto: UpdateLearningStatusDto,
-  ) {
-    return this.vocabulariesService.updateStatus(
-      user.id,
-      params.userVocabularyId,
-      dto,
-    );
   }
 
   @Delete(':userVocabularyId')

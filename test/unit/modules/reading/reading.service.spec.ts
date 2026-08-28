@@ -122,7 +122,6 @@ describe('ReadingService', () => {
       articleId,
       status: ReadingStatus.READING,
       progressPercent: 0,
-      lastBlockKey: null,
       completedAt: null,
     });
     expect(repository.findReaderArticle).toHaveBeenCalledTimes(1);
@@ -136,7 +135,6 @@ describe('ReadingService', () => {
           articleId,
           status: ReadingStatus.COMPLETED,
           progressPercent: new Prisma.Decimal('100'),
-          lastBlockKey: 'sentence-12',
           completedAt,
         },
       }),
@@ -148,7 +146,6 @@ describe('ReadingService', () => {
       articleId,
       status: ReadingStatus.COMPLETED,
       progressPercent: 100,
-      lastBlockKey: 'sentence-12',
       completedAt,
     });
   });
@@ -171,7 +168,6 @@ describe('ReadingService', () => {
           articleId,
           status: ReadingStatus.READING,
           progressPercent: new Prisma.Decimal('35.5'),
-          lastBlockKey: 'paragraph-2',
           completedAt: null,
           firstOpenedAt: new Date('2026-07-20T01:00:00Z'),
           lastReadAt: new Date('2026-07-23T01:00:00Z'),
@@ -220,7 +216,6 @@ describe('ReadingService', () => {
         articleId,
         status: ReadingStatus.READING,
         progressPercent: 0,
-        lastBlockKey: null,
         completedAt: null,
       },
     });
@@ -234,26 +229,25 @@ describe('ReadingService', () => {
     expect(repository.upsertUserArticleProgress).not.toHaveBeenCalled();
   });
 
-  it('preserves omitted fields in a partial progress upsert', async () => {
+  it('updates progressPercent through the owner-scoped upsert', async () => {
     repository.upsertUserArticleProgress.mockResolvedValue({
       articleId,
       progress: {
         articleId,
         status: ReadingStatus.READING,
         progressPercent: new Prisma.Decimal('45'),
-        lastBlockKey: 'paragraph-3',
         completedAt: null,
       },
     });
 
     await service.updateProgress('owner-id', articleId, {
-      lastBlockKey: 'paragraph-3',
+      progressPercent: 45,
     });
 
     expect(repository.upsertUserArticleProgress).toHaveBeenCalledWith(
       'owner-id',
       articleId,
-      { lastBlockKey: 'paragraph-3' },
+      { progressPercent: 45 },
     );
   });
 
@@ -265,7 +259,6 @@ describe('ReadingService', () => {
         articleId,
         status: ReadingStatus.COMPLETED,
         progressPercent: new Prisma.Decimal('100'),
-        lastBlockKey: 'paragraph-3',
         completedAt,
       },
     });
@@ -277,7 +270,6 @@ describe('ReadingService', () => {
         articleId,
         status: ReadingStatus.COMPLETED,
         progressPercent: 100,
-        lastBlockKey: 'paragraph-3',
         completedAt,
       },
     });

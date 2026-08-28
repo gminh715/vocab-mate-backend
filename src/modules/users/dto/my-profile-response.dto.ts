@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { CefrLevel } from '../../../../generated/prisma/enums';
 import { PublicUserDto } from '../../auth/dto/auth-response.dto';
 
-export class MyProfileDto {
+export class MyAccountDto extends PublicUserDto {
   @ApiProperty({ example: 'Nguyen Van A' })
   displayName!: string;
 
@@ -22,20 +22,12 @@ export class MyProfileDto {
   })
   learningGoal!: string | null;
 
-  @ApiProperty({ enum: [5, 10, 15], example: 10, nullable: true })
-  dailyStudyMinutes!: number | null;
-
   @ApiProperty({
     example: 'vi',
     description:
       'UI display-language preference only; does not control articles, translations, explanations, or AI output.',
   })
   preferredLanguage!: string;
-}
-
-export class MyAccountDto extends PublicUserDto {
-  @ApiProperty({ type: MyProfileDto })
-  profile!: MyProfileDto;
 }
 
 export class MyAccountSuccessResponseDto {
@@ -46,18 +38,10 @@ export class MyAccountSuccessResponseDto {
   data!: MyAccountDto;
 }
 
-export class UpdateMyProfileDataDto {
-  @ApiProperty({ type: PublicUserDto })
-  user!: PublicUserDto;
-
-  @ApiProperty({ type: MyProfileDto })
-  profile!: MyProfileDto;
-}
-
 export class UpdateMyProfileSuccessResponseDto {
   @ApiProperty({ example: true })
   success!: true;
 
-  @ApiProperty({ type: UpdateMyProfileDataDto })
-  data!: UpdateMyProfileDataDto;
+  @ApiProperty({ type: MyAccountDto })
+  data!: MyAccountDto;
 }

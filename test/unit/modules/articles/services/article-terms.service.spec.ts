@@ -32,9 +32,6 @@ const sentenceRecord = {
   sentenceOrder: 1,
   sentenceText: 'Digital tools improve learning. Digital tools connect people.',
   translationVi: null,
-  explanationVi: null,
-  referenceExplanation: null,
-  skill: null,
   isActive: true,
   createdAt: new Date('2026-07-23T00:00:00Z'),
   updatedAt: new Date('2026-07-23T00:00:00Z'),
@@ -43,10 +40,7 @@ const termRecord = {
   id: termId,
   sentenceId,
   value: 'Digital tools',
-  wordDisplay: 'digital tools',
   lemma: 'digital tool',
-  normalizedLemma: 'digital tool',
-  unitType: 'PHRASE' as const,
   partOfSpeech: 'noun phrase',
   ipa: null,
   cefrLevel: 'B1' as const,
@@ -57,15 +51,11 @@ const termRecord = {
   antonyms: [],
   collocations: [],
   relatedTerms: [],
-  vocabularyTopic: null,
   examples: [],
-  skill: null,
   origin: TermOrigin.MANUAL,
   reviewStatus: TermReviewStatus.APPROVED,
-  selectionReason: null,
   explanationStatus: AiGenerationStatus.READY,
   explanationError: null,
-  explanationGeneratedAt: null,
   isLookupEnabled: true,
   isActive: true,
   createdAt: new Date('2026-07-23T00:00:00Z'),
@@ -75,7 +65,6 @@ const pendingCandidate = {
   ...termRecord,
   origin: TermOrigin.AI,
   reviewStatus: TermReviewStatus.PENDING,
-  selectionReason: 'Useful phrase in the article context.',
   explanationStatus: AiGenerationStatus.PENDING,
   contextualMeaningVi: null,
   isLookupEnabled: false,
@@ -83,10 +72,7 @@ const pendingCandidate = {
 };
 const createDto = {
   value: 'Digital tools',
-  wordDisplay: 'digital tools',
   lemma: 'digital tool',
-  normalizedLemma: 'digital tool',
-  unitType: 'PHRASE' as const,
   partOfSpeech: 'noun phrase',
   cefrLevel: 'B1' as const,
   contextualMeaningVi: 'công cụ số',
@@ -165,14 +151,11 @@ describe('ArticleTermsService', () => {
         sentenceId,
         contentVersion: 3,
         sourceContentHtml: baseHtml,
-        actingAdminId: 'admin-id',
       }),
       expect.objectContaining({
         sentenceId,
         value: 'Digital tools',
-        normalizedLemma: 'digital tool',
-        createdByUserId: 'admin-id',
-        updatedByUserId: 'admin-id',
+        lemma: 'digital tool',
       }),
     );
   });
@@ -218,7 +201,6 @@ describe('ArticleTermsService', () => {
       {
         definitionEn: 'Electronic resources.',
         isLookupEnabled: false,
-        updatedByUserId: 'admin-id',
       },
     );
     expect(repository.updateTermWithMarker).not.toHaveBeenCalled();
@@ -251,7 +233,6 @@ describe('ArticleTermsService', () => {
   it('atomically rebuilds the marker when value changes', async () => {
     const result = await service.update('admin-id', 'article-id', termId, {
       value: 'learning',
-      unitType: 'WORD',
     });
 
     expect(result.contentHtmlChanged).toBe(true);
@@ -269,8 +250,6 @@ describe('ArticleTermsService', () => {
     );
     expect(repository.updateTermWithMarker).toHaveBeenCalledWith(markerInput, {
       value: 'learning',
-      unitType: 'WORD',
-      updatedByUserId: 'admin-id',
     });
     expect(repository.updateTermMetadata).not.toHaveBeenCalled();
   });
@@ -301,7 +280,6 @@ describe('ArticleTermsService', () => {
 
       await service.update('admin-id', 'article-id', termId, {
         value: 'tools',
-        unitType: 'WORD',
       });
 
       const updateCalls = repository.updateTermWithMarker.mock
@@ -346,7 +324,6 @@ describe('ArticleTermsService', () => {
       termId,
       contentVersion: 3,
       sourceContentHtml: baseHtml,
-      actingAdminId: 'admin-id',
     });
   });
 
@@ -399,7 +376,6 @@ describe('ArticleTermsService', () => {
       'article-id',
       3,
       termId,
-      'admin-id',
     );
     expect(repository.approveAiTermWithMarker).not.toHaveBeenCalled();
   });

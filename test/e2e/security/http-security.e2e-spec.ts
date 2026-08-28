@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { ReviewGoal, UserRole } from '../../../generated/prisma/enums';
+import { UserRole } from '../../../generated/prisma/enums';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../../../src/app.module';
@@ -17,14 +17,10 @@ import type { RequestWithUser } from '../../../src/modules/auth/auth.types';
 import { JwtAuthGuard } from '../../../src/modules/auth/guards/jwt-auth.guard';
 import { NewsIngestionService } from '../../../src/modules/news-ingestion/services/news-ingestion.service';
 import { ReadingService } from '../../../src/modules/reading/services/reading.service';
-import { ReviewsService } from '../../../src/modules/reviews/services/reviews.service';
+import { ContextualTermsService } from '../../../src/modules/reading/services/contextual-terms.service';
 
 const ARTICLE_ID = '11111111-1111-4111-8111-111111111111';
 const TERM_ID = '22222222-2222-4222-8222-222222222222';
-const REVIEW_SESSION_ID = '33333333-3333-4333-8333-333333333333';
-const REVIEW_ITEM_ID = '44444444-4444-4444-8444-444444444444';
-const QUESTION_ID = '55555555-5555-4555-8555-555555555555';
-const OPTION_ID = '66666666-6666-4666-8666-666666666666';
 const CATEGORY_ID = '77777777-7777-4777-8777-777777777777';
 
 interface HttpResponse {
@@ -54,6 +50,9 @@ describe('HTTP security and throttling (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeAll(async () => {
+    const contextualTermsService = {
+      getContextualTerm: jest.fn().mockResolvedValue({ term: {} }),
+    };
     const module: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -75,13 +74,9 @@ describe('HTTP security and throttling (e2e)', () => {
       .overrideProvider(ReadingService)
       .useValue({
         getHistory: jest.fn().mockResolvedValue({ items: [], meta: {} }),
-        getContextualTerm: jest.fn().mockResolvedValue({ term: {} }),
       })
-      .overrideProvider(ReviewsService)
-      .useValue({
-        startSession: jest.fn().mockResolvedValue({ session: {} }),
-        submitAnswer: jest.fn().mockResolvedValue({ result: {} }),
-      })
+      .overrideProvider(ContextualTermsService)
+      .useValue(contextualTermsService)
       .overrideProvider(NewsIngestionService)
       .useValue({
         search: jest.fn().mockResolvedValue({ articles: [] }),
@@ -135,7 +130,7 @@ describe('HTTP security and throttling (e2e)', () => {
       .expect(429);
   });
 
-  it('applies stricter ceilings to AI enrichment and review preparation without constraining normal reads to those levels', async () => {
+  it('applies a stricter ceiling to AI enrichment without constraining normal reads to that level', async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await request(app.getHttpServer())
         .get('/api/v1/reading/history?page=1&limit=20&sort=newest')
@@ -155,22 +150,6 @@ describe('HTTP security and throttling (e2e)', () => {
       .set('Authorization', 'Bearer test')
       .expect(429);
 
-    const reviewRequest = {
-      reviewGoal: ReviewGoal.RECALL,
-    };
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await request(app.getHttpServer())
-        .post('/api/v1/review-sessions')
-        .set('Authorization', 'Bearer test')
-        .send(reviewRequest)
-        .expect(201);
-    }
-
-    await request(app.getHttpServer())
-      .post('/api/v1/review-sessions')
-      .set('Authorization', 'Bearer test')
-      .send(reviewRequest)
-      .expect(429);
   });
 
   it('throttles Guardian discovery and import independently from ordinary application reads', async () => {
@@ -205,24 +184,4 @@ describe('HTTP security and throttling (e2e)', () => {
       .expect(429);
   });
 
-  it('throttles answer flows that can trigger diagnosis and AI retests', async () => {
-    const answerRequest = {
-      reviewSessionItemId: REVIEW_ITEM_ID,
-      reviewQuestionId: QUESTION_ID,
-      selectedOptionId: OPTION_ID,
-    };
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      await request(app.getHttpServer())
-        .post(`/api/v1/review-sessions/${REVIEW_SESSION_ID}/answers`)
-        .set('Authorization', 'Bearer test')
-        .send(answerRequest)
-        .expect(201);
-    }
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/review-sessions/${REVIEW_SESSION_ID}/answers`)
-      .set('Authorization', 'Bearer test')
-      .send(answerRequest)
-      .expect(429);
-  });
 });

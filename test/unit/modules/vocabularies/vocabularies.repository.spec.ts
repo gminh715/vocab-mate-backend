@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { CefrLevel, LearningStatus } from '../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../generated/prisma/enums';
 import { PrismaService } from '../../../../src/database/prisma.service';
 import { VocabularySort } from '../../../../src/modules/vocabularies/dto/vocabulary-request.dto';
 import {
@@ -42,20 +42,14 @@ describe('VocabulariesRepository', () => {
 
   const snapshotInput = (): CreateVocabularySnapshotInput => ({
     articleSentenceTermId: TERM_ID,
-    learningStatus: LearningStatus.NEW,
     savedWordDisplay: 'harmful',
     savedLemma: 'harmful',
     savedPartOfSpeech: 'adjective',
     savedIpa: null,
     savedCefrLevel: CefrLevel.B1,
-    savedContextSentence: 'Plastic is harmful.',
-    savedContextTranslationVi: 'Nhựa có hại.',
     savedMeaningVi: 'có hại',
-    savedExplanation: null,
+    definitionEn: 'causing damage',
     savedExamples: [],
-    lastReviewedAt: null,
-    nextReviewAt: null,
-    reviewIntervalDays: null,
   });
 
   beforeEach(async () => {
@@ -95,19 +89,15 @@ describe('VocabulariesRepository', () => {
   });
 
   it('applies owner scope, snapshot search, filters, pagination, and deterministic allowlisted sorting', async () => {
-    const now = new Date('2026-07-23T05:00:00Z');
-
     await repository.list(
       'owner-id',
       {
         page: 2,
         limit: 10,
         q: 'harm',
-        learningStatus: LearningStatus.LEARNING,
         cefrLevel: CefrLevel.B1,
         sort: VocabularySort.OLDEST,
       },
-      now,
     );
 
     const query = vocabularyFindMany.mock.calls[0][0];
@@ -126,7 +116,6 @@ describe('VocabulariesRepository', () => {
             { savedMeaningVi: { contains: 'harm', mode: 'insensitive' } },
           ],
         },
-        { learningStatus: LearningStatus.LEARNING },
         { savedCefrLevel: CefrLevel.B1 },
       ],
     });
@@ -155,7 +144,6 @@ describe('VocabulariesRepository', () => {
         collectionId: COLLECTION_ID,
         sort: VocabularySort.NEWEST,
       },
-      new Date(),
     );
 
     expect(vocabularyFindMany.mock.calls[0][0].where).toMatchObject({
@@ -167,38 +155,6 @@ describe('VocabulariesRepository', () => {
               collection: { is: { userId: 'owner-id' } },
             },
           },
-        },
-      ],
-    });
-  });
-
-  it('implements due-only policy in PostgreSQL filters', async () => {
-    const now = new Date('2026-07-23T05:00:00Z');
-    await repository.list(
-      'owner-id',
-      {
-        page: 1,
-        limit: 20,
-        dueOnly: true,
-        sort: VocabularySort.NEWEST,
-      },
-      now,
-    );
-
-    expect(vocabularyFindMany.mock.calls[0][0].where).toMatchObject({
-      AND: [
-        {
-          learningStatus: {
-            in: [
-              LearningStatus.NEW,
-              LearningStatus.LEARNING,
-              LearningStatus.REVIEWING,
-            ],
-          },
-          OR: [
-            { nextReviewAt: { lte: now } },
-            { learningStatus: LearningStatus.NEW, nextReviewAt: null },
-          ],
         },
       ],
     });
@@ -239,10 +195,6 @@ describe('VocabulariesRepository', () => {
     expect(createQuery.data).toMatchObject({
       userId: 'owner-id',
       articleSentenceTermId: TERM_ID,
-      learningStatus: LearningStatus.NEW,
-      lastReviewedAt: null,
-      nextReviewAt: null,
-      reviewIntervalDays: null,
       collectionItems: {
         create: [{ collectionId: COLLECTION_ID }],
       },

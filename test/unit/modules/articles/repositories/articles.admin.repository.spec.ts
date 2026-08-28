@@ -36,10 +36,6 @@ type ProgressCountMock = jest.MockedFunction<
 type VocabularyCountMock = jest.MockedFunction<
   (args: Prisma.UserVocabularyCountArgs) => Promise<number>
 >;
-type ReviewAnswerCountMock = jest.MockedFunction<
-  (args: Prisma.ReviewAnswerCountArgs) => Promise<number>
->;
-
 describe('ArticlesRepository admin queries', () => {
   const articleFindMany: FindManyMock = jest.fn();
   const articleCount: ArticleCountMock = jest.fn();
@@ -52,7 +48,6 @@ describe('ArticlesRepository admin queries', () => {
   const termCount: TermCountMock = jest.fn();
   const progressCount: ProgressCountMock = jest.fn();
   const vocabularyCount: VocabularyCountMock = jest.fn();
-  const reviewAnswerCount: ReviewAnswerCountMock = jest.fn();
   const prismaModels = {
     article: {
       findMany: articleFindMany,
@@ -66,7 +61,6 @@ describe('ArticlesRepository admin queries', () => {
     articleSentenceTerm: { count: termCount },
     userArticleProgress: { count: progressCount },
     userVocabulary: { count: vocabularyCount },
-    reviewAnswer: { count: reviewAnswerCount },
   };
   type PrismaMock = typeof prismaModels & {
     $transaction: TransactionMock;
@@ -90,7 +84,6 @@ describe('ArticlesRepository admin queries', () => {
     termCount.mockResolvedValue(0);
     progressCount.mockResolvedValue(0);
     vocabularyCount.mockResolvedValue(0);
-    reviewAnswerCount.mockResolvedValue(0);
   });
 
   it('combines admin filters in PostgreSQL and excludes content from list projection', async () => {
@@ -202,8 +195,6 @@ describe('ArticlesRepository admin queries', () => {
       summary: 'Summary',
       contentHtml: '<p>Content</p>',
       cefrLevel: 'B1',
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
 
     expect(articleCreate.mock.calls[0][0].data).toMatchObject({
@@ -211,8 +202,6 @@ describe('ArticlesRepository admin queries', () => {
       contentVersion: 1,
       publishedAt: null,
       archivedAt: null,
-      createdByUserId: 'admin-id',
-      updatedByUserId: 'admin-id',
     });
   });
 
@@ -222,14 +211,12 @@ describe('ArticlesRepository admin queries', () => {
 
     await repository.updateContent('article-id', 3, {
       contentHtml: '<p>New</p>',
-      updatedByUserId: 'admin-id',
     });
 
     expect(articleUpdate.mock.calls[0][0]).toMatchObject({
       where: { id: 'article-id' },
       data: {
         contentHtml: '<p>New</p>',
-        updatedByUserId: 'admin-id',
         contentVersion: { increment: 1 },
       },
     });
@@ -239,7 +226,7 @@ describe('ArticlesRepository admin queries', () => {
         contentVersion: 3,
         isActive: true,
       },
-      data: { isActive: false, updatedByUserId: 'admin-id' },
+      data: { isActive: false },
     });
   });
 
@@ -261,6 +248,5 @@ describe('ArticlesRepository admin queries', () => {
         },
       },
     });
-    expect(reviewAnswerCount).toHaveBeenCalled();
   });
 });

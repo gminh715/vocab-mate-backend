@@ -30,9 +30,7 @@ export interface ReaderArticleMetadataRecord {
 
 export interface ReaderProgressRecord {
   articleId: string;
-  status: ReadingStatus;
   progressPercent: Prisma.Decimal | null;
-  lastBlockKey: string | null;
   completedAt: Date | null;
 }
 
@@ -75,7 +73,6 @@ export interface UserArticleProgressResult {
 
 export interface UpsertUserArticleProgressInput {
   progressPercent?: number;
-  lastBlockKey?: string;
 }
 
 export class ReadingProgressMutationConflictError extends Error {
@@ -119,9 +116,7 @@ const readerArticleSelect = {
 
 const readerProgressSelect = {
   articleId: true,
-  status: true,
   progressPercent: true,
-  lastBlockKey: true,
   completedAt: true,
 } as const;
 
@@ -184,8 +179,8 @@ export class ReadingRepository {
         contentVersion,
         isActive: true,
       } as const;
-      const profile = await transaction.userProfile.findUnique({
-        where: { userId },
+      const user = await transaction.user.findUnique({
+        where: { id: userId },
         select: { currentCefrLevel: true, learningGoal: true },
       });
       const termCandidates = await transaction.articleSentenceTerm.findMany({
@@ -211,11 +206,9 @@ export class ReadingRepository {
       return {
         article,
         contentHtml,
-        userCefrLevel: profile?.currentCefrLevel ?? null,
+        userCefrLevel: user?.currentCefrLevel ?? null,
         userTargetCefrLevel:
-          profile && isCefrLevel(profile.learningGoal)
-            ? profile.learningGoal
-            : null,
+          user && isCefrLevel(user.learningGoal) ? user.learningGoal : null,
         termCandidates,
         progress,
       };
@@ -228,7 +221,11 @@ export class ReadingRepository {
   ): Promise<ReadingHistoryResult> {
     const where: Prisma.UserArticleProgressWhereInput = {
       userId,
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.status === ReadingStatus.COMPLETED
+        ? { completedAt: { not: null } }
+        : query.status === ReadingStatus.READING
+          ? { completedAt: null }
+          : {}),
     };
     const direction = query.sort === 'oldest' ? 'asc' : 'desc';
     const [items, total] = await this.prisma.$transaction([
@@ -282,26 +279,21 @@ export class ReadingRepository {
 
       const existing = await transaction.userArticleProgress.findUnique({
         where: { userId_articleId: { userId, articleId } },
-        select: { status: true, completedAt: true },
+        select: { completedAt: true },
       });
       const now = new Date();
-      const isCompleted = existing?.status === ReadingStatus.COMPLETED;
+      const isCompleted = existing?.completedAt !== null && existing !== null;
       const progress = await transaction.userArticleProgress.upsert({
         where: { userId_articleId: { userId, articleId } },
         create: {
           userId,
           articleId,
-          status: ReadingStatus.READING,
           progressPercent: input.progressPercent ?? 0,
-          ...(input.lastBlockKey === undefined
-            ? {}
-            : { lastBlockKey: input.lastBlockKey }),
           firstOpenedAt: now,
           lastReadAt: now,
           completedAt: null,
         },
         update: {
-          status: isCompleted ? ReadingStatus.COMPLETED : ReadingStatus.READING,
           completedAt: isCompleted ? (existing.completedAt ?? now) : null,
           lastReadAt: now,
           ...(isCompleted
@@ -309,9 +301,6 @@ export class ReadingRepository {
             : input.progressPercent === undefined
               ? {}
               : { progressPercent: input.progressPercent }),
-          ...(input.lastBlockKey === undefined
-            ? {}
-            : { lastBlockKey: input.lastBlockKey }),
         },
         select: readerProgressSelect,
       });
@@ -342,14 +331,12 @@ export class ReadingRepository {
         create: {
           userId,
           articleId,
-          status: ReadingStatus.COMPLETED,
           progressPercent: 100,
           firstOpenedAt: now,
           lastReadAt: now,
           completedAt,
         },
         update: {
-          status: ReadingStatus.COMPLETED,
           progressPercent: 100,
           lastReadAt: now,
           completedAt,

@@ -57,113 +57,11 @@ enum TermReviewStatus {
   @@map("term_review_status")
 }
 
-enum LearningStatus {
-  NEW
-  LEARNING
-  REVIEWING
-  MASTERED
-  IGNORED
 
-  @@map("learning_status")
-}
 
 enum ReadingStatus {
   READING
   COMPLETED
 
   @@map("reading_status")
-}
-
-enum LexicalUnitType {
-  WORD
-  PHRASE
-
-  @@map("lexical_unit_type")
-}
-
-enum QuestionType {
-  SELECT_MEANING
-  SELECT_WORD
-  SELECT_CORRECT_CONTEXT
-  FILL_BLANK
-
-  @@map("question_type")
-}
-
-enum ReviewQuestionGenerationSource {
-  AI
-
-  @@map("review_question_generation_source")
-}
-
-enum ReviewSessionItemStatus {
-  PENDING
-  COMPLETED
-  SKIPPED
-
-  @@map("review_session_item_status")
-}
-
-enum ReviewSessionStatus {
-  IN_PROGRESS
-  COMPLETED
-  ABANDONED
-
-  @@map("review_session_status")
-}
-
-enum ReviewGoal {
-  BALANCED
-  RECALL
-  SPELLING
-  CONTEXT
-
-  @@map("review_goal")
-}
-
-enum ReviewSkillDimension {
-  RECOGNITION
-  RECALL
-  SPELLING
-  CONTEXT
-  PRODUCTION
-
-  @@map("review_skill_dimension")
-}
-
-enum ReviewErrorType {
-  LOW_RECALL
-  MEANING_CONFUSION
-  CONFUSABLE_WORD
-  SPELLING_ERROR
-  WORD_FORM_ERROR
-  COLLOCATION_ERROR
-  CONTEXT_MISUNDERSTANDING
-  CARELESS_ERROR
-  UNKNOWN
-
-  @@map("review_error_type")
-}
-
-enum ReviewAgentAction {
-  CONTINUE
-  REQUEUE_WITH_NEW_TYPE
-  TEACH_AND_REQUEUE
-  FLAG_FOR_FUTURE_FOCUS
-
-  @@map("review_agent_action")
-}
-
-enum ReviewDecisionKind {
-  SESSION_PLAN
-  ANSWER_INTERVENTION
-  SESSION_SUMMARY
-
-  @@map("review_decision_kind")
-}
-
-enum ReviewDecisionSource {
-  AI
-
-  @@map("review_decision_source")
 }
