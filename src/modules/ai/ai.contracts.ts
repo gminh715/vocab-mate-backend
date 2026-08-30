@@ -33,3 +33,80 @@ export interface TermEnrichmentResult {
   examples: TermExample[];
   sentenceTranslationVi: string;
 }
+
+export const TUTOR_QUESTION_TYPES = [
+  'MULTIPLE_CHOICE',
+  'CONTEXTUAL_CLOZE',
+  'TYPED_RECALL',
+  'MICRO_LESSON_RETEST',
+] as const;
+
+export type TutorQuestionType = (typeof TUTOR_QUESTION_TYPES)[number];
+
+export const OPTION_IDS = ['A', 'B', 'C', 'D'] as const;
+export type OptionId = (typeof OPTION_IDS)[number];
+
+export const RETEST_TYPES = ['CONTEXTUAL_CLOZE', 'TYPED_RECALL'] as const;
+export type RetestType = (typeof RETEST_TYPES)[number];
+
+export interface TutorQuestionCandidate {
+  id: string;
+  wordDisplay: string;
+  lemma: string;
+  partOfSpeech: string;
+  meaningVi: string;
+  examples: unknown;
+}
+
+export interface TutorQuestionInput {
+  allowlistIds: string[];
+  candidates: TutorQuestionCandidate[];
+  questionType: TutorQuestionType;
+}
+
+export interface McOption {
+  id: OptionId;
+  text: string;
+}
+
+export interface BaseTutorQuestionResult {
+  selectedCandidateId: string;
+  questionType: TutorQuestionType;
+  questionPromptVi: string;
+  explanationVi: string;
+  feedbackCorrectVi: string;
+  feedbackIncorrectVi: string;
+}
+
+export interface MultipleChoiceResult extends BaseTutorQuestionResult {
+  questionType: 'MULTIPLE_CHOICE';
+  options: [McOption, McOption, McOption, McOption];
+  correctOptionId: OptionId;
+}
+
+export interface ContextualClozeResult extends BaseTutorQuestionResult {
+  questionType: 'CONTEXTUAL_CLOZE';
+  sentenceWithBlank: string;
+  canonicalAnswer: string;
+}
+
+export interface TypedRecallResult extends BaseTutorQuestionResult {
+  questionType: 'TYPED_RECALL';
+  recallPromptVi: string;
+  canonicalAnswer: string;
+}
+
+export interface MicroLessonRetestResult extends BaseTutorQuestionResult {
+  questionType: 'MICRO_LESSON_RETEST';
+  microLessonVi: string;
+  retestType: RetestType;
+  sentenceWithBlank?: string;
+  recallPromptVi?: string;
+  canonicalAnswer: string;
+}
+
+export type TutorQuestionResult =
+  | MultipleChoiceResult
+  | ContextualClozeResult
+  | TypedRecallResult
+  | MicroLessonRetestResult;
