@@ -141,6 +141,7 @@ class InMemoryReadingRepository {
       },
       contentHtml:
         '<p onclick="bad()">Technology <strong>changes</strong> learning.</p><script>bad()</script>',
+      userExists: true,
       userCefrLevel: userId === 'user-c1' ? CefrLevel.C1 : CefrLevel.B1,
       userTargetCefrLevel: userId === 'user-c1' ? CefrLevel.C2 : CefrLevel.C1,
       termCandidates: [
