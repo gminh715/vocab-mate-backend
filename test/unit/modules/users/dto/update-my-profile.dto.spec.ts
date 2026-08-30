@@ -30,6 +30,14 @@ describe('UpdateMyProfileDto', () => {
     await expect(validate(dto)).resolves.toHaveLength(0);
   });
 
+  it('accepts null for currentCefrLevel', async () => {
+    const dto = plainToInstance(UpdateMyProfileDto, {
+      currentCefrLevel: null,
+    });
+
+    await expect(validate(dto)).resolves.toHaveLength(0);
+  });
+
   it.each([
     ['invalid CEFR level', { currentCefrLevel: 'B9' }],
     ['invalid learningGoal CEFR', { learningGoal: 'INVALID' }],

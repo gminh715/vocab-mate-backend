@@ -13,11 +13,11 @@ export class MyAccountDto extends PublicUserDto {
   })
   avatarUrl!: string | null;
 
-  @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1 })
-  currentCefrLevel!: CefrLevel;
+  @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1, nullable: true })
+  currentCefrLevel!: CefrLevel | null;
 
   @ApiProperty({
-    example: 'Learn 10 useful words each day',
+    example: 'B2',
     nullable: true,
   })
   learningGoal!: string | null;
@@ -28,6 +28,13 @@ export class MyAccountDto extends PublicUserDto {
       'UI display-language preference only; does not control articles, translations, explanations, or AI output.',
   })
   preferredLanguage!: string;
+
+  @ApiProperty({
+    enum: [5, 10, 15, 20],
+    example: 10,
+    description: 'Daily study session duration in minutes.',
+  })
+  dailyStudyMinutes!: number;
 }
 
 export class MyAccountSuccessResponseDto {

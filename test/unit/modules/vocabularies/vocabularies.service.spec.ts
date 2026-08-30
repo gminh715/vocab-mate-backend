@@ -141,17 +141,14 @@ describe('VocabulariesService', () => {
       sort: VocabularySort.NEWEST,
     });
 
-    expect(repository.list).toHaveBeenCalledWith(
-      'owner-id',
-      {
-        page: 2,
-        limit: 10,
-        q: 'harmful',
-        cefrLevel: CefrLevel.B1,
-        collectionId: COLLECTION_ID,
-        sort: VocabularySort.NEWEST,
-      },
-    );
+    expect(repository.list).toHaveBeenCalledWith('owner-id', {
+      page: 2,
+      limit: 10,
+      q: 'harmful',
+      cefrLevel: CefrLevel.B1,
+      collectionId: COLLECTION_ID,
+      sort: VocabularySort.NEWEST,
+    });
     expect(result.meta).toEqual({
       page: 2,
       limit: 10,

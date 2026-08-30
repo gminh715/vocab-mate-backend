@@ -1,8 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  ArticleStatus,
-  CefrLevel,
-} from '../../../../generated/prisma/enums';
+import { ArticleStatus, CefrLevel } from '../../../../generated/prisma/enums';
 
 export class AnalyticsOverviewDataDto {
   @ApiProperty({ example: 42, description: 'Current saved vocabulary stock.' })
@@ -14,7 +11,6 @@ export class AnalyticsOverviewDataDto {
       'Reading-progress records completed in the requested half-open range.',
   })
   articlesCompleted!: number;
-
 }
 
 export class VocabularyAnalyticsTotalsDto {

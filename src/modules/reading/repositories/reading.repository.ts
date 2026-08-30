@@ -85,6 +85,7 @@ export class ReadingProgressMutationConflictError extends Error {
 export interface ReaderArticleRecord {
   article: ReaderArticleMetadataRecord;
   contentHtml: string;
+  userExists: boolean;
   userCefrLevel: CefrLevel | null;
   userTargetCefrLevel: CefrLevel | null;
   termCandidates: Array<{ id: string; cefrLevel: CefrLevel | null }>;
@@ -206,6 +207,7 @@ export class ReadingRepository {
       return {
         article,
         contentHtml,
+        userExists: user !== null,
         userCefrLevel: user?.currentCefrLevel ?? null,
         userTargetCefrLevel:
           user && isCefrLevel(user.learningGoal) ? user.learningGoal : null,

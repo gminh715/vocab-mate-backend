@@ -114,6 +114,7 @@ describe('UsersRepository', () => {
         currentCefrLevel: true,
         learningGoal: true,
         preferredLanguage: true,
+        dailyStudyMinutes: true,
       },
     });
     expect(JSON.stringify(query)).not.toContain('passwordHash');
@@ -130,6 +131,7 @@ describe('UsersRepository', () => {
       currentCefrLevel: 'B1',
       learningGoal: null,
       preferredLanguage: 'vi',
+      dailyStudyMinutes: 10,
     });
 
     const result = await repository.updateMyProfile('user-id', {
@@ -152,6 +154,7 @@ describe('UsersRepository', () => {
       currentCefrLevel: 'B1',
       learningGoal: null,
       preferredLanguage: 'vi',
+      dailyStudyMinutes: 10,
     });
   });
 

@@ -28,21 +28,22 @@ export interface CreateRegisteredUserInput {
 export interface UserLearningSettingsRecord {
   displayName: string;
   avatarUrl: string | null;
-  currentCefrLevel: CefrLevel;
+  currentCefrLevel: CefrLevel | null;
   learningGoal: string | null;
   preferredLanguage: string;
+  dailyStudyMinutes: number;
 }
 
 export interface MyAccountRecord
-  extends PublicUserRecord,
-  UserLearningSettingsRecord { }
+  extends PublicUserRecord, UserLearningSettingsRecord {}
 
 export interface UpdateMyProfileInput {
   displayName?: string;
   avatarUrl?: string;
-  currentCefrLevel?: CefrLevel;
-  learningGoal?: CefrLevel;
+  currentCefrLevel?: CefrLevel | null;
+  learningGoal?: string | null;
   preferredLanguage?: string;
+  dailyStudyMinutes?: number;
 }
 
 export type UpdatedMyProfileRecord = MyAccountRecord;
@@ -128,6 +129,7 @@ const userLearningSettingsSelect = {
   currentCefrLevel: true,
   learningGoal: true,
   preferredLanguage: true,
+  dailyStudyMinutes: true,
 } as const;
 
 const myAccountSelect = {
@@ -172,7 +174,7 @@ const isTransactionConflictError = (
  */
 @Injectable()
 export class UsersRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   findByEmailWithPassword(email: string): Promise<AuthUserRecord | null> {
     return this.prisma.user.findUnique({
@@ -221,16 +223,16 @@ export class UsersRepository {
       ...(query.status ? { status: query.status } : {}),
       ...(query.q
         ? {
-          OR: [
-            { email: { contains: query.q, mode: 'insensitive' } },
-            {
-              displayName: {
-                contains: query.q,
-                mode: 'insensitive',
+            OR: [
+              { email: { contains: query.q, mode: 'insensitive' } },
+              {
+                displayName: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
               },
-            },
-          ],
-        }
+            ],
+          }
         : {}),
     };
     const direction = query.sort === 'oldest' ? 'asc' : 'desc';
@@ -257,15 +259,15 @@ export class UsersRepository {
     // Counts are computed in the database; learning histories are never loaded.
     const [account, savedVocabularyCount, completedArticleCount] =
       await this.prisma.$transaction([
-      this.prisma.user.findUnique({
-        where: { id: userId },
-        select: adminUserAccountSelect,
-      }),
-      this.prisma.userVocabulary.count({ where: { userId } }),
-      this.prisma.userArticleProgress.count({
-        where: { userId, completedAt: { not: null } },
-      }),
-    ]);
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: adminUserAccountSelect,
+        }),
+        this.prisma.userVocabulary.count({ where: { userId } }),
+        this.prisma.userArticleProgress.count({
+          where: { userId, completedAt: { not: null } },
+        }),
+      ]);
 
     if (!account) {
       return null;
@@ -391,7 +393,7 @@ export class UsersRepository {
         role: 'USER',
         status: 'ACTIVE',
         displayName: input.displayName,
-        currentCefrLevel: 'A1',
+        currentCefrLevel: null,
         preferredLanguage: input.preferredLanguage,
       },
       select: publicUserSelect,

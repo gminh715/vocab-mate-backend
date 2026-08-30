@@ -30,10 +30,11 @@ const isCefrLevel = (value: string): value is CefrLevel =>
   Object.hasOwn(CEFR_ORDER, value);
 
 const validateLearningGoalConstraint = (
-  currentCefrLevel: CefrLevel,
+  currentCefrLevel: CefrLevel | null,
   learningGoal?: string | null,
 ) => {
   if (
+    currentCefrLevel &&
     learningGoal &&
     isCefrLevel(learningGoal) &&
     CEFR_ORDER[learningGoal] < CEFR_ORDER[currentCefrLevel]
@@ -101,6 +102,9 @@ export class UsersService {
     if (dto.preferredLanguage !== undefined) {
       input.preferredLanguage = dto.preferredLanguage;
     }
+    if (dto.dailyStudyMinutes !== undefined) {
+      input.dailyStudyMinutes = dto.dailyStudyMinutes;
+    }
 
     if (Object.keys(input).length === 0) {
       throw new BadRequestException('At least one profile field is required');
@@ -108,7 +112,9 @@ export class UsersService {
 
     const currentAccount = await this.getMe(userId);
     const targetCefr =
-      input.currentCefrLevel ?? currentAccount.currentCefrLevel;
+      input.currentCefrLevel !== undefined
+        ? input.currentCefrLevel
+        : currentAccount.currentCefrLevel;
     const targetGoal =
       input.learningGoal !== undefined
         ? input.learningGoal

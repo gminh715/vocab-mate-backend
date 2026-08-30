@@ -27,13 +27,8 @@ export class AdminAnalyticsService {
     requestTime = new Date(),
   ) {
     const range = resolveAnalyticsDateRange(query, requestTime);
-    const [
-      users,
-      activeRows,
-      articles,
-      publishedArticles,
-      savedVocabulary,
-    ] = await this.repository.getOverview(range.from, range.to);
+    const [users, activeRows, articles, publishedArticles, savedVocabulary] =
+      await this.repository.getOverview(range.from, range.to);
     return {
       users,
       activeUsers: toSafeCount(activeRows[0]?.count ?? 0),

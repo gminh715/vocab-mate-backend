@@ -260,8 +260,7 @@ export class ArticlesService {
     if (!safety) throw new NotFoundException('Article not found');
 
     const hasHistory =
-      safety.readingProgressCount > 0 ||
-      safety.savedVocabularyCount > 0;
+      safety.readingProgressCount > 0 || safety.savedVocabularyCount > 0;
     if (safety.status !== ArticleStatus.DRAFT || hasHistory) {
       throw new ConflictException(
         'Only unused draft articles can be deleted; archive this article instead',

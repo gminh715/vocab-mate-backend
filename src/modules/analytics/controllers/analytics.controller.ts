@@ -54,8 +54,7 @@ export class AnalyticsController {
   })
   @ApiOkResponse({
     type: AnalyticsOverviewSuccessResponseDto,
-    description:
-      'Zero-data response contains numeric zero for all fields.',
+    description: 'Zero-data response contains numeric zero for all fields.',
   })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
@@ -103,5 +102,4 @@ export class AnalyticsController {
   ) {
     return this.learnerAnalyticsService.getReadingAnalytics(user.id, query);
   }
-
 }

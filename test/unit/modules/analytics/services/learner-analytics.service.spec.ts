@@ -1,7 +1,5 @@
 /* eslint-disable @typescript-eslint/unbound-method */
-import {
-  CefrLevel,
-} from '../../../../../generated/prisma/enums';
+import { CefrLevel } from '../../../../../generated/prisma/enums';
 import { LearnerAnalyticsRepository } from '../../../../../src/modules/analytics/repositories/learner-analytics.repository';
 import { LearnerAnalyticsService } from '../../../../../src/modules/analytics/services/learner-analytics.service';
 
@@ -22,9 +20,7 @@ describe('LearnerAnalyticsService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     jest.mocked(repository.getOverview).mockResolvedValue([0, 0]);
-    jest
-      .mocked(repository.getVocabularySnapshot)
-      .mockResolvedValue([0, []]);
+    jest.mocked(repository.getVocabularySnapshot).mockResolvedValue([0, []]);
     jest.mocked(repository.queryVocabularyTrend).mockResolvedValue([]);
     jest.mocked(repository.getReadingCounts).mockResolvedValue([0, 0]);
     jest.mocked(repository.queryReadingCategories).mockResolvedValue([]);

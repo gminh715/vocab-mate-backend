@@ -149,7 +149,6 @@ describe('HTTP security and throttling (e2e)', () => {
       .get(`/api/v1/reading/articles/${ARTICLE_ID}/terms/${TERM_ID}`)
       .set('Authorization', 'Bearer test')
       .expect(429);
-
   });
 
   it('throttles Guardian discovery and import independently from ordinary application reads', async () => {
@@ -183,5 +182,4 @@ describe('HTTP security and throttling (e2e)', () => {
       .send(syncRequest)
       .expect(429);
   });
-
 });

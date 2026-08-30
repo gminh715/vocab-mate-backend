@@ -57,11 +57,43 @@ enum TermReviewStatus {
   @@map("term_review_status")
 }
 
-
-
 enum ReadingStatus {
   READING
   COMPLETED
 
   @@map("reading_status")
+}
+
+enum FsrsCardState {
+  NEW
+  LEARNING
+  REVIEW
+  RELEARNING
+
+  @@map("fsrs_card_state")
+}
+
+enum TutorSessionStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+
+  @@map("tutor_session_status")
+}
+
+enum TutorSessionItemStatus {
+  PENDING
+  ANSWERED
+  SKIPPED
+
+  @@map("tutor_session_item_status")
+}
+
+enum TutorQuestionType {
+  MULTIPLE_CHOICE
+  CONTEXTUAL_CLOZE
+  TYPED_RECALL
+  MICRO_LESSON_RETEST
+
+  @@map("tutor_question_type")
 }

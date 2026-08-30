@@ -89,16 +89,13 @@ describe('VocabulariesRepository', () => {
   });
 
   it('applies owner scope, snapshot search, filters, pagination, and deterministic allowlisted sorting', async () => {
-    await repository.list(
-      'owner-id',
-      {
-        page: 2,
-        limit: 10,
-        q: 'harm',
-        cefrLevel: CefrLevel.B1,
-        sort: VocabularySort.OLDEST,
-      },
-    );
+    await repository.list('owner-id', {
+      page: 2,
+      limit: 10,
+      q: 'harm',
+      cefrLevel: CefrLevel.B1,
+      sort: VocabularySort.OLDEST,
+    });
 
     const query = vocabularyFindMany.mock.calls[0][0];
     expect(query).toMatchObject({
@@ -136,15 +133,12 @@ describe('VocabulariesRepository', () => {
   });
 
   it('filters collection membership through a collection owned by the caller', async () => {
-    await repository.list(
-      'owner-id',
-      {
-        page: 1,
-        limit: 20,
-        collectionId: COLLECTION_ID,
-        sort: VocabularySort.NEWEST,
-      },
-    );
+    await repository.list('owner-id', {
+      page: 1,
+      limit: 20,
+      collectionId: COLLECTION_ID,
+      sort: VocabularySort.NEWEST,
+    });
 
     expect(vocabularyFindMany.mock.calls[0][0].where).toMatchObject({
       AND: [

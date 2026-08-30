@@ -30,17 +30,14 @@ export class VocabulariesService {
   ) {}
 
   async findAll(userId: string, query: GetVocabulariesQueryDto) {
-    const result = await this.vocabulariesRepository.list(
-      userId,
-      {
-        page: query.page,
-        limit: query.limit,
-        sort: query.sort,
-        ...(query.q ? { q: query.q } : {}),
-        ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
-        ...(query.collectionId ? { collectionId: query.collectionId } : {}),
-      },
-    );
+    const result = await this.vocabulariesRepository.list(userId, {
+      page: query.page,
+      limit: query.limit,
+      sort: query.sort,
+      ...(query.q ? { q: query.q } : {}),
+      ...(query.cefrLevel ? { cefrLevel: query.cefrLevel } : {}),
+      ...(query.collectionId ? { collectionId: query.collectionId } : {}),
+    });
 
     return {
       items: result.items.map((item) => this.mapListItem(item)),

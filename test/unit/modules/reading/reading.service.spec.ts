@@ -37,6 +37,7 @@ const readerRecord = (
     },
   },
   contentHtml: '<p>Safe content</p>',
+  userExists: true,
   userCefrLevel: CefrLevel.B1,
   userTargetCefrLevel: CefrLevel.C1,
   termCandidates: [],
@@ -152,13 +153,25 @@ describe('ReadingService', () => {
 
   it.each([
     ['missing published article', null],
-    ['missing user profile', readerRecord({ userCefrLevel: null })],
+    ['missing user profile', readerRecord({ userExists: false })],
   ])('rejects a %s', async (_case, record) => {
     repository.findReaderArticle.mockResolvedValue(record);
 
     await expect(
       service.getReaderArticle('user-id', 'article'),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns empty highlightedTermIds when user has no current CEFR level', async () => {
+    repository.findReaderArticle.mockResolvedValue(
+      readerRecord({
+        userCefrLevel: null,
+        termCandidates: [{ id: 'term-1', cefrLevel: CefrLevel.B1 }],
+      }),
+    );
+
+    const result = await service.getReaderArticle('user-id', 'article');
+    expect(result.highlightedTermIds).toEqual([]);
   });
 
   it('maps owner-only history and standard pagination metadata', async () => {

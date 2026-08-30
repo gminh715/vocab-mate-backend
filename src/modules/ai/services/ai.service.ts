@@ -156,13 +156,15 @@ export class AiService {
     const estimatedInputTokens = Math.max(
       1,
       Math.ceil(
-        `${request.systemInstruction} ${request.userContent} ${JSON.stringify(request.schema)}`.length / 4,
+        `${request.systemInstruction} ${request.userContent} ${JSON.stringify(request.schema)}`
+          .length / 4,
       ),
     );
     logInfo('ai.provider_call', {
       operationType: request.schemaName,
       provider,
-      model: provider === 'GEMINI' ? this.config.geminiModel : this.config.groqModel,
+      model:
+        provider === 'GEMINI' ? this.config.geminiModel : this.config.groqModel,
       outcome,
       latencyMs: Math.max(0, latencyMs),
       fallbackOccurred,
@@ -187,7 +189,10 @@ export class AiService {
 
   private publicError(error: ProviderCallError): AiError {
     return error.reason === 'configuration'
-      ? new AiError('CONFIGURATION_FAILURE', 'AI service configuration is invalid')
+      ? new AiError(
+          'CONFIGURATION_FAILURE',
+          'AI service configuration is invalid',
+        )
       : new AiError(
           'PROVIDER_UNAVAILABLE',
           'AI service is temporarily unavailable',

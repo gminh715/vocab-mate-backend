@@ -36,14 +36,8 @@ export class LearnerAnalyticsService {
     requestTime = new Date(),
   ) {
     const range = resolveAnalyticsDateRange(query, requestTime);
-    const [
-      savedVocabulary,
-      articlesCompleted,
-    ] = await this.repository.getOverview(
-      userId,
-      range.from,
-      range.to,
-    );
+    const [savedVocabulary, articlesCompleted] =
+      await this.repository.getOverview(userId, range.from, range.to);
     return {
       savedVocabulary,
       articlesCompleted,

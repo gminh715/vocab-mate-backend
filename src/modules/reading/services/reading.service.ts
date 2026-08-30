@@ -30,7 +30,7 @@ export class ReadingService {
     if (!result) {
       throw new NotFoundException('Published article not found');
     }
-    if (!result.userCefrLevel) {
+    if (!result.userExists) {
       throw new NotFoundException('User not found');
     }
     const userCefrLevel = result.userCefrLevel;
@@ -39,18 +39,20 @@ export class ReadingService {
     return {
       article: result.article,
       contentHtml: this.articleContentService.sanitize(result.contentHtml),
-      highlightedTermIds: result.termCandidates
-        .filter(
-          ({ cefrLevel }) =>
-            cefrLevel !== null &&
-            userTargetCefrLevel !== null &&
-            isCefrInLearningRange(
-              cefrLevel,
-              userCefrLevel,
-              userTargetCefrLevel,
-            ),
-        )
-        .map(({ id }) => id),
+      highlightedTermIds:
+        userCefrLevel && userTargetCefrLevel
+          ? result.termCandidates
+              .filter(
+                ({ cefrLevel }) =>
+                  cefrLevel !== null &&
+                  isCefrInLearningRange(
+                    cefrLevel,
+                    userCefrLevel,
+                    userTargetCefrLevel,
+                  ),
+              )
+              .map(({ id }) => id)
+          : [],
       progress: this.mapProgress(result.article.id, result.progress),
     };
   }
