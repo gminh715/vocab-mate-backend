@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { CefrLevel } from '../../../../generated/prisma/enums';
 import type { UpdateMyProfileDto } from '../dto/update-my-profile.dto';
+import { CloudinaryService } from './cloudinary.service';
 import {
   AuthUserRecord,
   CreateRegisteredUserInput,
@@ -63,7 +64,18 @@ const isRecordNotFoundError = (error: unknown): error is { code: 'P2025' } =>
  */
 @Injectable()
 export class UsersService {
-  constructor(private readonly usersRepository: UsersRepository) {}
+  constructor(
+    private readonly usersRepository: UsersRepository,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
+
+  async uploadAvatar(
+    userId: string,
+    file: Express.Multer.File,
+  ): Promise<UpdatedMyProfileRecord> {
+    const avatarUrl = await this.cloudinaryService.uploadAvatar(file);
+    return this.updateMe(userId, { avatarUrl });
+  }
 
   findByEmailWithPassword(email: string): Promise<AuthUserRecord | null> {
     return this.usersRepository.findByEmailWithPassword(email);

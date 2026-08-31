@@ -29,6 +29,7 @@ import {
 import {
   AnalyticsOverviewSuccessResponseDto,
   ReadingAnalyticsSuccessResponseDto,
+  ReviewAnalyticsSuccessResponseDto,
   VocabularyAnalyticsSuccessResponseDto,
 } from '../dto/analytics-response.dto';
 import { LearnerAnalyticsService } from '../services/learner-analytics.service';
@@ -102,4 +103,21 @@ export class AnalyticsController {
   ) {
     return this.learnerAnalyticsService.getReadingAnalytics(user.id, query);
   }
+
+  @Get('me/review')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    operationId: 'getMyReviewAnalytics',
+    summary: 'Get the authenticated learner review and streak analytics',
+    description:
+      'Calculates learning streak (current & longest), 7-day activity status, and FSRS vocabulary mastery distribution.',
+  })
+  @ApiOkResponse({ type: ReviewAnalyticsSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  getReviewAnalytics(@CurrentUser() user: AuthenticatedUser) {
+    return this.learnerAnalyticsService.getReviewAnalytics(user.id);
+  }
 }
+

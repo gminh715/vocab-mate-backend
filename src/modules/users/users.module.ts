@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminService } from './services/admin.service';
+import { CloudinaryService } from './services/cloudinary.service';
 import { AdminController } from './controllers/admin.controller';
 import { UsersController } from './controllers/users.controller';
 import { UsersRepository } from './repositories/users.repository';
@@ -17,10 +18,12 @@ import { UsersService } from './services/users.service';
   providers: [
     UsersRepository,
     UsersService,
+    CloudinaryService,
     JwtAuthGuard,
     RolesGuard,
     AdminService,
   ],
-  exports: [UsersService],
+  exports: [UsersService, CloudinaryService],
 })
 export class UsersModule {}
+

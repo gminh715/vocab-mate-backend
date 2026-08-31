@@ -1,16 +1,23 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
   Patch,
+  Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
   Version,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiInternalServerErrorResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -28,6 +35,27 @@ import {
 } from '../dto/my-profile-response.dto';
 import { UpdateMyProfileDto } from '../dto/update-my-profile.dto';
 import { UsersService } from '../services/users.service';
+
+const avatarUploadOptions = {
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+  fileFilter: (
+    _req: unknown,
+    file: Express.Multer.File,
+    callback: (error: Error | null, acceptFile: boolean) => void,
+  ) => {
+    if (!file.mimetype.match(/^image\/(jpeg|png|webp|gif|jpg)$/)) {
+      return callback(
+        new BadRequestException(
+          'Only image files (JPG, PNG, WEBP, GIF) are allowed',
+        ),
+        false,
+      );
+    }
+    callback(null, true);
+  },
+};
 
 /**
  * HTTP boundary for the authenticated user's own account and learning settings.
@@ -76,5 +104,43 @@ export class UsersController {
     @Body() dto: UpdateMyProfileDto,
   ) {
     return this.usersService.updateMe(user.id, dto);
+  }
+
+  @Post('me/avatar')
+  @Version('1')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', avatarUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Avatar image file (max 5MB, JPG/PNG/WEBP/GIF)',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({
+    operationId: 'uploadMyAvatar',
+    summary: 'Upload an avatar image for the authenticated user',
+    description:
+      'Receives an image via Multer, uploads it to Cloudinary (or fallback storage), and updates avatarUrl.',
+  })
+  @ApiOkResponse({ type: UpdateMyProfileSuccessResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
+  @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
+  uploadAvatar(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Avatar image file is required');
+    }
+    return this.usersService.uploadAvatar(user.id, file);
   }
 }

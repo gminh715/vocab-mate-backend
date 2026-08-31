@@ -122,4 +122,30 @@ export class LearnerAnalyticsRepository {
       ORDER BY 1 ASC
     `);
   }
+
+  getFsrsStateCounts(userId: string) {
+    return Promise.all([
+      this.prisma.userVocabulary.count({ where: { userId } }),
+      this.prisma.userVocabulary.groupBy({
+        by: ['fsrsState'],
+        where: { userId },
+        _count: { _all: true },
+      }),
+    ]);
+  }
+
+  getCompletedStudyDates(userId: string) {
+    return this.prisma.tutorSession.findMany({
+      where: {
+        userId,
+        status: 'COMPLETED',
+      },
+      select: {
+        studyDate: true,
+      },
+      orderBy: {
+        studyDate: 'desc',
+      },
+    });
+  }
 }

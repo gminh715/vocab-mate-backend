@@ -9,6 +9,7 @@ import type {
   UpdatedMyProfileRecord,
 } from '../../../../src/modules/users/repositories/users.repository';
 import { UsersRepository } from '../../../../src/modules/users/repositories/users.repository';
+import { CloudinaryService } from '../../../../src/modules/users/services/cloudinary.service';
 import { UsersService } from '../../../../src/modules/users/services/users.service';
 
 const account: MyAccountRecord = {
@@ -29,9 +30,14 @@ interface UsersRepositoryMock {
   updateMyProfile: jest.Mock;
 }
 
+interface CloudinaryServiceMock {
+  uploadAvatar: jest.Mock;
+}
+
 describe('UsersService', () => {
   let service: UsersService;
   let repository: UsersRepositoryMock;
+  let cloudinaryService: CloudinaryServiceMock;
 
   beforeEach(async () => {
     repository = {
@@ -39,10 +45,14 @@ describe('UsersService', () => {
       findMyAccount: jest.fn(),
       updateMyProfile: jest.fn(),
     };
+    cloudinaryService = {
+      uploadAvatar: jest.fn(),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: UsersRepository, useValue: repository },
+        { provide: CloudinaryService, useValue: cloudinaryService },
       ],
     }).compile();
 
@@ -142,4 +152,34 @@ describe('UsersService', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('uploads avatar via CloudinaryService and updates profile', async () => {
+    const mockFile = {
+      buffer: Buffer.from('test'),
+      mimetype: 'image/png',
+      originalname: 'avatar.png',
+    } as Express.Multer.File;
+
+    cloudinaryService.uploadAvatar.mockResolvedValue('https://res.cloudinary.com/avatar.png');
+    repository.findMyAccount.mockResolvedValue(account);
+    repository.updateMyProfile.mockResolvedValue({
+      id: account.id,
+      email: account.email,
+      displayName: account.displayName,
+      avatarUrl: 'https://res.cloudinary.com/avatar.png',
+      currentCefrLevel: account.currentCefrLevel,
+      learningGoal: account.learningGoal,
+      preferredLanguage: account.preferredLanguage,
+      dailyStudyMinutes: account.dailyStudyMinutes,
+    });
+
+    const result = await service.uploadAvatar(account.id, mockFile);
+
+    expect(cloudinaryService.uploadAvatar).toHaveBeenCalledWith(mockFile);
+    expect(repository.updateMyProfile).toHaveBeenCalledWith(account.id, {
+      avatarUrl: 'https://res.cloudinary.com/avatar.png',
+    });
+    expect(result.avatarUrl).toBe('https://res.cloudinary.com/avatar.png');
+  });
 });
+
