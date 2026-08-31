@@ -54,6 +54,9 @@ const sampleMcResult = {
   correctOptionId: 'A',
   sentenceWithBlank: null,
   recallPromptVi: null,
+  microLessonTitle: null,
+  microLessonFactEn: null,
+  microLessonFactVi: null,
   microLessonVi: null,
   retestType: null,
   canonicalAnswer: null,
@@ -70,6 +73,9 @@ const sampleClozeResult = {
   correctOptionId: null,
   sentenceWithBlank: 'They launched an ___ project to rebuild the city.',
   recallPromptVi: null,
+  microLessonTitle: null,
+  microLessonFactEn: null,
+  microLessonFactVi: null,
   microLessonVi: null,
   retestType: null,
   canonicalAnswer: 'ambitious',
@@ -86,6 +92,9 @@ const sampleTypedRecallResult = {
   correctOptionId: null,
   sentenceWithBlank: null,
   recallPromptVi: 'đầy tham vọng (tính từ, bắt đầu bằng a)',
+  microLessonTitle: null,
+  microLessonFactEn: null,
+  microLessonFactVi: null,
   microLessonVi: null,
   retestType: null,
   canonicalAnswer: 'ambitious',
@@ -102,6 +111,11 @@ const sampleMicroLessonClozeResult = {
   correctOptionId: null,
   sentenceWithBlank: 'The mayor announced an ___ plan.',
   recallPromptVi: null,
+  microLessonTitle: 'Tháp Eiffel vào mùa hè',
+  microLessonFactEn:
+    'During summer heat, thermal expansion makes the Eiffel Tower grow by up to 15 centimeters. Engineers created ambitious designs to handle such temperature swings.',
+  microLessonFactVi:
+    'Vào mùa hè, hiện tượng giãn nở nhiệt khiến tháp Eiffel cao thêm tới 15 cm. Các kỹ sư đã tạo ra những thiết kế **ambitious** (đầy tham vọng) để thích ứng với sự thay đổi nhiệt độ này.',
   microLessonVi:
     '"Ambitious" (adj) dùng để miêu tả kế hoạch lớn hoặc người có chí tiến thủ cao.',
   retestType: 'CONTEXTUAL_CLOZE',
@@ -119,6 +133,11 @@ const sampleMicroLessonRecallResult = {
   correctOptionId: null,
   sentenceWithBlank: null,
   recallPromptVi: 'Từ tiếng Anh miêu tả người hoặc kế hoạch đầy tham vọng:',
+  microLessonTitle: 'Mật ong không bao giờ thiu',
+  microLessonFactEn:
+    'Archaeologists found 3000-year-old honey in Egyptian tombs that is still edible. Preserving food for millennia was once an ambitious dream.',
+  microLessonFactVi:
+    'Mật ong tự nhiên không bao giờ bị ôi thiu; các nhà khảo cổ từng khai quật những hũ mật ong hơn 3.000 năm tuổi trong lăng mộ Ai Cập cổ đại mà chất lượng vẫn hoàn toàn **edible** (có thể ăn được).',
   microLessonVi: '"Ambitious" đi với danh từ chỉ dự án hoặc mục tiêu lớn.',
   retestType: 'TYPED_RECALL',
   canonicalAnswer: 'ambitious',
@@ -230,6 +249,15 @@ describe('tutor-question.validation', () => {
 
       expect(parsed.questionType).toBe('MICRO_LESSON_RETEST');
       expect(parsed.retestType).toBe('CONTEXTUAL_CLOZE');
+      expect(parsed.microLessonTitle).toBe(
+        sampleMicroLessonClozeResult.microLessonTitle,
+      );
+      expect(parsed.microLessonFactEn).toBe(
+        sampleMicroLessonClozeResult.microLessonFactEn,
+      );
+      expect(parsed.microLessonFactVi).toBe(
+        sampleMicroLessonClozeResult.microLessonFactVi,
+      );
       expect(parsed.microLessonVi).toBe(
         sampleMicroLessonClozeResult.microLessonVi,
       );
@@ -246,6 +274,15 @@ describe('tutor-question.validation', () => {
 
       expect(parsed.questionType).toBe('MICRO_LESSON_RETEST');
       expect(parsed.retestType).toBe('TYPED_RECALL');
+      expect(parsed.microLessonTitle).toBe(
+        sampleMicroLessonRecallResult.microLessonTitle,
+      );
+      expect(parsed.microLessonFactEn).toBe(
+        sampleMicroLessonRecallResult.microLessonFactEn,
+      );
+      expect(parsed.microLessonFactVi).toBe(
+        sampleMicroLessonRecallResult.microLessonFactVi,
+      );
       expect(parsed.microLessonVi).toBe(
         sampleMicroLessonRecallResult.microLessonVi,
       );

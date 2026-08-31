@@ -24,7 +24,10 @@ export const TUTOR_QUESTION_LIMITS = {
   optionText: 300,
   sentenceWithBlank: 1000,
   recallPromptVi: 500,
-  microLessonVi: 1500,
+  microLessonTitle: 300,
+  microLessonFactEn: 1500,
+  microLessonFactVi: 1500,
+  microLessonVi: 2000,
   canonicalAnswer: 200,
 } as const;
 
@@ -73,6 +76,18 @@ const stringValue = (
     return fail(boundary, field);
   }
   return value;
+};
+
+const optionalStringValue = (
+  value: unknown,
+  field: string,
+  maximum: number,
+  boundary: ValidationBoundary,
+): string | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return stringValue(value, field, maximum, boundary);
 };
 
 const enumValue = <T extends readonly string[]>(
@@ -197,6 +212,9 @@ export const parseTutorQuestionResult = (
       'correctOptionId',
       'sentenceWithBlank',
       'recallPromptVi',
+      'microLessonTitle',
+      'microLessonFactEn',
+      'microLessonFactVi',
       'microLessonVi',
       'retestType',
       'canonicalAnswer',
@@ -357,12 +375,47 @@ export const parseTutorQuestionResult = (
     }
 
     case 'MICRO_LESSON_RETEST': {
-      const microLessonVi = stringValue(
-        result.microLessonVi,
-        'microLessonVi',
-        TUTOR_QUESTION_LIMITS.microLessonVi,
+      const microLessonTitle = optionalStringValue(
+        result.microLessonTitle,
+        'microLessonTitle',
+        TUTOR_QUESTION_LIMITS.microLessonTitle,
         'output',
       );
+      const microLessonFactEn = optionalStringValue(
+        result.microLessonFactEn,
+        'microLessonFactEn',
+        TUTOR_QUESTION_LIMITS.microLessonFactEn,
+        'output',
+      );
+      const microLessonFactVi = optionalStringValue(
+        result.microLessonFactVi,
+        'microLessonFactVi',
+        TUTOR_QUESTION_LIMITS.microLessonFactVi,
+        'output',
+      );
+
+      let microLessonVi: string;
+      if (
+        typeof result.microLessonVi === 'string' &&
+        result.microLessonVi.trim().length > 0
+      ) {
+        microLessonVi = stringValue(
+          result.microLessonVi,
+          'microLessonVi',
+          TUTOR_QUESTION_LIMITS.microLessonVi,
+          'output',
+        );
+      } else if (microLessonFactVi) {
+        microLessonVi = microLessonFactVi;
+      } else {
+        microLessonVi = stringValue(
+          result.microLessonVi,
+          'microLessonVi',
+          TUTOR_QUESTION_LIMITS.microLessonVi,
+          'output',
+        );
+      }
+
       const retestType = enumValue(
         result.retestType,
         'retestType',
@@ -389,6 +442,9 @@ export const parseTutorQuestionResult = (
         return {
           ...baseResult,
           questionType: 'MICRO_LESSON_RETEST',
+          microLessonTitle,
+          microLessonFactEn,
+          microLessonFactVi,
           microLessonVi,
           retestType: 'CONTEXTUAL_CLOZE',
           sentenceWithBlank,
@@ -405,6 +461,9 @@ export const parseTutorQuestionResult = (
       return {
         ...baseResult,
         questionType: 'MICRO_LESSON_RETEST',
+        microLessonTitle,
+        microLessonFactEn,
+        microLessonFactVi,
         microLessonVi,
         retestType: 'TYPED_RECALL',
         recallPromptVi,

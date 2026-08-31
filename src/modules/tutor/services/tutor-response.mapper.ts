@@ -45,6 +45,7 @@ export class TutorResponseMapper {
       targetDurationMinutes: session.targetDurationMinutes,
       targetActivityCount: session.targetActivityCount,
       newWordTarget: session.newWordTarget,
+      warmupFacts: session.warmupFacts ?? null,
       startedAt: session.startedAt,
       completedAt: session.completedAt,
       createdAt: session.createdAt,

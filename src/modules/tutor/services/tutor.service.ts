@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -248,6 +247,30 @@ export class TutorService {
       newVocabCount,
     );
 
+    // Check candidate pool for RELEARNING candidates to generate session warmup facts upfront
+    let warmupFacts: Prisma.InputJsonValue | undefined = undefined;
+    try {
+      const pool = await this.candidateService.getCandidatePool(userId, now);
+      const relearningCandidates = pool.filter(
+        (c) => c.fsrsState === 'RELEARNING',
+      );
+      if (relearningCandidates.length > 0) {
+        const warmupResult = await this.aiService.generateSessionWarmupFacts({
+          candidates: relearningCandidates.slice(0, 5).map((c) => ({
+            wordDisplay: c.savedWordDisplay,
+            lemma: c.savedLemma,
+            partOfSpeech: c.savedPartOfSpeech,
+            meaningVi: c.savedMeaningVi,
+          })),
+        });
+        if (warmupResult.facts && warmupResult.facts.length > 0) {
+          warmupFacts = warmupResult.facts as unknown as Prisma.InputJsonValue;
+        }
+      }
+    } catch {
+      // Safe fallback: proceed with JsonNull if warmup generation fails
+    }
+
     try {
       session = await this.prisma.tutorSession.create({
         data: {
@@ -257,6 +280,7 @@ export class TutorService {
           targetDurationMinutes: dailyMinutes,
           targetActivityCount: targets.targetActivityCount,
           newWordTarget: targets.newWordTarget,
+          warmupFacts,
         },
         include: {
           items: {
@@ -932,6 +956,9 @@ export class TutorService {
       case 'MICRO_LESSON_RETEST': {
         const questionPayload = {
           ...basePayload,
+          microLessonTitle: aiResult.microLessonTitle,
+          microLessonFactEn: aiResult.microLessonFactEn,
+          microLessonFactVi: aiResult.microLessonFactVi,
           microLessonVi: aiResult.microLessonVi,
           retestType: aiResult.retestType,
           sentenceWithBlank: aiResult.sentenceWithBlank,

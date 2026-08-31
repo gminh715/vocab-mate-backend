@@ -257,13 +257,6 @@ interface SuccessBody<T> {
   data: T;
 }
 
-interface ErrorBody {
-  success: false;
-  statusCode?: number;
-  message?: string | string[];
-  error?: string;
-}
-
 interface SessionSummaryDto {
   id: string;
   userId: string;
@@ -1216,14 +1209,17 @@ describe('Tutor API (e2e)', () => {
       );
       expect(pendingItems.length).toBeGreaterThanOrEqual(1);
 
-      // Attempting to start another session today must fail with 409 Conflict
+      // Attempting to start another session today returns the existing abandoned session
       const secondStart = await request(app.getHttpServer())
         .post('/api/v1/tutor-sessions')
         .set('Authorization', `Bearer ${USER_A_ID}`)
-        .expect(409);
+        .expect(200);
 
-      const secondBody = responseBody<ErrorBody>(secondStart);
-      expect(secondBody.success).toBe(false);
+      const secondBody =
+        responseBody<SuccessBody<SessionWithItemData>>(secondStart);
+      expect(secondBody.success).toBe(true);
+      expect(secondBody.data.session.status).toBe('ABANDONED');
+      expect(secondBody.data.currentItem).toBeNull();
 
       // Today status should reflect isAbandoned=true
       const todayRes = await request(app.getHttpServer())

@@ -6,6 +6,7 @@ model TutorSession {
   targetDurationMinutes Int                @map("target_duration_minutes")
   targetActivityCount   Int                @map("target_activity_count")
   newWordTarget         Int                @map("new_word_target")
+  warmupFacts           Json?              @map("warmup_facts") @db.JsonB
   startedAt             DateTime           @default(now()) @map("started_at") @db.Timestamptz(6)
   completedAt           DateTime?          @map("completed_at") @db.Timestamptz(6)
   createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)

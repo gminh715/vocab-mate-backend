@@ -98,6 +98,9 @@ export interface TypedRecallResult extends BaseTutorQuestionResult {
 
 export interface MicroLessonRetestResult extends BaseTutorQuestionResult {
   questionType: 'MICRO_LESSON_RETEST';
+  microLessonTitle?: string;
+  microLessonFactEn?: string;
+  microLessonFactVi?: string;
   microLessonVi: string;
   retestType: RetestType;
   sentenceWithBlank?: string;
@@ -110,3 +113,22 @@ export type TutorQuestionResult =
   | ContextualClozeResult
   | TypedRecallResult
   | MicroLessonRetestResult;
+
+export interface WarmupFactStory {
+  title: string;
+  factContentVi: string;
+  targetWords: string[];
+}
+
+export interface SessionWarmupInput {
+  candidates: Array<{
+    wordDisplay: string;
+    lemma: string;
+    partOfSpeech: string;
+    meaningVi: string;
+  }>;
+}
+
+export interface SessionWarmupResult {
+  facts: WarmupFactStory[];
+}

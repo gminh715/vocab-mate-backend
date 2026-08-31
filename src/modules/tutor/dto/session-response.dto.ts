@@ -52,6 +52,12 @@ export class TutorSessionSummaryDto {
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
   completedAt!: Date | null;
 
+  @ApiPropertyOptional({
+    description: 'Pre-test warmup fact stories',
+    nullable: true,
+  })
+  warmupFacts?: unknown;
+
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
 

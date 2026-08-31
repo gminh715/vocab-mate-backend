@@ -110,8 +110,17 @@ export const tutorQuestionSchema: JsonSchema = strictObject({
   recallPromptVi: nullableString(
     'Prompt in Vietnamese asking for recall of the English word for TYPED_RECALL or recall retest, or null.',
   ),
+  microLessonTitle: nullableString(
+    'A short catchy title in English or Vietnamese for the interesting fact in MICRO_LESSON_RETEST, or null.',
+  ),
+  microLessonFactEn: nullableString(
+    'A 2-4 sentence interesting fact reading passage in English (<80 words) naturally embedding the target vocabulary word for MICRO_LESSON_RETEST, or null.',
+  ),
+  microLessonFactVi: nullableString(
+    'Natural Vietnamese translation of the fact reading passage for MICRO_LESSON_RETEST, or null.',
+  ),
   microLessonVi: nullableString(
-    'A concise lesson (<150 words) in Vietnamese for MICRO_LESSON_RETEST, or null.',
+    'A concise lesson/summary (<150 words) in Vietnamese for MICRO_LESSON_RETEST, or null.',
   ),
   retestType: {
     type: ['string', 'null'],
@@ -122,4 +131,28 @@ export const tutorQuestionSchema: JsonSchema = strictObject({
   canonicalAnswer: nullableString(
     'The exact canonical answer string for cloze, typed recall, or retest, or null.',
   ),
+});
+
+export const sessionWarmupSchema = strictObject({
+  facts: {
+    type: 'array',
+    description:
+      'List of 1 to 3 intriguing real-world fact stories in natural Vietnamese embedding the target vocabulary words.',
+    items: strictObject({
+      title: {
+        type: 'string',
+        description: 'An intriguing 3 to 7 word title in Vietnamese.',
+      },
+      factContentVi: {
+        type: 'string',
+        description:
+          'A fascinating real-world fact/trivia passage (40-100 words) in natural Vietnamese, embedding the English words in bold markdown followed by parentheses: "**word** (nghĩa tiếng Việt)".',
+      },
+      targetWords: {
+        type: 'array',
+        description: 'The English vocabulary words woven into this fact story.',
+        items: { type: 'string' },
+      },
+    }),
+  },
 });
