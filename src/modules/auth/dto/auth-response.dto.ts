@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { UserRole, UserStatus } from '../../../../generated/prisma/enums';
 
 export class PublicUserDto {
@@ -31,6 +31,19 @@ export class AuthSuccessResponseDto {
   data!: AuthDataDto;
 }
 
+export class RegistrationDataDto {
+  @ApiProperty({ type: PublicUserDto })
+  user!: PublicUserDto;
+}
+
+export class RegistrationSuccessResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ type: RegistrationDataDto })
+  data!: RegistrationDataDto;
+}
+
 export class AccessTokenDataDto {
   @ApiProperty({ example: '<jwt-access-token>' })
   accessToken!: string;
@@ -45,7 +58,7 @@ export class AccessTokenSuccessResponseDto {
 }
 
 export class MessageDataDto {
-  @ApiProperty({ example: 'Thao tác thành công.' })
+  @ApiProperty({ example: 'Operation completed successfully.' })
   message!: string;
 }
 
@@ -55,23 +68,4 @@ export class MessageSuccessResponseDto {
 
   @ApiProperty({ type: MessageDataDto })
   data!: MessageDataDto;
-}
-
-export class ErrorDataDto {
-  @ApiProperty({ example: 'UNAUTHORIZED' })
-  code!: string;
-
-  @ApiProperty({ example: 'Invalid email or password' })
-  message!: string;
-
-  @ApiPropertyOptional({ type: [String] })
-  details?: string[];
-}
-
-export class ApiErrorResponseDto {
-  @ApiProperty({ example: false })
-  success!: false;
-
-  @ApiProperty({ type: ErrorDataDto })
-  error!: ErrorDataDto;
 }

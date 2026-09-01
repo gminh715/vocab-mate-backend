@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { PublicUserRecord } from '../users/users.repository';
+import type { PublicUserRecord } from '../users/repositories/users.repository';
 
 export type TokenType = 'access' | 'refresh';
 
@@ -12,6 +12,10 @@ export interface JwtPayload {
 }
 
 export type AuthenticatedUser = PublicUserRecord;
+
+export interface RefreshAuthenticatedUser extends AuthenticatedUser {
+  refreshTokenId: string;
+}
 
 export interface RequestWithUser extends Request {
   user: AuthenticatedUser;

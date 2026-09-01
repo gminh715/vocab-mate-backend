@@ -1,10 +1,19 @@
 import { Module } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { ReadingModule } from '../reading/reading.module';
 import { VocabulariesController } from './controllers/vocabularies.controller';
-import { VocabulariesRepository } from './vocabularies.repository';
-import { VocabulariesService } from './vocabularies.service';
+import { VocabulariesRepository } from './repositories/vocabularies.repository';
+import { VocabulariesService } from './services/vocabularies.service';
 
 @Module({
+  imports: [ReadingModule],
   controllers: [VocabulariesController],
-  providers: [VocabulariesRepository, VocabulariesService],
+  providers: [
+    VocabulariesRepository,
+    VocabulariesService,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
 })
 export class VocabulariesModule {}

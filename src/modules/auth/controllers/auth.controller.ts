@@ -6,10 +6,9 @@ import {
   Inject,
   Patch,
   Post,
+  Req,
   Res,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   Version,
 } from '@nestjs/common';
 import {
@@ -26,19 +25,21 @@ import {
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import type { CookieOptions, Response } from 'express';
-import { ApiExceptionFilter } from '../../../common/filters/api-exception.filter';
-import { SuccessResponseInterceptor } from '../../../common/interceptors/success-response.interceptor';
+import { Throttle } from '@nestjs/throttler';
+import type { CookieOptions, Request, Response } from 'express';
+import { ApiErrorResponseDto } from '../../../common/dto/api-error-response.dto';
+import { AuthenticatedUserThrottlerGuard } from '../../../common/guards/authenticated-user-throttler.guard';
 import type { AuthConfig } from '../../../config/auth.config';
 import { AUTH_CONFIG } from '../../../config/config.module';
-import { AuthService } from '../auth.service';
-import type { AuthenticatedUser } from '../auth.types';
+import { AuthService } from '../services/auth.service';
+import type {
+  AuthenticatedUser,
+  RefreshAuthenticatedUser,
+} from '../auth.types';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import {
   AccessTokenSuccessResponseDto,
-  ApiErrorResponseDto,
   AuthSuccessResponseDto,
   MessageSuccessResponseDto,
 } from '../dto/auth-response.dto';
@@ -49,8 +50,6 @@ import { RefreshJwtGuard } from '../guards/refresh-jwt.guard';
 
 @ApiTags('Auth')
 @Controller('auth')
-@UseInterceptors(SuccessResponseInterceptor)
-@UseFilters(ApiExceptionFilter)
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
@@ -59,11 +58,11 @@ export class AuthController {
 
   @Post('register')
   @Version('1')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'postAuthRegister',
-    summary: 'Đăng ký tài khoản USER và tạo hồ sơ học tập',
+    summary: 'Register a USER account with initial learning settings',
   })
   @ApiCreatedResponse({ type: AuthSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -76,18 +75,17 @@ export class AuthController {
   ): Promise<{ user: AuthenticatedUser; accessToken: string }> {
     const result = await this.authService.register(dto);
     this.setRefreshCookie(response, result.refreshToken);
-
     return { user: result.user, accessToken: result.accessToken };
   }
 
   @Post('login')
   @Version('1')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @UseGuards(AuthenticatedUserThrottlerGuard)
   @ApiOperation({
     operationId: 'postAuthLogin',
-    summary: 'Đăng nhập bằng email và mật khẩu',
+    summary: 'Log in with email and password',
   })
   @ApiOkResponse({ type: AuthSuccessResponseDto })
   @ApiBadRequestResponse({ type: ApiErrorResponseDto })
@@ -108,11 +106,11 @@ export class AuthController {
   @Post('refresh')
   @Version('1')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard, RefreshJwtGuard)
+  @UseGuards(RefreshJwtGuard, AuthenticatedUserThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     operationId: 'postAuthRefresh',
-    summary: 'Cấp access token mới từ refresh token',
+    summary: 'Issue a new access token using a refresh token',
     description:
       'Reads the refreshToken HttpOnly cookie and rotates it. No request body is accepted.',
   })
@@ -123,7 +121,7 @@ export class AuthController {
   @ApiTooManyRequestsResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
   async refresh(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: RefreshAuthenticatedUser,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ accessToken: string }> {
     const tokens = await this.authService.refresh(user);
@@ -138,13 +136,28 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     operationId: 'postAuthLogout',
-    summary: 'Đăng xuất và xóa refresh-token cookie',
+    summary: 'Log out and clear the refresh-token cookie',
   })
   @ApiBearerAuth('BearerAuth')
   @ApiOkResponse({ type: MessageSuccessResponseDto })
   @ApiUnauthorizedResponse({ type: ApiErrorResponseDto })
   @ApiInternalServerErrorResponse({ type: ApiErrorResponseDto })
-  logout(@Res({ passthrough: true }) response: Response): { message: string } {
+  async logout(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ message: string }> {
+    const cookies: unknown = request.cookies;
+    const refreshToken =
+      typeof cookies === 'object' &&
+      cookies !== null &&
+      'refreshToken' in cookies
+        ? (cookies as { refreshToken?: unknown }).refreshToken
+        : undefined;
+    await this.authService.logout(
+      user.id,
+      typeof refreshToken === 'string' ? refreshToken : undefined,
+    );
     response.clearCookie('refreshToken', this.refreshCookieOptions(false));
     return { message: 'Thao tác thành công.' };
   }
@@ -155,7 +168,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     operationId: 'patchAuthChangePassword',
-    summary: 'Đổi mật khẩu của tài khoản đang đăng nhập',
+    summary: 'Change the authenticated account password',
   })
   @ApiBearerAuth('BearerAuth')
   @ApiOkResponse({ type: MessageSuccessResponseDto })

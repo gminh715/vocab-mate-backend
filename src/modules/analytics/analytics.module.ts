@@ -1,9 +1,22 @@
 import { Module } from '@nestjs/common';
-import { AnalyticsService } from './analytics.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { AdminAnalyticsController } from './controllers/admin-analytics.controller';
 import { AnalyticsController } from './controllers/analytics.controller';
+import { AdminAnalyticsRepository } from './repositories/admin-analytics.repository';
+import { LearnerAnalyticsRepository } from './repositories/learner-analytics.repository';
+import { AdminAnalyticsService } from './services/admin-analytics.service';
+import { LearnerAnalyticsService } from './services/learner-analytics.service';
 
 @Module({
-  controllers: [AnalyticsController],
-  providers: [AnalyticsService],
+  controllers: [AnalyticsController, AdminAnalyticsController],
+  providers: [
+    LearnerAnalyticsService,
+    AdminAnalyticsService,
+    LearnerAnalyticsRepository,
+    AdminAnalyticsRepository,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
 })
 export class AnalyticsModule {}

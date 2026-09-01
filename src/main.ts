@@ -6,10 +6,12 @@ import type { ReturnTypeOfAppConfig } from './config/app.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  configureApp(app);
-  setupSwagger(app);
-
   const config = app.get<ReturnTypeOfAppConfig>(APP_CONFIG);
+
+  configureApp(app, config.corsOrigins);
+  setupSwagger(app);
+  app.enableShutdownHooks();
+
   await app.listen(config.port);
 }
 

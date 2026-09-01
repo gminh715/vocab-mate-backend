@@ -32,14 +32,29 @@ enum ArticleStatus {
   @@map("article_status")
 }
 
-enum LearningStatus {
-  NEW
-  LEARNING
-  REVIEWING
-  MASTERED
-  IGNORED
+enum AiGenerationStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
 
-  @@map("learning_status")
+  @@map("ai_generation_status")
+}
+
+enum TermOrigin {
+  MANUAL
+  AI
+  NLP
+
+  @@map("term_origin")
+}
+
+enum TermReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("term_review_status")
 }
 
 enum ReadingStatus {
@@ -49,46 +64,36 @@ enum ReadingStatus {
   @@map("reading_status")
 }
 
-enum LexicalUnitType {
-  WORD
-  PHRASE
+enum FsrsCardState {
+  NEW
+  LEARNING
+  REVIEW
+  RELEARNING
 
-  @@map("lexical_unit_type")
+  @@map("fsrs_card_state")
 }
 
-enum QuizStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-
-  @@map("quiz_status")
-}
-
-enum QuestionType {
-  SELECT_MEANING
-  SELECT_WORD
-  SELECT_CORRECT_CONTEXT
-  FILL_BLANK
-
-  @@map("question_type")
-}
-
-enum ReviewSessionType {
-  QUIZ
-
-  @@map("review_session_type")
-}
-
-enum ReviewSessionStatus {
-  IN_PROGRESS
+enum TutorSessionStatus {
+  ACTIVE
   COMPLETED
   ABANDONED
 
-  @@map("review_session_status")
+  @@map("tutor_session_status")
 }
 
-enum ReviewItemType {
-  QUIZ_QUESTION
+enum TutorSessionItemStatus {
+  PENDING
+  ANSWERED
+  SKIPPED
 
-  @@map("review_item_type")
+  @@map("tutor_session_item_status")
+}
+
+enum TutorQuestionType {
+  MULTIPLE_CHOICE
+  CONTEXTUAL_CLOZE
+  TYPED_RECALL
+  MICRO_LESSON_RETEST
+
+  @@map("tutor_question_type")
 }

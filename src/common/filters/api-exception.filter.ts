@@ -4,9 +4,9 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { logError } from '../logging/structured-logger';
 
 interface ErrorEnvelope {
   success: false;
@@ -14,8 +14,30 @@ interface ErrorEnvelope {
     code: string;
     message: string;
     details?: string[];
+    issues?: Array<{
+      code: string;
+      message: string;
+      entityId?: string;
+    }>;
   };
 }
+
+interface StructuredIssue {
+  code: string;
+  message: string;
+  entityId?: string;
+}
+
+const isStructuredIssue = (value: unknown): value is StructuredIssue =>
+  typeof value === 'object' &&
+  value !== null &&
+  'code' in value &&
+  typeof value.code === 'string' &&
+  'message' in value &&
+  typeof value.message === 'string' &&
+  (!('entityId' in value) ||
+    value.entityId === undefined ||
+    typeof value.entityId === 'string');
 
 const errorCodes: Partial<Record<number, string>> = {
   [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
@@ -23,13 +45,13 @@ const errorCodes: Partial<Record<number, string>> = {
   [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
   [HttpStatus.CONFLICT]: 'CONFLICT',
+  [HttpStatus.UNPROCESSABLE_ENTITY]: 'UNPROCESSABLE_ENTITY',
   [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'SERVICE_UNAVAILABLE',
 };
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(ApiExceptionFilter.name);
-
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
     const status =
@@ -48,19 +70,42 @@ export class ApiExceptionFilter implements ExceptionFilter {
             (message): message is string => typeof message === 'string',
           )
         : undefined;
+    const rawIssues: unknown =
+      typeof exceptionResponse === 'object' &&
+      exceptionResponse !== null &&
+      'issues' in exceptionResponse
+        ? exceptionResponse.issues
+        : undefined;
+    const issues = Array.isArray(rawIssues)
+      ? (rawIssues as unknown[])
+          .filter(isStructuredIssue)
+          .map(({ code, message, entityId }) => ({
+            code,
+            message,
+            ...(entityId ? { entityId } : {}),
+          }))
+      : undefined;
+    const responseMessage =
+      typeof exceptionResponse === 'object' &&
+      exceptionResponse !== null &&
+      'message' in exceptionResponse &&
+      typeof exceptionResponse.message === 'string'
+        ? exceptionResponse.message
+        : undefined;
     const message = isInternalServerError
       ? 'Internal server error'
       : messages
         ? 'Validation failed'
-        : exception instanceof HttpException
-          ? exception.message
-          : 'Internal server error';
+        : responseMessage
+          ? responseMessage
+          : exception instanceof HttpException
+            ? exception.message
+            : 'Internal server error';
 
     if (isInternalServerError) {
-      this.logger.error(
-        'Unhandled request error',
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      logError('http.request.unhandled_error', {
+        errorName: exception instanceof Error ? exception.name : 'UnknownError',
+      });
     }
 
     const body: ErrorEnvelope = {
@@ -69,6 +114,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         code: errorCodes[status] ?? 'INTERNAL_SERVER_ERROR',
         message,
         ...(messages ? { details: messages } : {}),
+        ...(issues ? { issues } : {}),
       },
     };
 

@@ -4,8 +4,8 @@ import { Strategy } from 'passport-jwt';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../../config/auth.config';
 import { AUTH_CONFIG } from '../../../config/config.module';
-import { AuthService } from '../auth.service';
-import type { AuthenticatedUser, JwtPayload } from '../auth.types';
+import { AuthService } from '../services/auth.service';
+import type { JwtPayload, RefreshAuthenticatedUser } from '../auth.types';
 
 const refreshTokenFromCookie = (request: Request): string | null => {
   const token: unknown = request.cookies?.refreshToken;
@@ -28,11 +28,11 @@ export class RefreshJwtStrategy extends PassportStrategy(
     });
   }
 
-  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
+  async validate(payload: JwtPayload): Promise<RefreshAuthenticatedUser> {
     if (payload.type !== 'refresh') {
       throw new ForbiddenException('Refresh token is invalid or expired');
     }
 
-    return this.authService.validateRefreshUser(payload.sub);
+    return this.authService.validateRefreshUser(payload.sub, payload.jti);
   }
 }

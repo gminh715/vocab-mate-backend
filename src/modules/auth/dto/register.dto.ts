@@ -1,7 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsEmail,
-  IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -9,7 +9,6 @@ import {
   MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CefrLevel } from '../../../../generated/prisma/enums';
 
 const normalizeEmail = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
@@ -41,22 +40,15 @@ export class RegisterDto {
   @MaxLength(100)
   displayName!: string;
 
-  @ApiProperty({ enum: CefrLevel, example: CefrLevel.B1 })
-  @IsEnum(CefrLevel)
-  currentCefrLevel!: CefrLevel;
-
-  @ApiPropertyOptional({ example: '10 từ/ngày', maxLength: 500 })
+  @ApiPropertyOptional({
+    enum: ['vi', 'en'],
+    example: 'vi',
+    default: 'vi',
+    description:
+      'UI display-language preference only; does not control articles, translations, explanations, or AI output.',
+  })
   @IsOptional()
   @Transform(trimString)
-  @IsString()
-  @MaxLength(500)
-  learningGoal?: string;
-
-  @ApiPropertyOptional({ example: 'vi', default: 'vi', maxLength: 20 })
-  @IsOptional()
-  @Transform(trimString)
-  @IsString()
-  @MinLength(2)
-  @MaxLength(20)
+  @IsIn(['vi', 'en'])
   preferredLanguage?: string;
 }

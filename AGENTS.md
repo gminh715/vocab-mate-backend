@@ -12,10 +12,21 @@ Stack:
 * PostgreSQL
 * REST API
 
-The current MVP stores content prepared manually by administrators.
+This project is an AI Agent that helps learners review vocabulary. You are encouraged to build agentic features, introduce autonomous workflows, and integrate LLMs deeply into the application to provide a dynamic and personalized learning experience.
 
-Do not introduce AI generation, AI agents, embeddings, vector databases,
-queues, event-driven processing or other unrequested infrastructure.
+Feel free to introduce:
+* Autonomous agents and multi-turn tutoring.
+* LangChain or LangGraph.
+* Dynamic AI-generated explanations and quizzes.
+* Automatic publication of AI-enriched content.
+* Vector databases or embeddings if needed.
+
+External provider calls:
+
+* Must have explicit timeouts.
+* Must not run inside long database transactions.
+* Must be mocked in tests.
+* Must never log API keys or full raw provider responses.
 
 ## Repository Structure
 

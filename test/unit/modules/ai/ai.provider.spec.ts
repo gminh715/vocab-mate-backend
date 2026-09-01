@@ -1,0 +1,331 @@
+import type { AiConfig } from '../../../../src/config/ai.config';
+import { APIError } from 'groq-sdk';
+import { type StructuredAiRequest } from '../../../../src/modules/ai/providers/ai-provider.contract';
+import { GeminiAiProvider } from '../../../../src/modules/ai/providers/gemini.provider';
+import { GroqAiProvider } from '../../../../src/modules/ai/providers/groq.provider';
+
+const groqCreate = jest.fn();
+const mockGroqConstructor = jest.fn();
+
+interface GeminiGenerateRequest {
+  model: string;
+  config: {
+    thinkingConfig: { thinkingLevel: string };
+    responseMimeType: string;
+    responseJsonSchema: Record<string, unknown>;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+  };
+}
+
+interface GeminiConstructorOptions {
+  httpOptions?: {
+    timeout?: number;
+    retryOptions?: {
+      attempts?: number;
+      httpStatusCodes?: number[];
+    };
+  };
+}
+
+const mockGeminiGenerate = jest.fn<
+  Promise<{
+    text: string;
+    usageMetadata?: {
+      promptTokenCount: number;
+      candidatesTokenCount: number;
+    };
+  }>,
+  [GeminiGenerateRequest]
+>();
+const mockGeminiConstructor = jest.fn<void, [GeminiConstructorOptions]>();
+
+jest.mock('@google/genai', () => ({
+  ApiError: class extends Error {},
+  ThinkingLevel: { MINIMAL: 'MINIMAL' },
+  GoogleGenAI: class {
+    readonly models = {
+      generateContent: mockGeminiGenerate,
+    };
+
+    constructor(options: GeminiConstructorOptions) {
+      mockGeminiConstructor(options);
+    }
+  },
+}));
+
+jest.mock('groq-sdk', () => {
+  class MockGroq {
+    readonly chat = {
+      completions: {
+        create: groqCreate,
+      },
+    };
+
+    constructor(options: unknown) {
+      mockGroqConstructor(options);
+    }
+  }
+
+  class MockApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly error: object,
+    ) {
+      super('Groq API request failed');
+    }
+  }
+
+  return {
+    __esModule: true,
+    default: MockGroq,
+    APIConnectionError: class extends Error {},
+    APIConnectionTimeoutError: class extends Error {},
+    APIError: MockApiError,
+  };
+});
+
+const config: AiConfig = {
+  geminiApiKey: 'gemini-test-key',
+  geminiModel: 'gemini-test-model',
+  groqApiKey: 'groq-test-key',
+  groqModel: 'llama-3.3-70b-versatile',
+  requestTimeoutMs: 5000,
+};
+
+const request: StructuredAiRequest = {
+  schemaName: 'health_probe',
+  schema: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+    },
+    required: ['ok'],
+    additionalProperties: false,
+  },
+  systemInstruction: 'Return only the requested structured result.',
+  userContent: JSON.stringify({ task: 'Return ok as true.' }),
+  maxOutputTokens: 128,
+};
+
+const providerResponse = {
+  content: '{"ok":true}',
+  usage: { inputTokens: null, outputTokens: null },
+};
+
+describe('GroqAiProvider', () => {
+  beforeEach(() => {
+    groqCreate.mockReset();
+    mockGroqConstructor.mockReset();
+  });
+
+  it('uses JSON Object Mode and supplies the schema in the bounded instruction', async () => {
+    groqCreate.mockResolvedValue({
+      choices: [{ message: { content: '{"ok":true}' } }],
+      usage: { prompt_tokens: 21, completion_tokens: 5 },
+    });
+    const provider = new GroqAiProvider(config);
+
+    await expect(provider.generateStructured(request)).resolves.toEqual({
+      content: '{"ok":true}',
+      usage: { inputTokens: 21, outputTokens: 5 },
+    });
+
+    expect(groqCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: config.groqModel,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: [
+              request.systemInstruction,
+              'Return exactly one JSON object matching this JSON Schema.',
+              JSON.stringify(request.schema),
+            ].join(' '),
+          },
+          { role: 'user', content: request.userContent },
+        ],
+      }),
+    );
+    expect(mockGroqConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeout: config.requestTimeoutMs,
+        maxRetries: 1,
+        logLevel: 'off',
+      }),
+    );
+  });
+
+  it('uses strict Structured Outputs for a supported Groq model', async () => {
+    groqCreate.mockResolvedValue({
+      choices: [{ message: { content: '{"ok":true}' } }],
+    });
+    const strictConfig = {
+      ...config,
+      groqModel: 'openai/gpt-oss-20b',
+    };
+    const provider = new GroqAiProvider(strictConfig);
+
+    await expect(provider.generateStructured(request)).resolves.toEqual(
+      providerResponse,
+    );
+
+    expect(groqCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: strictConfig.groqModel,
+        reasoning_effort: 'low',
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: request.schemaName,
+            strict: true,
+            schema: request.schema,
+          },
+        },
+        messages: [
+          { role: 'system', content: request.systemInstruction },
+          { role: 'user', content: request.userContent },
+        ],
+      }),
+    );
+  });
+
+  it('keeps nullable fields in strict schema mode and removes unsupported local bounds', async () => {
+    groqCreate.mockResolvedValue({
+      choices: [{ message: { content: '{"value":null,"items":[]}' } }],
+    });
+    const nullableRequest: StructuredAiRequest = {
+      ...request,
+      schema: {
+        type: 'object',
+        properties: {
+          value: { type: ['string', 'null'] },
+          items: {
+            type: 'array',
+            maxItems: 2,
+            items: { type: 'string' },
+          },
+        },
+        required: ['value', 'items'],
+        additionalProperties: false,
+      },
+    };
+    const provider = new GroqAiProvider({
+      ...config,
+      groqModel: 'openai/gpt-oss-20b',
+    });
+
+    await provider.generateStructured(nullableRequest);
+
+    expect(groqCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: nullableRequest.schemaName,
+            strict: true,
+            schema: {
+              type: 'object',
+              properties: {
+                value: { type: ['string', 'null'] },
+                items: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+              },
+              required: ['value', 'items'],
+              additionalProperties: false,
+            },
+          },
+        },
+      }),
+    );
+    expect(nullableRequest.schema).toEqual({
+      type: 'object',
+      properties: {
+        value: { type: ['string', 'null'] },
+        items: {
+          type: 'array',
+          maxItems: 2,
+          items: { type: 'string' },
+        },
+      },
+      required: ['value', 'items'],
+      additionalProperties: false,
+    });
+  });
+
+  it('retries one malformed provider JSON response before returning the strict result', async () => {
+    groqCreate
+      .mockRejectedValueOnce(
+        new APIError(
+          400,
+          { code: 'json_validate_failed' },
+          'invalid JSON',
+          new Headers(),
+        ),
+      )
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: '{"ok":true}' } }],
+      });
+    const provider = new GroqAiProvider({
+      ...config,
+      groqModel: 'openai/gpt-oss-20b',
+    });
+
+    await expect(provider.generateStructured(request)).resolves.toEqual(
+      providerResponse,
+    );
+    expect(groqCreate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('GeminiAiProvider', () => {
+  beforeEach(() => {
+    mockGeminiGenerate.mockReset();
+    mockGeminiConstructor.mockReset();
+  });
+
+  it('uses the stable low-latency model settings and bounded transient retries', async () => {
+    mockGeminiGenerate.mockResolvedValue({
+      text: '{"ok":true}',
+      usageMetadata: { promptTokenCount: 18, candidatesTokenCount: 4 },
+    });
+    const provider = new GeminiAiProvider({
+      ...config,
+      geminiModel: 'gemini-3.5-flash-lite',
+      requestTimeoutMs: 30000,
+    });
+
+    await expect(provider.generateStructured(request)).resolves.toEqual({
+      content: '{"ok":true}',
+      usage: { inputTokens: 18, outputTokens: 4 },
+    });
+
+    const constructorOptions = mockGeminiConstructor.mock.calls[0]?.[0];
+    expect(constructorOptions).toMatchObject({
+      httpOptions: {
+        timeout: 30000,
+        retryOptions: {
+          attempts: 2,
+          httpStatusCodes: [408, 429, 500, 502, 503, 504],
+        },
+      },
+    });
+
+    const generateRequest = mockGeminiGenerate.mock.calls[0]?.[0];
+    expect(generateRequest).toMatchObject({
+      model: 'gemini-3.5-flash-lite',
+      config: {
+        thinkingConfig: { thinkingLevel: 'MINIMAL' },
+        responseMimeType: 'application/json',
+        responseJsonSchema: request.schema,
+      },
+    });
+    expect(generateRequest?.config).not.toHaveProperty('temperature');
+    expect(generateRequest?.config).not.toHaveProperty('topP');
+    expect(generateRequest?.config).not.toHaveProperty('topK');
+  });
+});
