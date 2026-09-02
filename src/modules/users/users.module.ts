@@ -26,4 +26,3 @@ import { UsersService } from './services/users.service';
   exports: [UsersService, CloudinaryService],
 })
 export class UsersModule {}
-

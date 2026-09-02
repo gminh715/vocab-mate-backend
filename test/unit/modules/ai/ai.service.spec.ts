@@ -96,10 +96,10 @@ describe('AiService', () => {
     expect(groq.generateStructured.mock.calls).toHaveLength(1);
   });
 
-  it('rejects unusable output from both providers', async () => {
+  it('rejects unusable output from both providers when contextualMeaningVi exceeds limit', async () => {
     const invalid = {
       ...result,
-      contextualMeaningVi: 'một kế hoạch rất đầy tham vọng',
+      contextualMeaningVi: 'một kế hoạch phát triển rất đầy tham vọng',
     };
     gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
     groq.generateStructured.mockResolvedValue(JSON.stringify(invalid));
@@ -107,6 +107,33 @@ describe('AiService', () => {
     await expect(service.enrichContextualTerm(input)).rejects.toMatchObject({
       code: 'PROVIDER_UNAVAILABLE',
     });
+  });
+
+  it('rejects output when contextualMeaningVi contains a comma', async () => {
+    const invalid = {
+      ...result,
+      contextualMeaningVi: 'tham vọng, táo bạo',
+    };
+    gemini.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+    groq.generateStructured.mockResolvedValue(JSON.stringify(invalid));
+
+    await expect(service.enrichContextualTerm(input)).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+    });
+  });
+
+  it('accepts contextualMeaningVi with up to 6 words without commas', async () => {
+    const validWith6Words = {
+      ...result,
+      contextualMeaningVi: 'kế hoạch mang đầy tham vọng',
+    };
+    gemini.generateStructured.mockResolvedValue(
+      JSON.stringify(validWith6Words),
+    );
+
+    await expect(service.enrichContextualTerm(input)).resolves.toEqual(
+      validWith6Words,
+    );
   });
 
   it('rejects output with fields outside the lookup contract', async () => {

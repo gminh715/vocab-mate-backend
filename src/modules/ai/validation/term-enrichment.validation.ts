@@ -10,7 +10,7 @@ export const TERM_ENRICHMENT_OUTPUT_LIMITS = {
   termText: 200,
   partOfSpeech: 100,
   enrichmentText: 2000,
-  contextualMeaningWords: 4,
+  contextualMeaningWords: 6,
   ipa: 100,
   listItems: 8,
   listItemText: 200,
@@ -221,8 +221,9 @@ export const parseTermEnrichmentResult = (
     'output',
   );
   if (
+    contextualMeaningVi.includes(',') ||
     contextualMeaningVi.trim().split(/\s+/u).length >
-    TERM_ENRICHMENT_OUTPUT_LIMITS.contextualMeaningWords
+      TERM_ENRICHMENT_OUTPUT_LIMITS.contextualMeaningWords
   ) {
     fail('output', 'contextualMeaningVi');
   }

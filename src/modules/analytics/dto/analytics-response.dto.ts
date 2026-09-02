@@ -244,16 +244,28 @@ export class RecentDayItemDto {
 }
 
 export class StreakAnalyticsDto {
-  @ApiProperty({ example: 5, description: 'Current consecutive study streak in days.' })
+  @ApiProperty({
+    example: 5,
+    description: 'Current consecutive study streak in days.',
+  })
   currentStreak!: number;
 
-  @ApiProperty({ example: 12, description: 'Longest consecutive study streak in days.' })
+  @ApiProperty({
+    example: 12,
+    description: 'Longest consecutive study streak in days.',
+  })
   longestStreak!: number;
 
-  @ApiProperty({ example: true, description: 'Whether the study session for today is completed.' })
+  @ApiProperty({
+    example: true,
+    description: 'Whether the study session for today is completed.',
+  })
   isTodayCompleted!: boolean;
 
-  @ApiProperty({ type: [RecentDayItemDto], description: '7-day activity tracking up to today.' })
+  @ApiProperty({
+    type: [RecentDayItemDto],
+    description: '7-day activity tracking up to today.',
+  })
   recentDays!: RecentDayItemDto[];
 
   @ApiProperty({
@@ -264,7 +276,6 @@ export class StreakAnalyticsDto {
   completedDates!: string[];
 }
 
-
 export class FsrsMasteryAnalyticsDto {
   @ApiProperty({ example: 45, description: 'Total saved vocabulary items.' })
   total!: number;
@@ -272,13 +283,22 @@ export class FsrsMasteryAnalyticsDto {
   @ApiProperty({ example: 10, description: 'Number of words in NEW state.' })
   newCount!: number;
 
-  @ApiProperty({ example: 15, description: 'Number of words in LEARNING state.' })
+  @ApiProperty({
+    example: 15,
+    description: 'Number of words in LEARNING state.',
+  })
   learningCount!: number;
 
-  @ApiProperty({ example: 18, description: 'Number of words in REVIEW (mastered/retained) state.' })
+  @ApiProperty({
+    example: 18,
+    description: 'Number of words in REVIEW (mastered/retained) state.',
+  })
   reviewCount!: number;
 
-  @ApiProperty({ example: 2, description: 'Number of words in RELEARNING (lapsed) state.' })
+  @ApiProperty({
+    example: 2,
+    description: 'Number of words in RELEARNING (lapsed) state.',
+  })
   relearningCount!: number;
 
   @ApiProperty(ratioProperty)
@@ -296,4 +316,3 @@ export class ReviewAnalyticsDataDto {
 export class ReviewAnalyticsSuccessResponseDto extends successResponse(
   ReviewAnalyticsDataDto,
 ) {}
-

@@ -39,29 +39,45 @@ export class CloudinaryService {
 
     if (this.config.isConfigured) {
       try {
-        const result = await new Promise<UploadApiResponse>((resolve, reject) => {
-          const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              folder: this.config.folder,
-              transformation: [
-                { width: 400, height: 400, crop: 'fill', gravity: 'face' },
-                { quality: 'auto', fetch_format: 'auto' },
-              ],
-            },
-            (error, result) => {
-              if (error || !result) {
-                return reject(error || new Error('Upload to Cloudinary failed'));
-              }
-              resolve(result);
-            },
-          );
-          uploadStream.end(file.buffer);
-        });
+        const result = await new Promise<UploadApiResponse>(
+          (resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                folder: this.config.folder,
+                transformation: [
+                  { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+                  { quality: 'auto', fetch_format: 'auto' },
+                ],
+              },
+              (error, result) => {
+                if (error || !result) {
+                  const rejectionError =
+                    error instanceof Error
+                      ? error
+                      : new Error(
+                          typeof error === 'object' &&
+                            error !== null &&
+                            'message' in error &&
+                            typeof (error as { message: unknown }).message ===
+                              'string'
+                            ? (error as { message: string }).message
+                            : 'Upload to Cloudinary failed',
+                        );
+                  return reject(rejectionError);
+                }
+                resolve(result);
+              },
+            );
+            uploadStream.end(file.buffer);
+          },
+        );
 
         return result.secure_url;
       } catch (error) {
         this.logger.error('Failed to upload image to Cloudinary', error);
-        throw new InternalServerErrorException('Failed to upload image to cloud storage');
+        throw new InternalServerErrorException(
+          'Failed to upload image to cloud storage',
+        );
       }
     }
 

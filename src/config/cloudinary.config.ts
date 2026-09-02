@@ -5,9 +5,9 @@ export const cloudinaryConfig = () => ({
   folder: process.env.CLOUDINARY_FOLDER?.trim() || 'vocab-mate/avatars',
   isConfigured: Boolean(
     process.env.CLOUDINARY_CLOUD_NAME?.trim() &&
-      process.env.CLOUDINARY_API_KEY?.trim() &&
-      process.env.CLOUDINARY_API_SECRET?.trim() &&
-      !process.env.CLOUDINARY_API_KEY.includes('replace-with'),
+    process.env.CLOUDINARY_API_KEY?.trim() &&
+    process.env.CLOUDINARY_API_SECRET?.trim() &&
+    !process.env.CLOUDINARY_API_KEY.includes('replace-with'),
   ),
 });
 

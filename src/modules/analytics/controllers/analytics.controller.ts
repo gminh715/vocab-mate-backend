@@ -120,4 +120,3 @@ export class AnalyticsController {
     return this.learnerAnalyticsService.getReviewAnalytics(user.id);
   }
 }
-

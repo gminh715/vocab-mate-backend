@@ -93,15 +93,17 @@ describe('LearnerAnalyticsService', () => {
       ] as any,
     ]);
 
-    jest.mocked(repository.getCompletedStudyDates).mockResolvedValue([
-      { studyDate: new Date('2026-08-31T00:00:00Z') },
-      { studyDate: new Date('2026-08-30T00:00:00Z') },
-      { studyDate: new Date('2026-08-29T00:00:00Z') },
-      { studyDate: new Date('2026-08-20T00:00:00Z') },
-      { studyDate: new Date('2026-08-19T00:00:00Z') },
-      { studyDate: new Date('2026-08-18T00:00:00Z') },
-      { studyDate: new Date('2026-08-17T00:00:00Z') },
-    ]);
+    jest
+      .mocked(repository.getCompletedStudyDates)
+      .mockResolvedValue([
+        { studyDate: new Date('2026-08-31T00:00:00Z') },
+        { studyDate: new Date('2026-08-30T00:00:00Z') },
+        { studyDate: new Date('2026-08-29T00:00:00Z') },
+        { studyDate: new Date('2026-08-20T00:00:00Z') },
+        { studyDate: new Date('2026-08-19T00:00:00Z') },
+        { studyDate: new Date('2026-08-18T00:00:00Z') },
+        { studyDate: new Date('2026-08-17T00:00:00Z') },
+      ]);
 
     const result = await service.getReviewAnalytics(
       'owner-id',
@@ -151,5 +153,3 @@ describe('LearnerAnalyticsService', () => {
     });
   });
 });
-
-

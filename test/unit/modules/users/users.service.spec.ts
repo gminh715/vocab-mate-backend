@@ -160,7 +160,9 @@ describe('UsersService', () => {
       originalname: 'avatar.png',
     } as Express.Multer.File;
 
-    cloudinaryService.uploadAvatar.mockResolvedValue('https://res.cloudinary.com/avatar.png');
+    cloudinaryService.uploadAvatar.mockResolvedValue(
+      'https://res.cloudinary.com/avatar.png',
+    );
     repository.findMyAccount.mockResolvedValue(account);
     repository.updateMyProfile.mockResolvedValue({
       id: account.id,
@@ -182,4 +184,3 @@ describe('UsersService', () => {
     expect(result.avatarUrl).toBe('https://res.cloudinary.com/avatar.png');
   });
 });
-
